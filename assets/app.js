@@ -24,9 +24,15 @@ const DIST_K = 80, DIST_P = 0.58;        // compressed: orbit radius = DIST_K * 
 const AU_UNIT = 110;                      // real: scene units per AU (linear)
 const SIZE_K = 0.0586, SIZE_P = 0.40;     // body radius = SIZE_K * km^0.40 (shared base)
 const STAR_R_COMPRESS = 7.6, STAR_R_REAL = 1.9;
-const YEARS_PER_SEC = 0.030;              // sim years per real second at 1.0× (calm baseline)
-// Speed slider (0..100) maps logarithmically to 0.01×..40×. Default ≈ 0.02×:
-const DEFAULT_SPEED_V = 100*Math.log(0.02/0.01)/Math.log(40/0.01);   // ≈ 8.357
+const YEARS_PER_SEC = 0.030;              // sim years per real second when timeScale = 1
+// Speed slider (0..100) maps logarithmically to a real time-RATE (sim time advanced per real
+// second): the low end is true real-time (1 s = 1 s), the high end ≈ 2 years/second.
+const SEC_PER_YEAR  = 31557600;           // 365.25 days
+const RATE_MIN_YPS  = 1/SEC_PER_YEAR;     // slider min = real-time (1 sim-second per real-second)
+const RATE_MAX_YPS  = 2.0;                // slider max ≈ 2 years / second
+const DEFAULT_RATE_YPS = 0.0006;          // ≈ 6 hours / second — gentle default motion
+const rateToSlider = (yps)=> 100*Math.log(yps/RATE_MIN_YPS)/Math.log(RATE_MAX_YPS/RATE_MIN_YPS);
+const DEFAULT_SPEED_V = rateToSlider(DEFAULT_RATE_YPS);
 const DEFAULT_SIZE_V  = 100;             // Size slider value for the default body size (sizeMult = 1.0)
 
 let realScale = true;                     // default to REAL scale (per request)
@@ -234,6 +240,7 @@ function texGlow(inner, outer){
 const APP = {};
 let scene,camera,renderer,controls,clock;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true;
+let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
 let USE_VERBATIM = !!window.USE_VERBATIM;   // true = show only the author's own text
 const bodies=[];           // every animated body
 const pickables=[];        // meshes for raycasting
@@ -569,6 +576,8 @@ function animate(){
       if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*YEARS_PER_SEC*timeScale*dt; positionBody(rec); }
       rec.mesh.rotation.y += rec.spin*dt*(0.4+timeScale*0.8);
     }
+    elapsedYears += YEARS_PER_SEC*timeScale*dt;          // real sim-time elapsed
+    _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
 
   // focus tween
@@ -684,6 +693,7 @@ function setupInteraction(){
 
   document.getElementById('speed').value = DEFAULT_SPEED_V;
   setSpeed(DEFAULT_SPEED_V);
+  updateClock();
 }
 
 function pick(e){
@@ -704,11 +714,30 @@ function hover(e){
 }
 
 function togglePlay(){ playing=!playing; document.getElementById('play').innerHTML=playing?'⏸ Pause':'▶ Play'; }
-function setSpeed(v){ // log scale 0..100 -> 0.01..40×  (much slower floor & default)
-  const min=Math.log(0.01),max=Math.log(40);
-  timeScale=Math.exp(min+(max-min)*(v/100));
-  document.getElementById('speedval').textContent=(timeScale<1?timeScale.toFixed(2):timeScale.toFixed(1))+'×';
+function setSpeed(v){ // 0..100 -> real time-rate (sim years advanced per real second), logarithmic
+  const yps = Math.exp( Math.log(RATE_MIN_YPS) + (Math.log(RATE_MAX_YPS)-Math.log(RATE_MIN_YPS))*(v/100) );
+  timeScale = yps / YEARS_PER_SEC;          // motion advances exactly `yps` sim-years per real second
+  document.getElementById('speedval').textContent = fmtRate(yps);
 }
+/* speed readout in real time units: "real-time", "45 s/s", "12 min/s", "6 hr/s", "3 days/s", "2 mo/s", "1.4 yr/s" */
+function fmtRate(yps){
+  const s = yps*SEC_PER_YEAR;               // sim seconds advanced per real second
+  if(s>0.7 && s<1.5) return 'real-time';
+  if(yps>=1)            return (yps<10?yps.toFixed(2):yps.toFixed(0))+' yr/s';
+  const mo=yps*12;     if(mo>=1) return mo.toFixed(1)+' mo/s';
+  const d=yps*365.25;  if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' days/s';
+  const h=d*24;        if(h>=1)  return (h<10?h.toFixed(1):h.toFixed(0))+' hr/s';
+  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' min/s';
+  return (mi*60).toFixed(0)+' s/s';
+}
+function fmtElapsed(yr){
+  if(yr>=1)            return (yr<100?yr.toFixed(1):yr.toFixed(0))+' yr';
+  const d=yr*365.25;   if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' days';
+  const h=d*24;        if(h>=1)  return h.toFixed(1)+' hr';
+  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' min';
+  return (mi*60).toFixed(0)+' s';
+}
+function updateClock(){ const el=document.getElementById('elapsed'); if(el) el.textContent='⏱ '+fmtElapsed(elapsedYears); }
 function setSize(v){
   sizeMult=v/100;
   applySizes();
@@ -718,6 +747,7 @@ function resetView(){
   // restore the Size slider to its default (real/baseline) size
   const sz=document.getElementById('size');
   if(sz){ sz.value=DEFAULT_SIZE_V; setSize(DEFAULT_SIZE_V); }
+  elapsedYears=0; updateClock();   // restart the sim clock
   frameSystem();
   controls.update();   // apply the reset immediately (damping is on)
 }
