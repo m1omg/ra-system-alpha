@@ -101,11 +101,11 @@ const PROMPT_OVERRIDE = {
   ].join('\n'),
   anubis: [
     ...HEADER,
-    "Subject: Anubis — an ABIOTIC, utterly lifeless 'blue marble' moon: deep blue liquid-water OCEANS with some BARREN land and pale polar ice caps.",
-    "Critically, the land is DEAD ROCK ONLY — grey, tan and ochre barren desert and weathered stone, sterile and lifeless. ABSOLUTELY NO vegetation, NO green, NO forests, NO plant life or algae of any kind. This world has free oxygen but ZERO life, so nothing is green.",
-    "Deep blue oceans, barren grey-tan rocky continents and islands, bright pale polar ice caps, thin wispy white clouds.",
-    "Dominant colours (hex): #2a5a7a and #4f86ad ocean; #c8c0b0 and grey-tan barren rock; #dfeaf0 ice and cloud. Absolutely no greens.",
-    "Photoreal, crisp, high-resolution."
+    "Subject: Anubis — a lifeless, ABIOTIC 'blue marble' OCEAN world with ABSOLUTELY NO LAND: no continents, no islands, no coastlines, no rock — 100% open blue water from edge to edge.",
+    "The ONLY non-water features are bright pale polar ICE CAPS along the top and bottom edges, plus thin hazy white weather clouds drifting over the water.",
+    "This world has liquid-water oceans and free oxygen but ZERO life: NO vegetation, NO green, NO algae, NO bioluminescence — just clean, sterile, slightly hazy blue ocean.",
+    "Dominant colours (hex): #2a5a7a and #4f86ad for the ocean, #dfeaf0 for the ice caps and clouds. No land, no green, no purple.",
+    "Photoreal, crisp, high-resolution — water and ice only."
   ].join('\n')
 };
 

@@ -436,7 +436,7 @@ const HORUS_MOONS = [
     tagline:"The deceptive god of death — a 'blue marble' that is utterly dead",
     dist:0.00852, ecc:0.0158, period:0.018, radiusKm:4700, rotationPeriod:1.4,
     color:0x4a7fa8,
-    terran:{ ocean:"#2a5a7a", ocean2:"#4f86ad", land:"#c8c0b0", cloud:"#dfeaf0", landAmt:0.12, ice:true },
+    terran:{ ocean:"#2a5a7a", ocean2:"#4f86ad", land:"#c8c0b0", cloud:"#dfeaf0", landAmt:-0.15, ice:true },
     atmo:0x9fc8e0,
     stats:[
       ["Mass","0.468 M⊕"],
