@@ -57,8 +57,11 @@ const kmsToUnits = kms => kms/KM_PER_UNIT; // km/s -> scene units/s
 // deep space. The readout still shows real km/s (and flips to fractions of c past 30,000 km/s).
 const REACH_RATE   = 1.0;                  // full throttle crosses ~1× the nearest-body gap / sec
 const FLY_FLOOR_KMS = 2;                   // never totally stuck at a surface
-const FLY_CAP_KMS   = 5000*C_KMS;          // absolute speed ceiling (deep-space FTL cruise)
+const FLY_CAP_KMS   = 5000*C_KMS;          // absolute speed ceiling (deep-space FTL cruise, AUTO mode)
 const FLY_KEY_FLOOR = 0.02;                // pressing a move key always gives ≥2% of full throttle
+// MANUAL speed mode (auto-scale off): slider maps to an absolute km/s over a huge, uncapped range
+const FLY_MANUAL_MIN = 1;                  // km/s at the low end of the slider
+const FLY_MANUAL_MAX = 100000*C_KMS;       // effectively unlimited — user's choice is not capped
 
 /* ============================================================
    Seeded value-noise / fbm for procedural planet textures
@@ -265,7 +268,7 @@ const pickables=[];        // meshes for raycasting
 let selected=null;
 
 // --- free-roam flight state ---
-let flying=false, flyModel='cruise', throttleFrac=0, throttleKms=0, autoOrient=false, flyThrust=0;
+let flying=false, flyModel='flycam', flyAutoSpeed=true, throttleFrac=0, throttleKms=0, autoOrient=false, flyThrust=0;
 const flyVel=new THREE.Vector3();              // current velocity (scene units/s), shared by all models
 const flyEuler=new THREE.Euler(0,0,0,'YXZ');   // look orientation: y=yaw, x=pitch, z=roll
 let flyTarget=null, flyFollow=null, flyGoto=null;
@@ -758,6 +761,7 @@ function setupInteraction(){
   // --- free-roam flight controls ---
   const flyBtn=document.getElementById('t-fly'); if(flyBtn) flyBtn.onclick=toggleFly;
   const fm=document.getElementById('fly-model'); if(fm) fm.onclick=cycleFlyModel;
+  const fa=document.getElementById('fly-auto'); if(fa) fa.onclick=toggleAutoSpeed;
   const gt=document.getElementById('fly-goto'); if(gt) gt.onclick=flyGoToTarget;
   const fo=document.getElementById('fly-orient'); if(fo) fo.onclick=()=>{ autoOrient=!autoOrient; updateAutoOrientUI(); };
   const fbk=document.getElementById('fly-brake'); if(fbk) fbk.onclick=flyBrake;
@@ -900,7 +904,7 @@ function enterFly(){
   flyVel.set(0,0,0);
   document.getElementById('flyhud').classList.add('on');
   const b=document.getElementById('t-fly'); if(b) b.classList.add('on');
-  updateFlyModelUI(); updateAutoOrientUI(); updateFlyHUD();
+  updateFlyModelUI(); updateAutoOrientUI(); updateAutoSpeedUI(); updateFlyHUD();
 }
 function exitFly(){
   if(!flying) return;
@@ -923,6 +927,12 @@ function cycleFlyModel(){
 function updateFlyModelUI(){ const b=document.getElementById('fly-model');
   if(b) b.textContent = flyModel==='cruise'?'🛟 Cruise':flyModel==='newton'?'🚀 Newtonian':'🎮 Flycam'; }
 function updateAutoOrientUI(){ const b=document.getElementById('fly-orient'); if(b) b.classList.toggle('on',autoOrient); }
+function toggleAutoSpeed(){ flyAutoSpeed=!flyAutoSpeed; updateAutoSpeedUI();
+  const sl=document.getElementById('throttle'); setThrottleV(sl?+sl.value:0); }   // re-resolve speed for the new mode
+function updateAutoSpeedUI(){ const b=document.getElementById('fly-auto');
+  if(b){ b.classList.toggle('on',flyAutoSpeed); b.textContent = flyAutoSpeed?'⚡ Auto':'⚙ Manual';
+    b.title = flyAutoSpeed?'Speed auto-scales to nearby bodies — click for manual (uncapped) speed'
+                          :'Manual speed (any value) — click for auto-scaling'; } }
 function flyBrake(){ flyVel.set(0,0,0); }
 function setFlyTarget(key){
   const rec=key&&bodies.find(b=>b.data.key===key);
@@ -960,8 +970,13 @@ function flyFullKms(){
   best=Math.max(best,1e-5);
   return Math.min(Math.max(best*REACH_RATE*KM_PER_UNIT, FLY_FLOOR_KMS), FLY_CAP_KMS);
 }
-/* throttle fraction -> real km/s, curved (f^2) so the low slider gives fine control */
-function flyTargetKms(){ return throttleFrac<=0 ? 0 : flyFullKms()*throttleFrac*throttleFrac; }
+/* throttle fraction -> real km/s. AUTO = context-relative, curved (f^2) for fine control;
+   MANUAL = absolute log map over an uncapped range so the user can pick any speed. */
+function flyTargetKms(){
+  if(throttleFrac<=0) return 0;
+  return flyAutoSpeed ? flyFullKms()*throttleFrac*throttleFrac
+                      : FLY_MANUAL_MIN*Math.pow(FLY_MANUAL_MAX/FLY_MANUAL_MIN, throttleFrac);
+}
 
 function fmtSpeed(kms){
   if(kms<1) return '0 km/s';
@@ -1005,10 +1020,6 @@ function nearestBodyDist(){
 function updateFly(dt){
   if(flyKeys['KeyQ']) flyEuler.z += dt*1.2;
   if(flyKeys['KeyE']) flyEuler.z -= dt*1.2;
-  // keyboard steering: ← → yaw-turn the view (mouse-drag still gives full free-look)
-  const turn=1.4;
-  if(flyKeys['ArrowLeft'])  flyEuler.y += turn*dt;
-  if(flyKeys['ArrowRight']) flyEuler.y -= turn*dt;
 
   // cinematic Go-to auto-pilot
   if(flyGoto){
@@ -1036,13 +1047,12 @@ function updateFly(dt){
   _fa.set(0,0,-1).applyQuaternion(camera.quaternion);
   _fb.set(1,0,0).applyQuaternion(camera.quaternion);
   _fc.set(0,1,0).applyQuaternion(camera.quaternion);
-  const fwd=(flyKeys['KeyW']||flyKeys['ArrowUp']?1:0)-(flyKeys['KeyS']||flyKeys['ArrowDown']?1:0)+flyThrust; // W/S, ↑/↓, on-screen ▲/▼
-  const str=(flyKeys['KeyD']?1:0)-(flyKeys['KeyA']?1:0);
+  const fwd=(flyKeys['KeyW']||flyKeys['ArrowUp']?1:0)-(flyKeys['KeyS']||flyKeys['ArrowDown']?1:0)+flyThrust;       // W/S, ↑/↓, ▲/▼
+  const str=(flyKeys['KeyD']||flyKeys['ArrowRight']?1:0)-(flyKeys['KeyA']||flyKeys['ArrowLeft']?1:0);             // A/D, ←/→ strafe
   const ver=(flyKeys['KeyR']?1:0)+(flyKeys['Space']?1:0)-(flyKeys['KeyF']?1:0)-(flyKeys['KeyC']?1:0);
-  // context-relative speed; pressing a move key always yields motion even at zero throttle
-  const full=flyFullKms();
-  throttleKms = throttleFrac<=0 ? 0 : full*throttleFrac*throttleFrac;
-  if(fwd||str||ver) throttleKms=Math.max(throttleKms, full*FLY_KEY_FLOOR);
+  // resolve slider -> real km/s (auto or manual); pressing a move key always yields motion
+  throttleKms = flyTargetKms();
+  if(fwd||str||ver) throttleKms=Math.max(throttleKms, flyFullKms()*FLY_KEY_FLOOR);
   const spd=kmsToUnits(throttleKms)*((flyKeys['ShiftLeft']||flyKeys['ShiftRight'])?6:1);
   if(flyModel==='cruise'){               // coast forward at throttle; ▲/W boost, ▼/S brake, A/D/R/F strafe
     flyVel.copy(_fa).multiplyScalar(spd*(1+fwd)).addScaledVector(_fb,str*spd).addScaledVector(_fc,ver*spd);
