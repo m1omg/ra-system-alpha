@@ -259,7 +259,7 @@ const pickables=[];        // meshes for raycasting
 let selected=null;
 
 // --- free-roam flight state ---
-let flying=false, flyModel='cruise', throttleKms=0, autoOrient=false;
+let flying=false, flyModel='cruise', throttleKms=0, autoOrient=false, flyThrust=0;
 const flyVel=new THREE.Vector3();              // current velocity (scene units/s), shared by all models
 const flyEuler=new THREE.Euler(0,0,0,'YXZ');   // look orientation: y=yaw, x=pitch, z=roll
 let flyTarget=null, flyFollow=null, flyGoto=null;
@@ -757,6 +757,11 @@ function setupInteraction(){
   const fex=document.getElementById('fly-exit'); if(fex) fex.onclick=exitFly;
   const thr=document.getElementById('throttle'); if(thr) thr.oninput=e=>setThrottleV(+e.target.value);
   setThrottleV(0);
+  const holdBtn=(id,sign)=>{ const b=document.getElementById(id); if(!b) return;
+    const dn=e=>{ e.preventDefault(); flyThrust=sign; }, up=()=>{ flyThrust=0; };
+    b.addEventListener('pointerdown',dn); b.addEventListener('pointerup',up);
+    b.addEventListener('pointerleave',up); b.addEventListener('pointercancel',up); };
+  holdBtn('fly-fwd',1); holdBtn('fly-back',-1);   // touch/desktop thrust (hold)
   const MOVE=['KeyW','KeyA','KeyS','KeyD','KeyR','KeyF','KeyC','KeyQ','KeyE','Space','BracketLeft','BracketRight'];
   window.addEventListener('keydown',e=>{
     if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')) return;
@@ -936,7 +941,11 @@ function fmtDist(km){
 }
 function updateFlyHUD(){
   if(!flying) return;
-  const sp=document.getElementById('fly-speed'); if(sp) sp.textContent=fmtSpeed(flyVel.length()*KM_PER_UNIT);
+  // show the throttle set-speed (responds to the slider) with the live speed if it differs
+  const sp=document.getElementById('fly-speed');
+  if(sp){ const act=flyVel.length()*KM_PER_UNIT;
+    sp.textContent = (Math.abs(act-throttleKms)/(throttleKms||1) > 0.15 && act>0)
+      ? fmtSpeed(act) : fmtSpeed(throttleKms); }
   const tg=document.getElementById('fly-target'), eta=document.getElementById('fly-eta');
   if(flyTarget){
     const tp=worldPosOf(flyTarget), rangeKm=camera.position.distanceTo(tp)*KM_PER_UNIT;
@@ -982,16 +991,16 @@ function updateFly(dt){
   _fa.set(0,0,-1).applyQuaternion(camera.quaternion);
   _fb.set(1,0,0).applyQuaternion(camera.quaternion);
   _fc.set(0,1,0).applyQuaternion(camera.quaternion);
-  const fwd=(flyKeys['KeyW']?1:0)-(flyKeys['KeyS']?1:0);
+  const fwd=(flyKeys['KeyW']?1:0)-(flyKeys['KeyS']?1:0)+flyThrust;   // +on-screen ▲/▼ (touch)
   const str=(flyKeys['KeyD']?1:0)-(flyKeys['KeyA']?1:0);
   const ver=(flyKeys['KeyR']?1:0)+(flyKeys['Space']?1:0)-(flyKeys['KeyF']?1:0)-(flyKeys['KeyC']?1:0);
   const spd=kmsToUnits(throttleKms)*((flyKeys['ShiftLeft']||flyKeys['ShiftRight'])?6:1);
-  if(flyModel==='cruise'){               // coast forward at throttle; keys add strafe
-    flyVel.copy(_fa).multiplyScalar(spd).addScaledVector(_fb,str*spd).addScaledVector(_fc,ver*spd);
-  } else if(flyModel==='flycam'){        // move only while a key is held
+  if(flyModel==='cruise'){               // coast forward at throttle; ▲/W boost, ▼/S brake, A/D/R/F strafe
+    flyVel.copy(_fa).multiplyScalar(spd*(1+fwd)).addScaledVector(_fb,str*spd).addScaledVector(_fc,ver*spd);
+  } else if(flyModel==='flycam'){        // move only while thrust held (▲/▼ or keys)
     _fa.multiplyScalar(fwd).addScaledVector(_fb,str).addScaledVector(_fc,ver);
     if(_fa.lengthSq()>0) flyVel.copy(_fa.normalize()).multiplyScalar(spd); else flyVel.set(0,0,0);
-  } else {                                // newton: thrust accelerates, drift forever
+  } else {                                // newton: thrust accelerates, then drift
     _fa.multiplyScalar(fwd).addScaledVector(_fb,str).addScaledVector(_fc,ver);
     if(_fa.lengthSq()>0) flyVel.addScaledVector(_fa.normalize(), spd*dt);
   }
