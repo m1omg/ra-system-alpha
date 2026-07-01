@@ -260,7 +260,7 @@ function texGlow(inner, outer){
    ============================================================ */
 const APP = {};
 let scene,camera,renderer,controls,clock;
-let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true;
+let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
 let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
 let USE_VERBATIM = !!window.USE_VERBATIM;   // true = show only the author's own text
 const bodies=[];           // every animated body
@@ -684,7 +684,21 @@ function makeEvapTail(rec){
   return t;
 }
 
+function toggleTails(){
+  showTails=!showTails;
+  for(const t of evapTails){
+    t.points.visible=showTails;
+    if(showTails){                    // regrow cleanly instead of showing stale puffs
+      t.ageYr.fill(1); t.lifeYr.fill(1); t.age01.fill(1);
+      t.g.attributes.aAge.needsUpdate=true; t.prevM=t.rec.M; t.emitAcc=0;
+    }
+  }
+  const b=document.getElementById('t-tails');
+  if(b) b.classList.toggle('on', showTails);
+}
+
 function updateEvapTails(simDt){   // simDt = sim-years advanced this frame (0 while paused)
+  if(!showTails) return;
   for(const t of evapTails){
     const rec=t.rec;
     if(rec.aDisp!==t.lastADisp){   // scale mode flipped — old positions are meaningless
@@ -894,6 +908,7 @@ function setupInteraction(){
   if(tt){ tt.onclick=function(){ USE_VERBATIM=!USE_VERBATIM; updateTextUI();
     if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData); }; }
   updateTextUI();
+  const tls=document.getElementById('t-tails'); if(tls) tls.onclick=toggleTails;
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
     for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits; };
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);
