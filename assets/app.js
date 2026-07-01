@@ -267,6 +267,9 @@ const bodies=[];           // every animated body
 const pickables=[];        // meshes for raycasting
 let selected=null;
 
+// --- impact lab state (💥 button; module lives before the Animation section) ---
+let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18;
+
 // --- free-roam flight state ---
 let flying=false, flyModel='flycam', flyAutoSpeed=true, throttleFrac=0, throttleKms=0, autoOrient=false, flyThrust=0;
 const flyVel=new THREE.Vector3();              // current velocity (scene units/s), shared by all models
@@ -763,6 +766,447 @@ function updateEvapTails(simDt){   // simDt = sim-years advanced this frame (0 w
 }
 
 /* ============================================================
+   Impact lab — customizable asteroid strikes + giant laser (💥).
+   Direct fire: click a world = asteroid at that spot; press-and-
+   hold = laser (the world rotates under the frozen beam, smearing
+   a burn line). Wall-clock driven — works while the sim is paused.
+   Damage persists as scars painted onto per-body overlay spheres;
+   when a body's accumulated energy exceeds its gravitational
+   binding energy (3GM²/5R), its crust shatters into a molten
+   remnant. Ra and Horus are immune (flare visual only).
+   ============================================================ */
+const IMP_CHICXULUB_J=4.2e23, IMP_MT_TNT_J=4.184e15, IMP_G=6.674e-11;
+const IMP_MATS=[['🧊 Ice',920],['🪨 Rock',3000],['⛓ Iron',7870]];
+const impDensityByKind={ star:1400, browndwarf:8e4, gasgiant:1300, terran:5200, rocky:4500,
+                         lava:4800, ocean:3500, iceworld:2000, icemoon:1900 };
+let impMatI=1;
+const impAsteroids=[], impFx=[], impScarred=[];
+let impBeam=null, impShake=0, impPool=null, impPoolActiveT=0;
+let _impFlashTex=null, _impRingTex=null;
+const impRC=new THREE.Raycaster();
+const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
+
+function impBodyMassKg(rec){ const R=(rec.data.radiusKm||1000)*1000;
+  return (impDensityByKind[rec.data.kind]||3500)*(4/3)*Math.PI*R*R*R; }
+function impBindingJ(rec){ const R=(rec.data.radiusKm||1000)*1000, M=impBodyMassKg(rec);
+  return 3*IMP_G*M*M/(5*R); }
+function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'; }
+function impKE(){ return 0.5*impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3)*Math.pow(impSpdKms*1000,2); }
+
+/* Three's SphereGeometry: phi=u·2π, theta=(1−uv.y)·π (see its source) —
+   lets us convert a raycast uv to the exact point on the (spinning) mesh. */
+function uvToLocal(rec, u, v, out){
+  const phi=u*Math.PI*2, theta=(1-v)*Math.PI, st=Math.sin(theta);
+  return out.set(-Math.cos(phi)*st, Math.cos(theta), Math.sin(phi)*st).multiplyScalar(rec.radius);
+}
+function uvToWorld(rec, u, v){ return rec.mesh.localToWorld(uvToLocal(rec,u,v,new THREE.Vector3())); }
+
+/* ---- persistent scars: two canvas-textured overlay spheres per body (lazy).
+   Children of rec.mesh, so they inherit spin and the per-frame size scaling
+   (same pattern as the atmospheres). char = permanent dark marks; glow =
+   additive heat that cools via destination-out fades. ---- */
+function getScars(rec){
+  if(rec.scar) return rec.scar;
+  const charC=newCanvas(1024,512), glowC=newCanvas(1024,512);
+  const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC);
+  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,64,48),
+    new THREE.MeshBasicMaterial({map:charT,transparent:true,depthWrite:false}));
+  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,64,48),
+    new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+  mC.renderOrder=1; mG.renderOrder=2;
+  rec.mesh.add(mC); rec.mesh.add(mG);
+  rec.scar={charC,glowC,charT,glowT,mC,mG,coolT:0,hot:0};
+  rec.dmgJ=rec.dmgJ||0;
+  impScarred.push(rec);
+  return rec.scar;
+}
+const IMP_CHAR=[[0,'rgba(10,6,5,0.88)'],[0.5,'rgba(14,9,7,0.60)'],[0.8,'rgba(22,13,9,0.28)'],[1,'rgba(22,13,9,0)']];
+const IMP_CHAR_SOFT=[[0,'rgba(10,6,5,0.16)'],[0.7,'rgba(14,9,7,0.08)'],[1,'rgba(14,9,7,0)']];
+const IMP_GLOW=[[0,'rgba(255,244,214,0.95)'],[0.3,'rgba(255,150,60,0.75)'],[0.7,'rgba(190,45,12,0.35)'],[1,'rgba(190,45,12,0)']];
+const IMP_GLOW_SOFT=[[0,'rgba(255,220,150,0.50)'],[0.6,'rgba(255,120,45,0.22)'],[1,'rgba(255,120,45,0)']];
+/* splat at canvas-space (u,v): longitude-stretched near the poles, drawn
+   thrice (u−1,u,u+1) so it wraps the 0°/360° seam */
+function impSplat(ctx, u, v, rPx, style){
+  const W=1024,H=512, stretch=1/Math.max(Math.sin(v*Math.PI),0.20), rx=rPx*stretch;
+  for(const du of [-1,0,1]){
+    const cx=(u+du)*W, cy=v*H;
+    if(cx+rx<0||cx-rx>W) continue;
+    ctx.save(); ctx.translate(cx,cy); ctx.scale(rx/rPx,1);
+    const g=ctx.createRadialGradient(0,0,0,0,0,rPx);
+    for(const s of style) g.addColorStop(s[0],s[1]);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,rPx,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function impFlashTexture(){ if(!_impFlashTex) _impFlashTex=new THREE.CanvasTexture(
+  texGlow('rgba(255,250,232,1)','rgba(255,160,60,0.55)')); return _impFlashTex; }
+function impRingTexture(){
+  if(_impRingTex) return _impRingTex;
+  const s=256, c=newCanvas(s,s), ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(s/2,s/2,s*0.30,s/2,s/2,s*0.5);
+  g.addColorStop(0,'rgba(255,190,110,0)'); g.addColorStop(0.75,'rgba(255,205,140,0.85)');
+  g.addColorStop(1,'rgba(255,140,60,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,s,s);
+  _impRingTex=new THREE.CanvasTexture(c); return _impRingTex;
+}
+function spawnFlash(wp, R, E){
+  const sc=R*(0.9+0.6*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  sp.position.copy(wp); scene.add(sp);
+  impFx.push({o:sp,t:0,T:0.7,kind:'flash',sc});
+}
+function spawnShock(wp, R, E){
+  const sc=R*(1.1+0.5*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impRingTexture(),transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  sp.position.copy(wp); scene.add(sp);
+  impFx.push({o:sp,t:0,T:1.2,kind:'shock',sc});
+}
+
+/* ---- shared ejecta/spark pool: one Points draw, evap-tail-style shader ---- */
+function getImpPool(){
+  if(impPool) return impPool;
+  const N=2048;
+  const pos=new Float32Array(N*3), ageA=new Float32Array(N).fill(1), sizeA=new Float32Array(N), seed=new Float32Array(N);
+  for(let i=0;i<N;i++) seed[i]=Math.random();
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aAge',new THREE.BufferAttribute(ageA,1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aSize',new THREE.BufferAttribute(sizeA,1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aSeed',new THREE.BufferAttribute(seed,1));
+  const m=new THREE.ShaderMaterial({
+    uniforms:{uScaleH:{value:600}},
+    vertexShader:
+      'attribute float aAge; attribute float aSize; attribute float aSeed;\n'+
+      'varying float vAge; varying float vSeed; uniform float uScaleH;\n'+
+      'void main(){ vAge=aAge; vSeed=aSeed;\n'+
+      '  vec4 mv=modelViewMatrix*vec4(position,1.0);\n'+
+      '  gl_PointSize=clamp(aSize*(1.0+2.2*aAge)*uScaleH/max(0.0001,-mv.z),1.0,90.0);\n'+
+      '  gl_Position=projectionMatrix*mv; }',
+    fragmentShader:
+      'varying float vAge; varying float vSeed;\n'+
+      'void main(){ if(vAge>=1.0) discard;\n'+
+      '  float r=length(gl_PointCoord-0.5)*2.0; float d=exp(-4.0*r*r);\n'+
+      '  vec3 col = vAge<0.3 ? mix(vec3(1.0,0.97,0.88),vec3(1.0,0.55,0.2),vAge/0.3)\n'+
+      '                      : mix(vec3(1.0,0.55,0.2),vec3(0.25,0.12,0.08),(vAge-0.3)/0.7);\n'+
+      '  float a=d*(1.0-vAge)*(0.5+0.3*vSeed);\n'+
+      '  gl_FragColor=vec4(col,a); }',
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending});
+  const points=new THREE.Points(g,m); points.frustumCulled=false; scene.add(points);
+  impPool={N,g,pos,ageA,sizeA,vel:new Float32Array(N*3),
+    age:new Float32Array(N).fill(9),life:new Float32Array(N).fill(1),head:0,points,m};
+  return impPool;
+}
+function emitBurst(wp, n, dirFn, speed, sizeBase, life){
+  const P=getImpPool();
+  for(let k=0;k<n;k++){
+    const i=P.head; P.head=(P.head+1)%P.N;
+    const d=dirFn(), s=speed*(0.4+Math.random());
+    P.pos[i*3]=wp.x; P.pos[i*3+1]=wp.y; P.pos[i*3+2]=wp.z;
+    P.vel[i*3]=d.x*s; P.vel[i*3+1]=d.y*s; P.vel[i*3+2]=d.z*s;
+    P.age[i]=0; P.life[i]=life*(0.6+0.8*Math.random());
+    P.sizeA[i]=sizeBase*(0.6+0.8*Math.random());
+  }
+  impPoolActiveT=Math.max(impPoolActiveT, life*1.6);
+}
+function impConeDir(normal, spread){
+  return function(){
+    return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)
+      .normalize().multiplyScalar(spread).add(normal).normalize().clone();
+  };
+}
+
+/* ---- the strike itself: flash + shockwave + ejecta + painted crater + damage ---- */
+function applyStrike(rec, u, v, E){
+  const wp=uvToWorld(rec,u,v);
+  const R=rec.radius*rec.mesh.scale.x;
+  const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
+  const fxP=wp.clone().addScaledVector(normal,R*0.04);
+  spawnFlash(fxP,R,E); spawnShock(fxP,R,E);
+  if(!impImmune(rec)){
+    emitBurst(fxP, Math.min(500, 120+Math.round(60*Math.log10(Math.max(1,E/1e21)))),
+      impConeDir(normal,0.75), R*1.1, R*0.11, 1.9);
+    const s=getScars(rec);
+    const th=Math.min(55, Math.max(1.2, 3*Math.cbrt(E/IMP_CHICXULUB_J)));   // angular radius, deg
+    const rPx=th/180*512;
+    const gasy=(rec.data.kind==='gasgiant');
+    if(!gasy) impSplat(s.charC.getContext('2d'), u, 1-v, rPx, IMP_CHAR);
+    impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15), IMP_GLOW);
+    s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
+    rec.dmgJ=(rec.dmgJ||0)+E;
+    if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
+  }
+  const dist=camera.position.distanceTo(wp);
+  const ref=camera.position.distanceTo(controls.target)+1e-6;
+  impShake=Math.min(0.045, impShake+0.008*Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J))+1)*Math.max(0,1-dist/(ref*4)));
+}
+
+/* crust shattered: the whole surface goes molten (and stays — no cooling) */
+function shatterBody(rec){
+  rec.shattered=true;
+  const s=getScars(rec), g=s.glowC.getContext('2d'), c=s.charC.getContext('2d');
+  for(let i=0;i<280;i++){
+    const u=Math.random(), v=0.06+0.88*Math.random();
+    impSplat(g,u,v, 8+Math.random()*30, IMP_GLOW);
+    if(Math.random()<0.5) impSplat(c,u,v, 10+Math.random()*26, IMP_CHAR);
+  }
+  s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+  const wp=worldPosOf(rec), R=rec.radius*rec.mesh.scale.x;
+  spawnFlash(wp,R*2.2,impBindingJ(rec));
+  emitBurst(wp, 800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
+    R*1.6, R*0.15, 2.6);
+}
+
+function impHeal(){
+  for(const rec of impScarred){
+    const s=rec.scar;
+    s.charC.getContext('2d').clearRect(0,0,1024,512);
+    s.glowC.getContext('2d').clearRect(0,0,1024,512);
+    s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+    rec.dmgJ=0; rec.shattered=false;
+  }
+}
+
+/* ---- asteroid projectiles: jittered rock + glow, homing at the chosen surface point ---- */
+function launchAsteroid(rec, hit){
+  const u=hit.uv?hit.uv.x:0.5, v=hit.uv?hit.uv.y:0.5;
+  const E=impKE();
+  const tgtR=rec.radius*rec.mesh.scale.x;
+  const size=Math.max(tgtR*0.05, Math.min(tgtR*0.45, tgtR*0.45*Math.cbrt(impDiaKm/1000)));
+  const geo=new THREE.SphereGeometry(1,10,7);
+  const pa=geo.attributes.position;
+  for(let i=0;i<pa.count;i++){ const f=0.72+Math.random()*0.5;
+    pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
+  geo.computeVertexNormals();
+  const mesh=new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x8a7767,roughness:0.95,emissive:0x1c0e06}));
+  mesh.scale.setScalar(size);
+  const glowMap=new THREE.CanvasTexture(texGlow('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowMap,transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  sp.scale.setScalar(5); mesh.add(sp);
+  const spMat=sp.material;
+  scene.add(mesh);
+  // approach ~40° off the camera line so the run-in is visible
+  const tgtW=uvToWorld(rec,u,v);
+  const camDir=_impV1.copy(tgtW).sub(camera.position).normalize();
+  const side=_impV2.set(0,1,0).cross(camDir);
+  if(side.lengthSq()<1e-8) side.set(1,0,0).cross(camDir);   // looking straight down the pole
+  side.normalize().applyAxisAngle(camDir,Math.random()*Math.PI*2);
+  const A=camDir.multiplyScalar(Math.cos(0.7)).addScaledVector(side,Math.sin(0.7)).normalize();
+  const dist=Math.max(tgtR*10, camera.position.distanceTo(tgtW)*0.35);
+  const start=tgtW.clone().addScaledVector(A,-dist);
+  const T=Math.min(3.6, Math.max(1.4, 3.6-0.55*Math.log10(impSpdKms/11)));
+  impAsteroids.push({rec,u,v,mesh,glowMap,spMat,start,t:0,T,E,
+    spin:new THREE.Vector3(Math.random()*4-2,Math.random()*4-2,Math.random()*4-2)});
+}
+
+/* ---- laser: frozen world-space ray; the body orbits/rotates through it ---- */
+function startBeam(rec, e){
+  if(impBeam) stopBeam();
+  const r=renderer.domElement.getBoundingClientRect();
+  mouse.x=((e.clientX-r.left)/r.width)*2-1;
+  mouse.y=-((e.clientY-r.top)/r.height)*2+1;
+  impRC.setFromCamera(mouse,camera);
+  const geo=new THREE.CylinderGeometry(1,1,1,10,1,true);
+  const core=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0xfff6ea,transparent:true,opacity:0.85,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  const sheath=new THREE.Mesh(geo.clone(),new THREE.MeshBasicMaterial({color:0xff5030,transparent:true,opacity:0.26,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  const hitGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  scene.add(core); scene.add(sheath); scene.add(hitGlow);
+  impBeam={rec, origin:impRC.ray.origin.clone(), dir:impRC.ray.direction.clone(),
+    core, sheath, hitGlow, missT:0, sparkT:0, firedJ:0};
+  controls.enabled=false;
+}
+function stopBeam(){
+  if(!impBeam) return;
+  for(const o of [impBeam.core,impBeam.sheath,impBeam.hitGlow]){
+    scene.remove(o); if(o.geometry) o.geometry.dispose(); o.material.dispose();
+  }
+  impBeam=null;
+  if(!flying) controls.enabled=true;
+}
+const _cylUp=new THREE.Vector3(0,1,0), _cylD=new THREE.Vector3();
+function placeCyl(mesh,a,b,r){
+  _cylD.copy(b).sub(a); const len=_cylD.length()||1e-6;
+  mesh.position.copy(a).addScaledVector(_cylD,0.5);
+  mesh.quaternion.setFromUnitVectors(_cylUp,_cylD.multiplyScalar(1/len));
+  mesh.scale.set(r,len,r);
+}
+
+/* ---- per-frame update (wall-clock dt) ---- */
+function updateImpacts(dt){
+  // asteroids (iterate backwards: strikes splice)
+  for(let i=impAsteroids.length-1;i>=0;i--){
+    const a=impAsteroids[i];
+    a.t+=dt;
+    const tgt=uvToWorld(a.rec,a.u,a.v);
+    const k=a.t/a.T;
+    if(k>=1){
+      applyStrike(a.rec,a.u,a.v,a.E);
+      scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose();
+      a.spMat.dispose(); a.glowMap.dispose();
+      impAsteroids.splice(i,1); continue;
+    }
+    const e=k*k*(3-2*k);
+    a.mesh.position.lerpVectors(a.start,tgt,e);
+    a.mesh.rotation.x+=a.spin.x*dt; a.mesh.rotation.y+=a.spin.y*dt; a.mesh.rotation.z+=a.spin.z*dt;
+  }
+  // laser
+  if(impBeam){
+    impRC.ray.origin.copy(impBeam.origin); impRC.ray.direction.copy(impBeam.dir);
+    const hits=impRC.intersectObject(impBeam.rec.mesh,false);
+    if(hits.length){
+      impBeam.missT=0;
+      const hit=hits[0], EJ=impPowW*dt;
+      impBeam.firedJ+=EJ;
+      const rec=impBeam.rec, R=rec.radius*rec.mesh.scale.x;
+      if(!impImmune(rec)){
+        const s=getScars(rec);
+        const th=Math.min(20, Math.max(0.5, 1.2*Math.cbrt(impPowW/1e18)));
+        const rPx=th/180*512;
+        const gasy=(rec.data.kind==='gasgiant');
+        if(hit.uv){
+          if(!gasy) impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);
+          impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
+          s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
+        }
+        rec.dmgJ=(rec.dmgJ||0)+EJ;
+        if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
+      }
+      const ref=camera.position.distanceTo(controls.target);
+      const a=camera.localToWorld(_impV1.set(0.06*ref,-0.045*ref,-0.15*ref));
+      const b=hit.point;
+      const d=camera.position.distanceTo(b);
+      placeCyl(impBeam.core,a,b,d*0.0012);
+      placeCyl(impBeam.sheath,a,b,d*0.0046);
+      impBeam.hitGlow.position.copy(b).addScaledVector(_impV2.copy(b).sub(worldPosOf(impBeam.rec)).normalize(),R*0.03);
+      impBeam.hitGlow.scale.setScalar(R*(0.5+0.15*Math.sin(performance.now()*0.02)));
+      impBeam.sparkT+=dt;
+      if(impBeam.sparkT>0.06){
+        impBeam.sparkT=0;
+        const n=_impV2.copy(b).sub(worldPosOf(impBeam.rec)).normalize().clone();
+        emitBurst(b,6,impConeDir(n,0.9),R*0.5,R*0.05,0.7);
+      }
+      impBeam.core.visible=impBeam.sheath.visible=impBeam.hitGlow.visible=true;
+    } else {
+      impBeam.missT+=dt;
+      impBeam.core.visible=impBeam.sheath.visible=impBeam.hitGlow.visible=false;
+      if(impBeam.missT>0.4) stopBeam();
+    }
+  }
+  // one-shot fx sprites
+  for(let i=impFx.length-1;i>=0;i--){
+    const f=impFx[i]; f.t+=dt;
+    const k=f.t/f.T;
+    if(k>=1){ scene.remove(f.o); f.o.material.dispose(); impFx.splice(i,1); continue; }
+    if(f.kind==='flash'){ f.o.scale.setScalar(f.sc*(0.25+2.0*Math.sqrt(k))); f.o.material.opacity=Math.pow(1-k,1.6); }
+    else { f.o.scale.setScalar(f.sc*(0.3+3.5*k)); f.o.material.opacity=0.55*(1-k); }
+  }
+  // ejecta pool
+  if(impPool && impPoolActiveT>0){
+    impPoolActiveT-=dt;
+    const P=impPool;
+    for(let i=0;i<P.N;i++){
+      if(P.age[i]>=P.life[i]) continue;
+      P.age[i]+=dt;
+      P.pos[i*3]+=P.vel[i*3]*dt; P.pos[i*3+1]+=P.vel[i*3+1]*dt; P.pos[i*3+2]+=P.vel[i*3+2]*dt;
+      P.ageA[i]=Math.min(1,P.age[i]/P.life[i]);
+    }
+    P.g.attributes.position.needsUpdate=true;
+    P.g.attributes.aAge.needsUpdate=true;
+    P.g.attributes.aSize.needsUpdate=true;
+    P.m.uniforms.uScaleH.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
+  }
+  // heat glow cools (shattered worlds stay molten); batched, and only while hot —
+  // once faded, no more full-canvas ops or texture re-uploads
+  for(const rec of impScarred){
+    if(rec.shattered || rec.scar.hot<=0) continue;
+    const s=rec.scar; s.coolT+=dt; s.hot-=dt;
+    if(s.coolT>0.12){
+      const g=s.glowC.getContext('2d');
+      g.save(); g.globalCompositeOperation='destination-out';
+      g.globalAlpha=Math.min(0.9,0.28*s.coolT); g.fillRect(0,0,1024,512); g.restore();
+      s.glowT.needsUpdate=true; s.coolT=0;
+    }
+  }
+  // camera shake (decaying)
+  if(impShake>1e-4){
+    const ref=camera.position.distanceTo(controls.target);
+    camera.position.x+=(Math.random()-0.5)*impShake*ref*0.02;
+    camera.position.y+=(Math.random()-0.5)*impShake*ref*0.02;
+    camera.position.z+=(Math.random()-0.5)*impShake*ref*0.02;
+    impShake*=Math.pow(0.01,dt);
+  } else impShake=0;
+}
+
+/* ---- impact mode + panel UI ---- */
+function toggleImpact(){ impacting?exitImpact():enterImpact(); }
+function enterImpact(){
+  if(flying) exitFly();
+  impacting=true;
+  document.getElementById('implab').classList.add('on');
+  const b=document.getElementById('t-impact'); if(b) b.classList.add('on');
+  updateImpactUI();
+}
+function exitImpact(){
+  impacting=false; stopBeam();
+  document.getElementById('implab').classList.remove('on');
+  const b=document.getElementById('t-impact'); if(b) b.classList.remove('on');
+  renderer.domElement.style.cursor='grab';
+}
+function fmtBigJ(J){
+  const tnt=J/IMP_MT_TNT_J; let t;
+  if(tnt<1)        t=(tnt*1000).toPrecision(2)+' kt';
+  else if(tnt<1e3) t=tnt.toPrecision(2)+' Mt';
+  else if(tnt<1e6) t=(tnt/1e3).toPrecision(2)+' Gt';
+  else if(tnt<1e9) t=(tnt/1e6).toPrecision(2)+' Tt';
+  else             t=(tnt/1e9).toPrecision(2)+' Pt';
+  const chx=J/IMP_CHICXULUB_J;
+  let c=''; if(chx>=0.01) c=' · '+(chx>=100?Math.round(chx).toLocaleString():+chx.toPrecision(2))+'× Chicxulub';
+  return J.toExponential(1).replace('e+','e')+' J · '+t+' TNT'+c;
+}
+function fmtW(W){
+  if(W>=1e27) return W.toExponential(1).replace('e+','e')+' W';
+  const u=[['YW',1e24],['ZW',1e21],['EW',1e18],['PW',1e15],['TW',1e12],['GW',1e9]];
+  for(const p of u) if(W>=p[1]) return +(W/p[1]).toPrecision(3)+' '+p[0];
+  return W.toExponential(1)+' W';
+}
+function fmtKg(kg){
+  if(kg>=1e15) return kg.toExponential(1).replace('e+','e')+' kg';
+  if(kg>=1e12) return +(kg/1e12).toPrecision(3)+' Gt';
+  if(kg>=1e9)  return +(kg/1e9).toPrecision(3)+' Mt';
+  if(kg>=1e6)  return +(kg/1e6).toPrecision(3)+' kt';
+  return Math.round(kg).toLocaleString()+' kg';
+}
+function updateImpactUI(){
+  const dia=document.getElementById('imp-dia'), spd=document.getElementById('imp-spd'), pow=document.getElementById('imp-pow');
+  if(!dia) return;
+  impDiaKm=0.1*Math.pow(10,(+dia.value)/25);                 // 0.1 – 1,000 km, log
+  impSpdKms=11*Math.pow(30000/11,(+spd.value)/100);          // 11 – 30,000 km/s, log
+  impPowW=1e12*Math.pow(10,(+pow.value)*0.18);               // 1e12 – 1e30 W, log
+  impRho=IMP_MATS[impMatI][1];
+  document.getElementById('imp-dia-v').textContent = impDiaKm<10?(+impDiaKm.toPrecision(2)+' km'):(Math.round(impDiaKm).toLocaleString()+' km');
+  document.getElementById('imp-spd-v').textContent = impSpdKms<100?(+impSpdKms.toPrecision(2)+' km/s'):(Math.round(impSpdKms).toLocaleString()+' km/s');
+  document.getElementById('imp-pow-v').textContent = fmtW(impPowW);
+  document.getElementById('imp-mat').textContent = IMP_MATS[impMatI][0];
+  document.getElementById('imp-mass').textContent = fmtKg(impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3));
+  document.querySelectorAll('#implab .imp-a').forEach(el=>{ el.style.display=impWeapon==='asteroid'?'flex':'none'; });
+  document.querySelectorAll('#implab .imp-l').forEach(el=>{ el.style.display=impWeapon==='laser'?'flex':'none'; });
+  const wb=document.getElementById('imp-weapon');
+  if(wb) wb.textContent = impWeapon==='asteroid'?'☄ Asteroid':'🔆 Laser';
+  const en=document.getElementById('imp-energy');
+  if(en) en.textContent = impWeapon==='asteroid' ? ('💣 '+fmtBigJ(impKE())) : ('🔥 '+fmtBigJ(impPowW)+' / s');
+  const hint=document.getElementById('imp-hint');
+  if(hint) hint.textContent = impWeapon==='asteroid'
+    ? 'Click a world to strike it · scars persist · enough total energy shatters a crust'
+    : 'Press & hold on a world to fire · it rotates under your beam · release to stop';
+}
+
+/* ============================================================
    Animation
    ============================================================ */
 let follow=null;            // body rec being followed
@@ -781,6 +1225,7 @@ function animate(){
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
   updateEvapTails(playing ? YEARS_PER_SEC*timeScale*dt : 0);
+  updateImpacts(dt);                          // wall-clock: strikes land even while paused
 
   if(flying){
     updateFly(dt);
@@ -882,6 +1327,10 @@ function setupInteraction(){
   dom.addEventListener('pointerdown',e=>{ pdown=true; downX=lastX=e.clientX; downY=lastY=e.clientY; moved=false;
     if(document.activeElement&&document.activeElement.tagName==='INPUT') document.activeElement.blur(); // free keys for flight
     if(flying){ try{ dom.setPointerCapture(e.pointerId); }catch(_){} }   // keep look-drag alive off-canvas
+    if(!flying && impacting && impWeapon==='laser'){                     // press-and-hold on a world = burn
+      const h=pickHit(e);
+      if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) startBeam(rec,e); }
+    }
     document.getElementById('nav').classList.remove('open');});
   dom.addEventListener('pointermove',e=>{
     if(Math.abs(e.clientX-downX)>4||Math.abs(e.clientY-downY)>4) moved=true;
@@ -889,11 +1338,18 @@ function setupInteraction(){
     else hover(e);
   });
   dom.addEventListener('pointerup',e=>{ pdown=false;
+    if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
     if(moved) return;
     if(flying){ setFlyTarget(pickNear(e)); }   // tap a world (tiny dots too) to target it
+    else if(impacting){                        // impact mode: a click strikes instead of focusing
+      if(impWeapon==='asteroid'){
+        const h=pickHit(e);
+        if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) launchAsteroid(rec,h); }
+      }
+    }
     else { const hit=pick(e); if(hit) focusBody(hit,true); }
   });
-  dom.addEventListener('pointercancel',()=>{ pdown=false; });
+  dom.addEventListener('pointercancel',()=>{ pdown=false; stopBeam(); });
   dom.addEventListener('pointerleave',()=>{tip.style.opacity=0;});
   window.addEventListener('wheel',e=>{ if(flying){ e.preventDefault(); adjustThrottle(e.deltaY<0?4:-4); } },{passive:false});
 
@@ -918,6 +1374,19 @@ function setupInteraction(){
   document.getElementById('helpbtn').onclick=()=>document.getElementById('help').classList.toggle('open');
   const navbtn=document.getElementById('navbtn');
   if(navbtn) navbtn.onclick=()=>document.getElementById('nav').classList.toggle('open');
+
+  // --- impact lab controls ---
+  const impBtn=document.getElementById('t-impact'); if(impBtn) impBtn.onclick=toggleImpact;
+  const impW=document.getElementById('imp-weapon');
+  if(impW) impW.onclick=()=>{ impWeapon=impWeapon==='asteroid'?'laser':'asteroid'; stopBeam(); updateImpactUI(); };
+  const impM=document.getElementById('imp-mat');
+  if(impM) impM.onclick=()=>{ impMatI=(impMatI+1)%IMP_MATS.length; updateImpactUI(); };
+  for(const id of ['imp-dia','imp-spd','imp-pow']){
+    const el=document.getElementById(id); if(el) el.oninput=updateImpactUI;
+  }
+  const impH=document.getElementById('imp-heal'); if(impH) impH.onclick=impHeal;
+  const impX=document.getElementById('imp-exit'); if(impX) impX.onclick=exitImpact;
+  window.addEventListener('keydown',e=>{ if(e.code==='Escape'&&impacting&&!flying) exitImpact(); });
 
   // --- free-roam flight controls ---
   const flyBtn=document.getElementById('t-fly'); if(flyBtn) flyBtn.onclick=toggleFly;
@@ -959,14 +1428,18 @@ function setupInteraction(){
   updateClock();
 }
 
-function pick(e){
+function pickHit(e){   // full first intersection (object, point, uv) — uv drives the scar painting
   const r=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-r.left)/r.width)*2-1;
   mouse.y=-((e.clientY-r.top)/r.height)*2+1;
   ray.setFromCamera(mouse,camera);
   ray.params.Points={threshold:1};
   const hits=ray.intersectObjects(pickables,false);
-  return hits.length? hits[0].object.userData.bodyKey : null;
+  return hits.length? hits[0] : null;
+}
+function pick(e){
+  const h=pickHit(e);
+  return h? h.object.userData.bodyKey : null;
 }
 /* forgiving pick: exact raycast first, else the nearest body within ~34px on screen
    (real-scale worlds are floored to a few px, so precise ray hits are nearly impossible). */
@@ -986,9 +1459,20 @@ function pickNear(e){
 }
 function hover(e){
   const k=pick(e);
-  renderer.domElement.style.cursor=k?'pointer':'grab';
+  renderer.domElement.style.cursor = impacting ? 'crosshair' : (k?'pointer':'grab');
   if(k){ const rec=bodies.find(b=>b.data.key===k);
-    tip.textContent=rec.data.name; tip.style.left=e.clientX+'px'; tip.style.top=e.clientY+'px'; tip.style.opacity=1;
+    let txt=rec.data.name;
+    if(impacting && rec){
+      if(impImmune(rec)) txt+=' · immune to your weapons';
+      else if(rec.shattered) txt+=' · ☠ crust shattered';
+      else{
+        const E=impWeapon==='asteroid'?impKE():impPowW;
+        const pct=E/impBindingJ(rec)*100;
+        const lbl=impWeapon==='asteroid'?'strike':'beam/s';
+        txt+=' · '+lbl+' ≈ '+(pct>=100?'≥100% of binding ☠':(pct<0.01?'<0.01%':(+pct.toPrecision(2))+'%')+' of binding');
+      }
+    }
+    tip.textContent=txt; tip.style.left=e.clientX+'px'; tip.style.top=e.clientY+'px'; tip.style.opacity=1;
   } else tip.style.opacity=0;
 }
 
@@ -1061,6 +1545,7 @@ const _fa=new THREE.Vector3(), _fb=new THREE.Vector3(), _fc=new THREE.Vector3(),
 function toggleFly(){ flying ? exitFly() : enterFly(); }
 function enterFly(){
   if(flying) return;
+  if(impacting) exitImpact();                 // fly's drag-to-look conflicts with hold-to-lase
   if(!realScale) setScaleMode(true);          // flight is a real-scale experience
   flying=true; tween.active=false; follow=null; controls.enabled=false;
   flyEuler.setFromQuaternion(camera.quaternion,'YXZ'); flyEuler.z=0;
