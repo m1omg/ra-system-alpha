@@ -842,23 +842,97 @@ function uvToWorld(rec, u, v){ return rec.mesh.localToWorld(uvToLocal(rec,u,v,ne
    additive heat that cools via destination-out fades. ---- */
 function getScars(rec){
   if(rec.scar) return rec.scar;
-  const charC=newCanvas(1024,512), glowC=newCanvas(1024,512);
-  const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC);
+  const charC=newCanvas(1024,512), glowC=newCanvas(1024,512), meltC=newCanvas(1024,512);
+  const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
   const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,64,48),
     new THREE.MeshBasicMaterial({map:charT,transparent:true,depthWrite:false}));
+  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,64,48),
+    new THREE.MeshBasicMaterial({map:meltT,transparent:true,depthWrite:false}));
   const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,64,48),
     new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
-  mC.renderOrder=1; mG.renderOrder=2;
-  rec.mesh.add(mC); rec.mesh.add(mG);
-  rec.scar={charC,glowC,charT,glowT,mC,mG,coolT:0,hot:0};
+  mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
+  rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
+  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
   return rec.scar;
+}
+
+/* ---- melting tiers, from the real energy budget. Heating rock to ~1700 K
+   plus the latent heat of fusion costs ~1.7 MJ/kg (ice much less), so melting
+   a WHOLE world costs mass·that — for an Earth-like planet only a few percent
+   of its binding energy (global magma oceans come long before breakup), while
+   a small moon costs MORE to melt than to shatter, so it cracks apart still
+   cold. Per strike, ~25% of the kinetic energy ends up as impact melt:
+   V = 0.25·E/(ρ·e_melt) — a lava sea painted at its true size. ---- */
+const IMP_MELT_EJKG={icemoon:9e5, iceworld:9e5, ocean:1.2e6};   // J/kg to heat + melt; rock default
+function impMeltEJkg(rec){ return IMP_MELT_EJKG[rec.data.kind]||1.7e6; }
+function impMeltJ(rec){ return impBodyMassKg(rec)*impMeltEJkg(rec); }   // melt the whole body
+function impMeltPoolDeg(rec,E){              // angular radius of the lava sea one strike leaves
+  const rho=impDensityByKind[rec.data.kind]||3500;
+  const V=0.25*E/(rho*impMeltEJkg(rec));                        // m³ of melt
+  const r=Math.cbrt(V*3/(2*Math.PI));                           // hemispherical pool
+  return Math.min(80, r/((rec.data.radiusKm||1000)*1000)*57.2958);
+}
+function impCraterDeg(rec,E){                // gravity-regime π-scaling D ∝ E^0.28, anchored at Chicxulub (180 km)
+  const Dkm=180*Math.pow(E/IMP_CHICXULUB_J,0.28);
+  return Math.min(80, Dkm*0.5/(rec.data.radiusKm||1000)*57.2958);
+}
+function getMagmaOcean(rec){                 // lazy: a self-luminous molten-surface shell
+  const s=getScars(rec);
+  if(s.ocean) return s.ocean;
+  const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
+  const t=new THREE.CanvasTexture(texRocky(
+    {b:'#1c0803', base:'#4a1206', a:'#8a2408', c:'#d4501a'}, (seed^0x9e37)>>>0, {glow:'#ffc24e'}));
+  t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;                 // wraps → the magma can churn
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.007,64,48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  m.renderOrder=3;
+  rec.mesh.add(m);
+  s.ocean=m;
+  return m;
+}
+function getMagmaHalo(rec){                  // molten-limb glow (fresnel rim, like the atmospheres)
+  const s=getScars(rec);
+  if(s.halo) return s.halo;
+  s.halo=makeAtmosphere(rec.radius*1.05, 0xff6a22, 0);
+  s.halo.renderOrder=5;
+  rec.mesh.add(s.halo);
+  return s.halo;
+}
+function impUpdateMelt(rec){                 // cumulative surface state from the melt budget
+  if(!rec.scar || impImmune(rec) || rec.data.kind==='gasgiant') return;
+  const s=rec.scar;
+  const mf=(rec.dmgJ||0)/impMeltJ(rec);      // fraction of the whole-world melt budget delivered
+  const fU=(rec.dmgJ||0)/impBindingJ(rec);
+  // coverage: crust melting shows from a few % of the budget, complete at 100%
+  const m = mf<=0.02 ? 0 : Math.min(1, Math.pow((mf-0.02)/0.98, 0.6));
+  // superheat: past the full budget — or nearing breakup — it runs white-hot
+  const hot = Math.min(1, Math.max(mf>1?(mf-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
+  s.oceanM=m; s.oceanHot=hot;
+  if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0;
+    if(s.halo) s.halo.material.uniforms.p.value=0; return; }
+  const o=getMagmaOcean(rec);
+  o.material.opacity=Math.min(1, m*(1+0.3*hot));
+  o.material.color.setScalar(1+0.25*m+2.6*hot);                 // overdriven = white-hot under ACES
+  getMagmaHalo(rec).material.uniforms.p.value=1.6*(0.35*m+0.9*hot);
+}
+function impTierTxt(rec){                    // hover readout of the surface state
+  if(!(rec.dmgJ>0)) return '';
+  const mf=rec.dmgJ/impMeltJ(rec), fU=rec.dmgJ/impBindingJ(rec);
+  if(fU>0.5)  return ' · surface: white-hot — breakup imminent';
+  if(mf>=1)   return ' · surface: fully molten, superheated';
+  if(mf>0.3)  return ' · surface: global magma ocean ('+Math.round(mf*100)+'% molten)';
+  if(mf>0.02) return ' · surface: regional melting ('+Math.round(mf*100)+'% molten)';
+  if(mf>1e-4) return ' · surface: scattered melt seas';
+  return ' · surface: cratered';
 }
 const IMP_CHAR=[[0,'rgba(10,6,5,0.88)'],[0.5,'rgba(14,9,7,0.60)'],[0.8,'rgba(22,13,9,0.28)'],[1,'rgba(22,13,9,0)']];
 const IMP_CHAR_SOFT=[[0,'rgba(10,6,5,0.16)'],[0.7,'rgba(14,9,7,0.08)'],[1,'rgba(14,9,7,0)']];
 const IMP_GLOW=[[0,'rgba(255,244,214,0.95)'],[0.3,'rgba(255,150,60,0.75)'],[0.7,'rgba(190,45,12,0.35)'],[1,'rgba(190,45,12,0)']];
 const IMP_GLOW_SOFT=[[0,'rgba(255,220,150,0.50)'],[0.6,'rgba(255,120,45,0.22)'],[1,'rgba(255,120,45,0)']];
+const IMP_LAVA=[[0,'rgba(255,238,180,0.95)'],[0.25,'rgba(255,160,60,0.90)'],[0.55,'rgba(205,58,14,0.72)'],[0.8,'rgba(120,26,10,0.35)'],[1,'rgba(120,26,10,0)']];
+const IMP_LAVA_SOFT=[[0,'rgba(255,190,90,0.55)'],[0.5,'rgba(200,60,16,0.30)'],[1,'rgba(200,60,16,0)']];
 /* splat at canvas-space (u,v): longitude-stretched near the poles, drawn
    thrice (u−1,u,u+1) so it wraps the 0°/360° seam */
 function impSplat(ctx, u, v, rPx, style){
@@ -959,23 +1033,34 @@ function applyStrike(rec, u, v, E){
   const R=rec.radius*rec.mesh.scale.x;
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
   const fxP=wp.clone().addScaledVector(normal,R*0.04);
-  spawnFlash(fxP,R,E); spawnShock(fxP,R,E);
+  const thM=impMeltPoolDeg(rec,E);           // lava sea, at its physical size on this world
+  const meltish=Math.min(1, thM/12);         // 0 = cratering strike, 1 = region-melting monster
+  spawnFlash(fxP,R*(1+1.2*meltish),E); spawnShock(fxP,R*(1+0.8*meltish),E);
   if(!impImmune(rec) && !rec.destroyed){
-    emitBurst(fxP, Math.min(500, 120+Math.round(60*Math.log10(Math.max(1,E/1e21)))),
-      impConeDir(normal,0.75), R*1.1, R*0.11, 1.9);
+    emitBurst(fxP, Math.min(700, 120+Math.round(60*Math.log10(Math.max(1,E/1e21)))),
+      impConeDir(normal,0.75), R*(1.1+0.8*meltish), R*0.11, 1.9+1.1*meltish);
     const s=getScars(rec);
-    const th=Math.min(55, Math.max(1.2, 3*Math.cbrt(E/IMP_CHICXULUB_J)));   // angular radius, deg
+    const U=impBindingJ(rec);
+    const th=Math.max(0.8, impCraterDeg(rec,E), thM*1.15);      // char rim just beyond the melt
     const rPx=th/180*512;
     const gasy=(rec.data.kind==='gasgiant');
     if(!gasy) impSplat(s.charC.getContext('2d'), u, 1-v, rPx, IMP_CHAR);
-    impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15), IMP_GLOW);
-    s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
+    if(!gasy && thM>0.25){                   // big hits leave a permanent lava sea, not just char
+      const mc=s.meltC.getContext('2d');
+      mc.save(); mc.globalAlpha=0.45+0.55*meltish;
+      impSplat(mc, u, 1-v, thM/180*512, IMP_LAVA);
+      mc.restore(); s.meltT.needsUpdate=true;
+    }
+    impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15+0.9*meltish), IMP_GLOW);
+    s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+    s.hot=Math.max(s.hot, 7+45*meltish);     // molten regions stay incandescent much longer
     rec.dmgJ=(rec.dmgJ||0)+E;
-    if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
+    impUpdateMelt(rec);                      // craters → melt seas → global magma ocean
+    if(rec.dmgJ>=U && !rec.shattered) shatterBody(rec);
   }
   const dist=camera.position.distanceTo(wp);
   const ref=camera.position.distanceTo(controls.target)+1e-6;
-  impShake=Math.min(0.045, impShake+0.008*Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J))+1)*Math.max(0,1-dist/(ref*4)));
+  impShake=Math.min(0.06, impShake+(0.008*Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J))+1)+0.02*meltish)*Math.max(0,1-dist/(ref*4)));
 }
 
 /* crust shattered: the world actually comes apart. The planet mesh is hidden
@@ -1111,6 +1196,7 @@ function liberateMoons(parentRec){
     const lm=new THREE.LineBasicMaterial({color:new THREE.Color(m.data.color||0x88aaff),transparent:true,opacity:0.32});
     m.orbitLine=new THREE.Line(g,lm); m.orbitLine.quaternion.copy(qn); m.orbitLine.visible=showOrbits;
     sunHolder.add(m.orbitLine);
+    const le=labelEls[m.data.key]; if(le) le.classList.add('major');   // labelled at system zoom, like a planet
     positionBody(m);
   }
 }
@@ -1127,6 +1213,7 @@ function removeDebrisField(rec){
     m.e=P.e; m.q=P.q; m.M=P.M; m.period=P.period;
     m.aDispReal=P.aDispReal; m.aDispCompressed=P.aDispCompressed;
     m.aDisp=realScale?P.aDispReal:P.aDispCompressed;
+    const le=labelEls[m.data.key]; if(le && m.data.parent!=='ra') le.classList.remove('major');
     positionBody(m);
     m._preLib=null;
   }
@@ -1149,7 +1236,11 @@ function impHeal(){
     const s=rec.scar;
     s.charC.getContext('2d').clearRect(0,0,1024,512);
     s.glowC.getContext('2d').clearRect(0,0,1024,512);
-    s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+    s.meltC.getContext('2d').clearRect(0,0,1024,512);
+    s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
+    if(s.ocean){ s.ocean.material.opacity=0; s.ocean.material.color.setScalar(1); }
+    if(s.halo) s.halo.material.uniforms.p.value=0;
+    s.oceanM=0; s.oceanHot=0;
     rec.dmgJ=0; rec.shattered=false;
     if(rec.destroyed) removeDebrisField(rec);   // resurrect the world
   }
@@ -1258,11 +1349,16 @@ function updateImpacts(dt){
         const rPx=th/180*512;
         const gasy=(rec.data.kind==='gasgiant');
         if(hit.uv){
-          if(!gasy) impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);
+          if(!gasy){
+            impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);
+            impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.30, IMP_LAVA_SOFT);  // the burn line stays molten
+            s.meltT.needsUpdate=true;
+          }
           impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
           s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
+        impUpdateMelt(rec);
         if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
       }
       const ref=camera.position.distanceTo(controls.target);
@@ -1334,8 +1430,28 @@ function updateImpacts(dt){
   // heat glow cools (shattered worlds are gone); batched, and only while hot —
   // once faded, no more full-canvas ops or texture re-uploads
   for(const rec of impScarred){
-    if(rec.shattered || rec.scar.hot<=0) continue;
-    const s=rec.scar; s.coolT+=dt; s.hot-=dt;
+    if(rec.shattered) continue;
+    const s=rec.scar;
+    if(s.ocean && s.oceanM>0){
+      s.ocean.material.map.offset.x=(s.ocean.material.map.offset.x+dt*0.0045)%1;  // magma churns
+      s.emberT=(s.emberT||0)+dt;
+      // shed incandescent spray — but only when the surface is actually resolved:
+      // a dot-floor-inflated far view would spray planet-sized blobs
+      const R=rec.radius*rec.mesh.scale.x;
+      if(s.emberT>0.13 && (s.oceanM>0.5 || s.oceanHot>0) &&
+         camera.position.distanceTo(worldPosOf(rec))<R*70){
+        s.emberT=0;
+        const n=2+Math.round(5*s.oceanM+9*s.oceanHot);
+        for(let k=0;k<n;k++){
+          const eu=Math.random(), ev2=0.08+0.84*Math.random();
+          const ewp=uvToWorld(rec,eu,ev2);
+          const enr=_impV1.copy(ewp).sub(worldPosOf(rec)).normalize().clone();
+          emitBurst(ewp, 1, impConeDir(enr,0.5), R*(0.25+0.5*s.oceanHot), R*0.05, 0.9);
+        }
+      }
+    }
+    if(s.hot<=0) continue;
+    s.coolT+=dt; s.hot-=dt;
     if(s.coolT>0.12){
       const g=s.glowC.getContext('2d');
       g.save(); g.globalCompositeOperation='destination-out';
@@ -1514,8 +1630,8 @@ function updateLabels(){
     const dist=camPos.distanceTo(wp);
     c2.copy(wp).project(camera);
     const onscreen = c2.z<1 && c2.x>-1.1 && c2.x<1.1 && c2.y>-1.1 && c2.y<1.1;
-    // declutter: hide minor moons when far
-    const minor = !(rec.data.parent==='ra'||rec.data.kind==='star');
+    // declutter: hide minor moons when far (a liberated moon is a planet now — keep its label)
+    const minor = !(rec.data.parent==='ra'||rec.data.kind==='star'||rec.helio);
     let show = onscreen;
     if(minor && dist>(realScale?1100:620)) show=false;
     if(!show){ el.style.display='none'; continue; }
@@ -1686,6 +1802,11 @@ function hover(e){
         const pct=E/impBindingJ(rec)*100;
         const lbl=impWeapon==='asteroid'?'strike':'beam/s';
         txt+=' · '+lbl+' ≈ '+(pct>=100?'≥100% of binding ☠':(pct<0.01?'<0.01%':(+pct.toPrecision(2))+'%')+' of binding');
+        if(impWeapon==='asteroid'){
+          const pd=impMeltPoolDeg(rec,E);    // preview the lava sea this rock would leave
+          if(pd>0.5) txt+=' · melts a ~'+Math.round(pd*2/57.2958*(rec.data.radiusKm||1000)).toLocaleString()+' km sea';
+        }
+        txt+=impTierTxt(rec);
       }
     }
     tip.textContent=txt; tip.style.left=e.clientX+'px'; tip.style.top=e.clientY+'px'; tip.style.opacity=1;
