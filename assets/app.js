@@ -263,6 +263,85 @@ let scene,camera,renderer,controls,clock;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
 let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
 let USE_VERBATIM = !!window.USE_VERBATIM;   // true = show only the author's own text
+
+/* ---- language: English default, Slovak via the 🌐 toggle (persisted).
+   All Slovak content lives in assets/lang-sk.js (LANG_SK); English strings
+   used from JS live in UI_EN below; static English HTML is cached from the
+   DOM on first switch so toggling back restores it. ---- */
+let LANG='en';
+try{ if(localStorage.getItem('ra-lang')==='sk') LANG='sk'; }catch(_){}
+const UI_EN={
+  'play':'▶ Play','pause':'⏸ Pause',
+  'rt':'real-time','u-yr':'yr/s','u-mo':'mo/s','u-day':'days/s','u-hr':'hr/s','u-min':'min/s','u-s':'s/s',
+  'e-yr':'yr','e-day':'days','e-hr':'hr','e-min':'min','e-s':'s',
+  'real-scale':'📏 Real scale','compressed':'📐 Compressed',
+  'authors-text':"📖 Author's text",'summary-source':'📖 Summary + source',
+  'type-star':'Star','type-bd':'Brown dwarf','type-moon':'Moon','type-planet':'Planet',
+  'nav-ra':'Ra System','nav-horus':'Horus subsystem',
+  'life-title':'harbours life','life-intelligent':'intelligent','life-alien':'alien','life-seeded':'seeded','life-native':'native',
+  'from-source':"From the source — author's text",
+  'no-desc':'(No description in the source document yet — summary shown.)',
+  'debris-type':'Debris field','debris-name-span':'destroyed','debris-tag':'A debris field.',
+  'st-status':'Status','st-destroyed':'☠ Destroyed','st-cause':'Cause','st-cause-v':'Bombardment (impact lab)',
+  'st-eabs':'Energy absorbed','st-ebind':'Binding energy',
+  'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, an expanding cloud of shattered crust, mantle fragments and still-cooling ejecta now drifts along the old orbit, slowly dissipating into space.',
+  'heal-hint':'(🧽 Heal in the impact lab restores the planet.)',
+  'imp-immune':' · immune to your weapons','imp-destroyed':' · ☠ destroyed — a debris field',
+  'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
+  'imp-melts-sea':' · melts a ~{km} km sea',
+  'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered melt seas',
+  'tier-regional':' · surface: regional melting ({p}% molten)','tier-ocean':' · surface: global magma ocean ({p}% molten)',
+  'tier-molten':' · surface: fully molten, superheated','tier-white':' · surface: white-hot — breakup imminent',
+  'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
+  'imp-hint-ast':'Click a world to strike it · scars persist · enough total energy shatters a crust',
+  'imp-hint-las':'Press & hold on a world to fire · it rotates under your beam · release to stop',
+  'mat-0':'🧊 Ice','mat-1':'🪨 Rock','mat-2':'⛓ Iron',
+  'fly-notarget':'◎ no target — tap a world',
+  'doc-title':'The Ra System — Interactive 3D Simulation'
+};
+function T(k){
+  if(LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.ui[k]!=null) return LANG_SK.ui[k];
+  return UI_EN[k]!=null?UI_EN[k]:k;
+}
+function locData(d){ return (LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.data[d.key])||null; }
+function locTagline(d){ const l=locData(d); return (l&&l.tagline)||d.tagline; }
+function locDesc(d){ const l=locData(d); return (l&&l.desc)||d.desc; }
+function locStats(d){ const l=locData(d); return (l&&l.stats)||d.stats; }
+function locCaption(d,i,cap){ const l=locData(d); return (l&&l.images&&l.images[i])||cap; }
+function locVerbatim(key){
+  if(LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.verbatim[key]) return LANG_SK.verbatim[key];
+  return (typeof DESCRIPTIONS_VERBATIM!=='undefined')?DESCRIPTIONS_VERBATIM[key]:null;
+}
+const _staticEn={};
+function applyStaticLang(){
+  if(typeof LANG_SK==='undefined') return;
+  for(const id in LANG_SK.html){
+    const el=document.getElementById(id); if(!el) continue;
+    if(!(id in _staticEn)) _staticEn[id]=el.innerHTML;
+    el.innerHTML = LANG==='sk' ? LANG_SK.html[id] : _staticEn[id];
+  }
+  for(const id in (LANG_SK.titles||{})){
+    const el=document.getElementById(id); if(!el) continue;
+    const k='t:'+id; if(!(k in _staticEn)) _staticEn[k]=el.getAttribute('title')||'';
+    el.setAttribute('title', LANG==='sk'?LANG_SK.titles[id]:_staticEn[k]);
+  }
+  document.title=T('doc-title');
+}
+function updateLangBtn(){ const b=document.getElementById('t-lang'); if(b) b.textContent = LANG==='sk'?'🌐 EN':'🌐 SK'; }
+function setLang(l){
+  LANG = (l==='sk' && typeof LANG_SK!=='undefined') ? 'sk' : 'en';
+  try{ localStorage.setItem('ra-lang',LANG); }catch(_){}
+  applyStaticLang(); updateLangBtn();
+  const nav=document.getElementById('nav');
+  if(nav){ nav.innerHTML=''; buildNav(); setActiveNav(selected); }
+  buildGlossary();
+  const pb=document.getElementById('play'); if(pb) pb.innerHTML=playing?T('pause'):T('play');
+  const sb=document.getElementById('t-scale'); if(sb) sb.innerHTML=realScale?T('real-scale'):T('compressed');
+  const tb=document.getElementById('t-text'); if(tb) tb.innerHTML=USE_VERBATIM?T('authors-text'):T('summary-source');
+  const sp=document.getElementById('speed'); if(sp) setSpeed(+sp.value);
+  if(typeof updateImpactUI==='function') updateImpactUI();
+  if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData);
+}
 const bodies=[];           // every animated body
 const pickables=[];        // meshes for raycasting
 let selected=null;
@@ -507,6 +586,10 @@ function build(){
   for(const rec of bodies) if(rec.data.evapTail) makeEvapTail(rec);
 
   buildNav(); buildGlossary();
+  // language toggle (English default; Slovak from assets/lang-sk.js)
+  const lb=document.getElementById('t-lang');
+  if(lb) lb.onclick=function(){ setLang(LANG==='sk'?'en':'sk'); };
+  if(LANG==='sk') setLang('sk'); else updateLangBtn();
   window.addEventListener('resize', onResize);
   setupInteraction();
 
@@ -571,12 +654,12 @@ function frameSystem(){
 }
 function updateScaleUI(){
   const b=document.getElementById('t-scale');
-  if(b){ b.classList.toggle('on', realScale); b.innerHTML = realScale?'📏 Real scale':'📐 Compressed'; }
+  if(b){ b.classList.toggle('on', realScale); b.innerHTML = realScale?T('real-scale'):T('compressed'); }
 }
 function updateTextUI(){
   const b=document.getElementById('t-text');
   if(b){ b.classList.toggle('on', USE_VERBATIM);
-    b.innerHTML = USE_VERBATIM ? "📖 Author's text" : "📖 Summary + source"; }
+    b.innerHTML = USE_VERBATIM ? T('authors-text') : T('summary-source'); }
 }
 function setScaleMode(real){
   if(!real && flying) exitFly();     // Compressed is the overview map — leave free-roam
@@ -920,12 +1003,12 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
 function impTierTxt(rec){                    // hover readout of the surface state
   if(!(rec.dmgJ>0)) return '';
   const mf=rec.dmgJ/impMeltJ(rec), fU=rec.dmgJ/impBindingJ(rec);
-  if(fU>0.5)  return ' · surface: white-hot — breakup imminent';
-  if(mf>=1)   return ' · surface: fully molten, superheated';
-  if(mf>0.3)  return ' · surface: global magma ocean ('+Math.round(mf*100)+'% molten)';
-  if(mf>0.02) return ' · surface: regional melting ('+Math.round(mf*100)+'% molten)';
-  if(mf>1e-4) return ' · surface: scattered melt seas';
-  return ' · surface: cratered';
+  if(fU>0.5)  return T('tier-white');
+  if(mf>=1)   return T('tier-molten');
+  if(mf>0.3)  return T('tier-ocean').replace('{p}',Math.round(mf*100));
+  if(mf>0.02) return T('tier-regional').replace('{p}',Math.round(mf*100));
+  if(mf>1e-4) return T('tier-seas');
+  return T('tier-crater');
 }
 const IMP_CHAR=[[0,'rgba(10,6,5,0.88)'],[0.5,'rgba(14,9,7,0.60)'],[0.8,'rgba(22,13,9,0.28)'],[1,'rgba(22,13,9,0)']];
 const IMP_CHAR_SOFT=[[0,'rgba(10,6,5,0.16)'],[0.7,'rgba(14,9,7,0.08)'],[1,'rgba(14,9,7,0)']];
@@ -1519,18 +1602,16 @@ function updateImpactUI(){
   document.getElementById('imp-dia-v').textContent = impDiaKm<10?(+impDiaKm.toPrecision(2)+' km'):(Math.round(impDiaKm).toLocaleString()+' km');
   document.getElementById('imp-spd-v').textContent = impSpdKms<100?(+impSpdKms.toPrecision(2)+' km/s'):(Math.round(impSpdKms).toLocaleString()+' km/s');
   document.getElementById('imp-pow-v').textContent = fmtW(impPowW);
-  document.getElementById('imp-mat').textContent = IMP_MATS[impMatI][0];
+  document.getElementById('imp-mat').textContent = T('mat-'+impMatI);
   document.getElementById('imp-mass').textContent = fmtKg(impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3));
   document.querySelectorAll('#implab .imp-a').forEach(el=>{ el.style.display=impWeapon==='asteroid'?'flex':'none'; });
   document.querySelectorAll('#implab .imp-l').forEach(el=>{ el.style.display=impWeapon==='laser'?'flex':'none'; });
   const wb=document.getElementById('imp-weapon');
-  if(wb) wb.textContent = impWeapon==='asteroid'?'☄ Asteroid':'🔆 Laser';
+  if(wb) wb.textContent = impWeapon==='asteroid'?T('imp-w-ast'):T('imp-w-las');
   const en=document.getElementById('imp-energy');
   if(en) en.textContent = impWeapon==='asteroid' ? ('💣 '+fmtBigJ(impKE())) : ('🔥 '+fmtBigJ(impPowW)+' / s');
   const hint=document.getElementById('imp-hint');
-  if(hint) hint.textContent = impWeapon==='asteroid'
-    ? 'Click a world to strike it · scars persist · enough total energy shatters a crust'
-    : 'Press & hold on a world to fire · it rotates under your beam · release to stop';
+  if(hint) hint.textContent = impWeapon==='asteroid' ? T('imp-hint-ast') : T('imp-hint-las');
 }
 
 /* ============================================================
@@ -1795,16 +1876,16 @@ function hover(e){
   if(k){ const rec=bodies.find(b=>b.data.key===k);
     let txt=rec.data.name;
     if(impacting && rec){
-      if(impImmune(rec)) txt+=' · immune to your weapons';
-      else if(rec.destroyed) txt+=' · ☠ destroyed — a debris field';
+      if(impImmune(rec)) txt+=T('imp-immune');
+      else if(rec.destroyed) txt+=T('imp-destroyed');
       else{
         const E=impWeapon==='asteroid'?impKE():impPowW;
         const pct=E/impBindingJ(rec)*100;
-        const lbl=impWeapon==='asteroid'?'strike':'beam/s';
-        txt+=' · '+lbl+' ≈ '+(pct>=100?'≥100% of binding ☠':(pct<0.01?'<0.01%':(+pct.toPrecision(2))+'%')+' of binding');
+        const lbl=impWeapon==='asteroid'?T('imp-strike'):T('imp-beam');
+        txt+=' · '+lbl+' ≈ '+(pct>=100?T('imp-binding-over'):(pct<0.01?'<0.01':''+(+pct.toPrecision(2)))+T('imp-binding-of'));
         if(impWeapon==='asteroid'){
           const pd=impMeltPoolDeg(rec,E);    // preview the lava sea this rock would leave
-          if(pd>0.5) txt+=' · melts a ~'+Math.round(pd*2/57.2958*(rec.data.radiusKm||1000)).toLocaleString()+' km sea';
+          if(pd>0.5) txt+=T('imp-melts-sea').replace('{km}',Math.round(pd*2/57.2958*(rec.data.radiusKm||1000)).toLocaleString());
         }
         txt+=impTierTxt(rec);
       }
@@ -1813,7 +1894,7 @@ function hover(e){
   } else tip.style.opacity=0;
 }
 
-function togglePlay(){ playing=!playing; document.getElementById('play').innerHTML=playing?'⏸ Pause':'▶ Play'; }
+function togglePlay(){ playing=!playing; document.getElementById('play').innerHTML=playing?T('pause'):T('play'); }
 function setSpeed(v){ // 0..100 -> real time-rate (sim years advanced per real second), logarithmic
   const yps = Math.exp( Math.log(RATE_MIN_YPS) + (Math.log(RATE_MAX_YPS)-Math.log(RATE_MIN_YPS))*(v/100) );
   timeScale = yps / YEARS_PER_SEC;          // motion advances exactly `yps` sim-years per real second
@@ -1822,20 +1903,20 @@ function setSpeed(v){ // 0..100 -> real time-rate (sim years advanced per real s
 /* speed readout in real time units: "real-time", "45 s/s", "12 min/s", "6 hr/s", "3 days/s", "2 mo/s", "1.4 yr/s" */
 function fmtRate(yps){
   const s = yps*SEC_PER_YEAR;               // sim seconds advanced per real second
-  if(s>0.7 && s<1.5) return 'real-time';
-  if(yps>=1)            return (yps<10?yps.toFixed(2):yps.toFixed(0))+' yr/s';
-  const mo=yps*12;     if(mo>=1) return mo.toFixed(1)+' mo/s';
-  const d=yps*365.25;  if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' days/s';
-  const h=d*24;        if(h>=1)  return (h<10?h.toFixed(1):h.toFixed(0))+' hr/s';
-  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' min/s';
-  return (mi*60).toFixed(0)+' s/s';
+  if(s>0.7 && s<1.5) return T('rt');
+  if(yps>=1)            return (yps<10?yps.toFixed(2):yps.toFixed(0))+' '+T('u-yr');
+  const mo=yps*12;     if(mo>=1) return mo.toFixed(1)+' '+T('u-mo');
+  const d=yps*365.25;  if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' '+T('u-day');
+  const h=d*24;        if(h>=1)  return (h<10?h.toFixed(1):h.toFixed(0))+' '+T('u-hr');
+  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' '+T('u-min');
+  return (mi*60).toFixed(0)+' '+T('u-s');
 }
 function fmtElapsed(yr){
-  if(yr>=1)            return (yr<100?yr.toFixed(1):yr.toFixed(0))+' yr';
-  const d=yr*365.25;   if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' days';
-  const h=d*24;        if(h>=1)  return h.toFixed(1)+' hr';
-  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' min';
-  return (mi*60).toFixed(0)+' s';
+  if(yr>=1)            return (yr<100?yr.toFixed(1):yr.toFixed(0))+' '+T('e-yr');
+  const d=yr*365.25;   if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' '+T('e-day');
+  const h=d*24;        if(h>=1)  return h.toFixed(1)+' '+T('e-hr');
+  const mi=h*60;       if(mi>=1) return mi.toFixed(0)+' '+T('e-min');
+  return (mi*60).toFixed(0)+' '+T('e-s');
 }
 function updateClock(){ const el=document.getElementById('elapsed'); if(el) el.textContent='⏱ '+fmtElapsed(elapsedYears); }
 function setSize(v){
@@ -2001,7 +2082,7 @@ function updateFlyHUD(){
     _fa.copy(tp).sub(camera.position).normalize();
     const closeKms=flyVel.dot(_fa)*KM_PER_UNIT;
     if(eta) eta.textContent = 'ETA '+(closeKms>1?fmtTime(rangeKm/closeKms):'—');
-  } else { if(tg) tg.textContent='◎ no target — tap a world'; if(eta) eta.textContent=''; }
+  } else { if(tg) tg.textContent=T('fly-notarget'); if(eta) eta.textContent=''; }
 }
 function nearestBodyDist(){
   let d=1e12; for(const rec of bodies){ const dd=camera.position.distanceToSquared(worldPosOf(rec)); if(dd<d) d=dd; }
@@ -2068,19 +2149,19 @@ function navItem(data, sub){
   el.dataset.key=data.key;
   const col='#'+new THREE.Color(data.color||0xcccccc).getHexString();
   el.innerHTML=`<span class="dot" style="color:${col}"></span><span>${data.name}</span>`+
-    (data.life?`<span class="tag" title="harbours life">✦&nbsp;${data.life}</span>`:'');
+    (data.life?`<span class="tag" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'');
   el.onclick=()=>focusBody(data.key,true);
   return el;
 }
 function buildNav(){
   const nav=document.getElementById('nav');
-  const h=document.createElement('h3'); h.textContent='Ra System'; nav.appendChild(h);
+  const h=document.createElement('h3'); h.textContent=T('nav-ra'); nav.appendChild(h);
   nav.appendChild(navItem(STAR));
   for(const p of PLANETS){
     nav.appendChild(navItem(p));
     for(const m of MOONS.filter(x=>x.parent===p.key)) nav.appendChild(navItem(m,true));
   }
-  const h2=document.createElement('h3'); h2.textContent='Horus subsystem'; nav.appendChild(h2);
+  const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
   nav.appendChild(navItem(HORUS));
   for(const m of HORUS_MOONS) nav.appendChild(navItem(m,true));
 }
@@ -2089,10 +2170,10 @@ function setActiveNav(key){
 }
 
 function typeLabelFor(d){
-  if(d.kind==='star') return 'Star';
-  if(d.kind==='browndwarf') return 'Brown dwarf';
-  if(d.parent && d.parent!=='ra') return 'Moon';
-  return 'Planet';
+  if(d.kind==='star') return T('type-star');
+  if(d.kind==='browndwarf') return T('type-bd');
+  if(d.parent && d.parent!=='ra') return T('type-moon');
+  return T('type-planet');
 }
 function openInfo(d){
   APP.currentData=d;
@@ -2100,27 +2181,28 @@ function openInfo(d){
   const drec=bodies.find(b=>b.data.key===d.key);
   if(drec && drec.destroyed) return openInfoDestroyed(drec);
   // the author's word-for-word text, where the source document has it
-  const verbatim = (typeof DESCRIPTIONS_VERBATIM!=='undefined') ? DESCRIPTIONS_VERBATIM[d.key] : null;
+  // (in Slovak mode a natural translation of that text)
+  const verbatim = locVerbatim(d.key);
   // author's-text edition shows only the author's words, so hide my own tagline there
   const authorOnly = USE_VERBATIM && !!verbatim;
   document.getElementById('i-type').textContent=typeLabelFor(d);
   document.getElementById('i-name').innerHTML=d.name+(d.alt?`<span>${d.alt}</span>`:'');
   // tagline is my own line — hide it only when showing the author's own words alone
   const tagEl=document.getElementById('i-tag');
-  tagEl.textContent = authorOnly ? '' : (d.tagline||'');
+  tagEl.textContent = authorOnly ? '' : (locTagline(d)||'');
   tagEl.style.display = authorOnly ? 'none' : 'block';
   // gallery
   const g=document.getElementById('i-gallery'); g.innerHTML='';
-  (d.images||[]).forEach(([file,cap])=>{
+  (d.images||[]).forEach(([file,cap],i)=>{
     const fig=document.createElement('figure');
     const img=new Image(); img.src='assets/img/'+file; img.alt=cap; img.loading='lazy';
     img.onclick=()=>APP.openLightbox(img.src);
-    const fc=document.createElement('figcaption'); fc.textContent=cap;
+    const fc=document.createElement('figcaption'); fc.textContent=locCaption(d,i,cap);
     fig.appendChild(img); fig.appendChild(fc); g.appendChild(fig);
   });
   // stats
   const t=document.getElementById('i-stats'); t.innerHTML='';
-  (d.stats||[]).forEach(([k,v])=>{ const tr=document.createElement('tr');
+  (locStats(d)||[]).forEach(([k,v])=>{ const tr=document.createElement('tr');
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
   // description
   const ds=document.getElementById('i-desc'); ds.innerHTML='';
@@ -2134,14 +2216,14 @@ function openInfo(d){
     else {
       const note=document.createElement('p');
       note.style.cssText='font-style:italic;color:#8ea2c0;font-size:12px';
-      note.textContent='(No description in the source document yet — summary shown.)';
+      note.textContent=T('no-desc');
       ds.appendChild(note);
-      addParas(d.desc);
+      addParas(locDesc(d));
     }
   } else {
     // default edition: my short summary, then the author's verbatim text beneath it
-    addParas(d.desc);
-    if(verbatim){ addSource("From the source — author's text"); addParas(verbatim); }
+    addParas(locDesc(d));
+    if(verbatim){ addSource(T('from-source')); addParas(verbatim); }
   }
   document.getElementById('info').classList.add('open');
   syncInfoBtn();
@@ -2151,28 +2233,25 @@ function syncInfoBtn(){ const ib=document.getElementById('infobtn');
 /* info panel for a world destroyed in the impact lab */
 function openInfoDestroyed(rec){
   const d=rec.data;
-  document.getElementById('i-type').textContent='Debris field';
-  document.getElementById('i-name').innerHTML=d.name+'<span>destroyed</span>';
+  document.getElementById('i-type').textContent=T('debris-type');
+  document.getElementById('i-name').innerHTML=d.name+'<span>'+T('debris-name-span')+'</span>';
   const tagEl=document.getElementById('i-tag');
-  tagEl.textContent='A debris field.'; tagEl.style.display='block';
+  tagEl.textContent=T('debris-tag'); tagEl.style.display='block';
   document.getElementById('i-gallery').innerHTML='';
   const t=document.getElementById('i-stats'); t.innerHTML='';
-  [['Status','☠ Destroyed'],
-   ['Cause','Bombardment (impact lab)'],
-   ['Energy absorbed', (rec.dmgJ||0).toExponential(2).replace('e+','e')+' J'],
-   ['Binding energy', impBindingJ(rec).toExponential(2).replace('e+','e')+' J']
+  [[T('st-status'),T('st-destroyed')],
+   [T('st-cause'),T('st-cause-v')],
+   [T('st-eabs'), (rec.dmgJ||0).toExponential(2).replace('e+','e')+' J'],
+   [T('st-ebind'), impBindingJ(rec).toExponential(2).replace('e+','e')+' J']
   ].forEach(([k,v])=>{ const tr=document.createElement('tr');
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
   const ds=document.getElementById('i-desc'); ds.innerHTML='';
   const p=document.createElement('p');
-  p.textContent=d.name+' is gone. Its accumulated bombardment exceeded its gravitational '+
-    'binding energy and the world came apart. Where '+d.name+' once was, an expanding cloud of '+
-    'shattered crust, mantle fragments and still-cooling ejecta now drifts along the old orbit, '+
-    'slowly dissipating into space.';
+  p.textContent=T('debris-epitaph').replace(/\{name\}/g,d.name);
   ds.appendChild(p);
   const hint=document.createElement('p');
   hint.style.cssText='font-style:italic;color:#8ea2c0;font-size:12px';
-  hint.textContent='(🧽 Heal in the impact lab restores the planet.)';
+  hint.textContent=T('heal-hint');
   ds.appendChild(hint);
   document.getElementById('info').classList.add('open');
   syncInfoBtn();
@@ -2182,7 +2261,8 @@ function closeInfo(){ document.getElementById('info').classList.remove('open'); 
 
 function buildGlossary(){
   const el=document.getElementById('gloss');
-  el.innerHTML=GLOSSARY.map(([k,v])=>`<b>${k}</b> — ${v}`).join('<br>');
+  const gl=(LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.glossary)||GLOSSARY;
+  el.innerHTML=gl.map(([k,v])=>`<b>${k}</b> — ${v}`).join('<br>');
 }
 
 function onResize(){

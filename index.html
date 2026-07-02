@@ -224,23 +224,23 @@
 
 <div id="loader">
   <h1>RA</h1>
-  <p>Building the planetary system…</p>
+  <p id="loader-sub">Building the planetary system…</p>
   <div class="spin"></div>
 </div>
 
 <div id="title" class="panel">
-  <small>Interactive 3D Simulation</small>
-  <h1>The <b>Ra</b> Planetary System</h1>
+  <small id="title-sub">Interactive 3D Simulation</small>
+  <h1 id="title-h1">The <b>Ra</b> Planetary System</h1>
 </div>
 
 <button id="navbtn" class="btn panel" aria-label="Toggle body list" title="Body list">☰</button>
 <button id="helpbtn" class="btn panel" title="Help & glossary">?</button>
 <button id="infobtn" class="btn panel" title="Show / hide info about the selected world">ⓘ</button>
 <div id="help" class="panel scrollthin">
-  <h4>Navigate</h4>
-  <div class="g"><b>Drag</b> — orbit camera (left or right button)<br><b>Scroll</b> — zoom in / out<br><b>Middle-drag</b> — pan<br><b>Click a world</b> — focus &amp; read about it<br><b>On touch screens</b> — tap focuses; ⓘ (top right) opens the info sheet<br><b>List / labels</b> — jump to any body</div>
-  <h4>About the scale</h4>
-  <div class="g"><b>Real scale</b> (default) places every orbit at its true distance in AU — so Amunet hugs the star and Horus sits far out at 46 AU; zoom out to find Shu and Horus. <b>Compressed</b> (toggle in the bottom bar) squeezes the huge 0.05–46 AU range so the whole system fits on screen at once. Body sizes are exaggerated in both modes (true sizes would be invisible). Real figures are in each world's data panel; orbital <b>speeds</b> follow Kepler's laws.</div>
+  <h4 id="help-nav-h">Navigate</h4>
+  <div class="g" id="help-nav"><b>Drag</b> — orbit camera (left or right button)<br><b>Scroll</b> — zoom in / out<br><b>Middle-drag</b> — pan<br><b>Click a world</b> — focus &amp; read about it<br><b>On touch screens</b> — tap focuses; ⓘ (top right) opens the info sheet<br><b>List / labels</b> — jump to any body</div>
+  <h4 id="help-scale-h">About the scale</h4>
+  <div class="g" id="help-scale"><b>Real scale</b> (default) places every orbit at its true distance in AU — so Amunet hugs the star and Horus sits far out at 46 AU; zoom out to find Shu and Horus. <b>Compressed</b> (toggle in the bottom bar) squeezes the huge 0.05–46 AU range so the whole system fits on screen at once. Body sizes are exaggerated in both modes (true sizes would be invisible). Real figures are in each world's data panel; orbital <b>speeds</b> follow Kepler's laws.</div>
   <h4 id="gloss-h">Glossary</h4>
   <div class="g" id="gloss"></div>
 </div>
@@ -249,13 +249,13 @@
 
 <div id="controls" class="panel">
   <button id="play" class="btn">⏸ Pause</button>
-  <div class="ctl"><label>Speed</label>
+  <div class="ctl"><label id="lbl-speed">Speed</label>
     <input id="speed" type="range" min="0" max="100" value="0" style="width:120px">
     <span id="speedval">real-time</span>
   </div>
   <span id="elapsed" class="clock"></span>
   <div class="sep brk"></div>
-  <div class="ctl"><label>Size</label>
+  <div class="ctl"><label id="lbl-size">Size</label>
     <input id="size" type="range" min="40" max="260" value="100" style="width:90px">
     <button id="size-reset" class="btn" title="Reset size to default" style="padding:3px 7px">↺</button>
   </div>
@@ -268,22 +268,23 @@
   <button id="reset" class="btn">⟲ Reset view</button>
   <button id="t-fly" class="btn" title="Free-roam flight (real scale)">🚀 Fly</button>
   <button id="t-impact" class="btn" title="Impact lab — customizable asteroid strikes &amp; laser">💥 Impact</button>
+  <button id="t-lang" class="btn" title="Slovenčina / English">🌐 SK</button>
 </div>
 
 <div id="flyhud" class="panel">
-  <div class="flyrow"><b>🚀 Free-roam</b><button id="fly-model" class="btn sm">🎮 Flycam</button><button id="fly-auto" class="btn sm on" title="Speed auto-scales to nearby bodies — click for manual (uncapped) speed">⚡ Auto</button><button id="fly-exit" class="btn sm" title="Exit flight (Esc)">✕ Exit</button></div>
-  <div class="flyrow"><label>Speed</label><input id="throttle" type="range" min="0" max="100" value="0"><span id="fly-speed">0 km/s</span></div>
+  <div class="flyrow"><b id="fly-title">🚀 Free-roam</b><button id="fly-model" class="btn sm">🎮 Flycam</button><button id="fly-auto" class="btn sm on" title="Speed auto-scales to nearby bodies — click for manual (uncapped) speed">⚡ Auto</button><button id="fly-exit" class="btn sm" title="Exit flight (Esc)">✕ Exit</button></div>
+  <div class="flyrow"><label id="lbl-throttle">Speed</label><input id="throttle" type="range" min="0" max="100" value="0"><span id="fly-speed">0 km/s</span></div>
   <div class="flyrow"><button id="fly-fwd" class="btn sm" title="Thrust forward (hold)">▲</button><button id="fly-back" class="btn sm" title="Reverse (hold)">▼</button><button id="fly-goto" class="btn sm">⤳ Go&nbsp;to</button><button id="fly-follow" class="btn sm" title="Follow the target as it orbits (F)">⛓ Follow</button><button id="fly-orient" class="btn sm">◎ Orient</button><button id="fly-brake" class="btn sm">⏹ Brake</button></div>
   <div class="flyrow tgt"><span id="fly-target">◎ no target — click a world</span><span id="fly-eta"></span></div>
-  <div class="flyrow hint">W/S or ↑↓ fly · A/D or ←→ strafe · PgUp/PgDn or R = up·down · drag = look · Q/E roll · wheel = speed · F = follow · click a world (again = go to) · Esc exit</div>
+  <div class="flyrow hint" id="fly-hint">W/S or ↑↓ fly · A/D or ←→ strafe · PgUp/PgDn or R = up·down · drag = look · Q/E roll · wheel = speed · F = follow · click a world (again = go to) · Esc exit</div>
 </div>
 
 <div id="implab" class="panel">
-  <div class="improw"><b>💥 Impact lab</b><button id="imp-weapon" class="btn sm">☄ Asteroid</button><button id="imp-heal" class="btn sm" title="Remove every scar and reset all damage">🧽 Heal</button><button id="imp-exit" class="btn sm" title="Close (Esc)">✕</button></div>
-  <div class="improw imp-a"><label>Diameter</label><input id="imp-dia" type="range" min="0" max="100" value="50"><span class="val" id="imp-dia-v">10 km</span></div>
-  <div class="improw imp-a"><label>Speed</label><input id="imp-spd" type="range" min="0" max="100" value="12.7"><span class="val" id="imp-spd-v">30 km/s</span></div>
-  <div class="improw imp-a"><label>Material</label><button id="imp-mat" class="btn sm">🪨 Rock</button><span class="val" style="margin-left:auto" id="imp-mass">—</span></div>
-  <div class="improw imp-l" style="display:none"><label>Power</label><input id="imp-pow" type="range" min="0" max="100" value="33.3"><span class="val" id="imp-pow-v">1.0 EW</span></div>
+  <div class="improw"><b id="imp-title">💥 Impact lab</b><button id="imp-weapon" class="btn sm">☄ Asteroid</button><button id="imp-heal" class="btn sm" title="Remove every scar and reset all damage">🧽 Heal</button><button id="imp-exit" class="btn sm" title="Close (Esc)">✕</button></div>
+  <div class="improw imp-a"><label id="lbl-imp-dia">Diameter</label><input id="imp-dia" type="range" min="0" max="100" value="50"><span class="val" id="imp-dia-v">10 km</span></div>
+  <div class="improw imp-a"><label id="lbl-imp-spd">Speed</label><input id="imp-spd" type="range" min="0" max="100" value="12.7"><span class="val" id="imp-spd-v">30 km/s</span></div>
+  <div class="improw imp-a"><label id="lbl-imp-mat">Material</label><button id="imp-mat" class="btn sm">🪨 Rock</button><span class="val" style="margin-left:auto" id="imp-mass">—</span></div>
+  <div class="improw imp-l" style="display:none"><label id="lbl-imp-pow">Power</label><input id="imp-pow" type="range" min="0" max="100" value="33.3"><span class="val" id="imp-pow-v">1.0 EW</span></div>
   <div class="improw"><span id="imp-energy">—</span></div>
   <div class="improw hint" id="imp-hint">Click a world to strike it · scars persist · enough total energy shatters a crust</div>
 </div>
@@ -309,6 +310,7 @@
 <script src="assets/lib/OrbitControls.js"></script>
 <script src="assets/data.js"></script>
 <script src="assets/descriptions-verbatim.js"></script>
+<script src="assets/lang-sk.js"></script>
 <script>window.USE_AI_TEXTURES=true;</script>
 <script src="assets/app.js"></script>
 </body>
