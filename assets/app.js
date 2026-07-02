@@ -1138,6 +1138,7 @@ function applyStrike(rec, u, v, E){
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
     s.hot=Math.max(s.hot, 7+45*meltish);     // molten regions stay incandescent much longer
     rec.dmgJ=(rec.dmgJ||0)+E;
+    rec._lastHit={u,v};                      // the killing blow shapes how the world breaks apart
     impUpdateMelt(rec);                      // craters → melt seas → global magma ocean
     if(rec.dmgJ>=U && !rec.shattered) shatterBody(rec);
   }
@@ -1169,6 +1170,62 @@ function shatterBody(rec){
   impShake=Math.min(0.06, impShake+0.03);
 }
 
+/* ---- crustal shard: a curved cap of the planet's sphere with radial depth.
+   Outer face keeps the planet's OWN texture (equirect UVs around the cap
+   centre, unwrapped across the 0/1 seam); inner faces are ember rock.
+   Built in a +Y-up local frame, oriented to `dir`, re-centred on its own
+   centroid so tumbling spins the piece about itself. Returns {geo,center}. */
+function makeShardGeo(dir, angR, k, depth, R){
+  const pos=[], uv=[];
+  const up=new THREE.Vector3(0,1,0);
+  const q=new THREE.Quaternion().setFromUnitVectors(up, dir.clone().normalize());
+  const ringO=[], ringM=[], ringI=[], uvO=[], uvM=[];
+  const thJ=[];
+  for(let j=0;j<k;j++) thJ.push(angR*(0.8+0.4*Math.random()));
+  const cV=new THREE.Vector3(0,1,0).applyQuaternion(q);
+  const uvOf=(d,u0)=>{                       // Three's sphere mapping, seam-unwrapped near u0
+    const vt=1-Math.acos(Math.max(-1,Math.min(1,d.y)))/Math.PI;
+    let ut=Math.atan2(d.z,-d.x)/(2*Math.PI); if(ut<0) ut+=1;
+    if(u0!=null){ while(ut-u0>0.5) ut-=1; while(u0-ut>0.5) ut+=1; }
+    return [ut,vt];
+  };
+  const cUV=uvOf(cV,null);
+  for(let j=0;j<k;j++){
+    const ps=j/k*Math.PI*2 + (Math.random()-0.5)*0.5/k*Math.PI;
+    const th=thJ[j], sm=Math.sin(th*0.55), so=Math.sin(th);
+    ringM.push(new THREE.Vector3(sm*Math.cos(ps),Math.cos(th*0.55),sm*Math.sin(ps)).applyQuaternion(q));
+    ringO.push(new THREE.Vector3(so*Math.cos(ps),Math.cos(th),so*Math.sin(ps)).applyQuaternion(q));
+    ringI.push(ringO[j].clone().multiplyScalar(1-depth*(0.8+0.4*Math.random())));
+    uvM.push(uvOf(ringM[j],cUV[0])); uvO.push(uvOf(ringO[j],cUV[0]));
+  }
+  const cI=cV.clone().multiplyScalar(1-depth);
+  const push=(p,t)=>{ pos.push(p.x*R,p.y*R,p.z*R); uv.push(t[0],t[1]); };
+  // outer cap (two rings, keeps the sphere's curve): material group 0
+  for(let j=0;j<k;j++){ const n=(j+1)%k;
+    push(cV,cUV);      push(ringM[n],uvM[n]); push(ringM[j],uvM[j]);
+    push(ringM[j],uvM[j]); push(ringM[n],uvM[n]); push(ringO[j],uvO[j]);
+    push(ringO[j],uvO[j]); push(ringM[n],uvM[n]); push(ringO[n],uvO[n]);
+  }
+  const outerCount=pos.length/3;
+  // inner fan + side walls: material group 1 (rock), throwaway UVs
+  const rockUV=(p)=>[p.x*0.5+0.5, p.z*0.5+0.5];
+  for(let j=0;j<k;j++){ const n=(j+1)%k;
+    push(cI,rockUV(cI));        push(ringI[j],rockUV(ringI[j])); push(ringI[n],rockUV(ringI[n]));
+    push(ringO[j],rockUV(ringO[j])); push(ringI[n],rockUV(ringI[n])); push(ringI[j],rockUV(ringI[j]));
+    push(ringO[j],rockUV(ringO[j])); push(ringO[n],rockUV(ringO[n])); push(ringI[n],rockUV(ringI[n]));
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+  g.addGroup(0,outerCount,0); g.addGroup(outerCount,pos.length/3-outerCount,1);
+  // re-centre on the centroid so rotation tumbles the shard about itself
+  g.computeBoundingBox();
+  const c=new THREE.Vector3(); g.boundingBox.getCenter(c);
+  g.translate(-c.x,-c.y,-c.z);
+  g.computeVertexNormals();
+  return {geo:g, center:c};
+}
+
 function makeDebrisField(rec){
   const group=new THREE.Object3D();
   rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
@@ -1191,16 +1248,62 @@ function makeDebrisField(rec){
   const seedBase=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
   for(let gi=0; gi<3; gi++) geos.push(makeRockGeo(11,8, seedBase+gi*7919));  // three rock shapes, reused
   const chunks=[];
-  const NCH=Math.round(46*(1-0.72*gas));           // gassy worlds shed few solid core fragments
+
+  /* ---- the breakup is shaped by the killing blow ----
+     hitDir = where the final strike landed; overshoot = how far past the
+     binding energy the bombardment went. Fragments fly away from the hit
+     point: a fast, finely-fragmented cone around it, slow heavy slabs on
+     the far side — barely past U the world falls apart lazily, a massive
+     overkill blasts it. */
+  const hit=rec._lastHit||{u:0.5,v:0.5};
+  const hitDir=uvToLocal(rec, hit.u, hit.v, new THREE.Vector3()).normalize();
+  const over=Math.max(1,(rec.dmgJ||0)/impBindingJ(rec));
+  const ovk=Math.min(3, Math.log10(over)+1);           // 1 @ U … 2 @ 10U … 3 @ 100U
+  const sBase=R*(0.012+0.038*ovk);
+  const velOf=(dirFrom)=>{                              // impact-driven velocity field
+    const cd=dirFrom.dot(hitDir), w=Math.pow(0.5+0.5*cd,1.6);
+    const v=dirFrom.clone().addScaledVector(hitDir,-0.55).normalize()
+      .multiplyScalar(sBase*(0.3+1.5*w+0.3*Math.random()));
+    return v.addScaledVector(new THREE.Vector3(Math.random()-0.5,Math.random()-0.5,Math.random()-0.5), sBase*0.18);
+  };
+
+  // crustal shards — pieces of the planet ITSELF, its surface texture still
+  // on their outer face. Gas-dominated worlds (gas ≥ 0.85, e.g. Amunet) have
+  // no crust to shatter — the fraction, not the kind, decides: Wadjet is
+  // kind 'gasgiant' but mostly rock (debrisGas 0.4) and breaks into slabs.
+  const shardGeos=[]; let outerMat=null;
+  if(gas<0.85){
+    outerMat=new THREE.MeshStandardMaterial({map:rec.mesh.material.map||null,
+      color:rec.mesh.material.map?0xffffff:(rec.data.color||0x9a8877), roughness:1.0});
+    if(outerMat.map){ outerMat.map.wrapS=THREE.RepeatWrapping; outerMat.map.needsUpdate=true; }
+    const NS=Math.round(30*(1-0.5*gas));
+    const GA=Math.PI*(3-Math.sqrt(5));
+    for(let i=0;i<NS;i++){
+      const y=1-2*(i+0.5)/NS, rr=Math.sqrt(Math.max(0,1-y*y)), a=GA*i;
+      const dir=new THREE.Vector3(rr*Math.cos(a), y, rr*Math.sin(a));
+      const dHit=Math.acos(Math.max(-1,Math.min(1,dir.dot(hitDir))));
+      // finer fragmentation near the hit, big slabs on the far side
+      const angR=(0.24+0.36*(dHit/Math.PI))*(0.85+0.3*Math.random());
+      const sh=makeShardGeo(dir, angR, 8, 0.16+0.20*Math.random(), R);
+      shardGeos.push(sh.geo);
+      const m=new THREE.Mesh(sh.geo,[outerMat,chunkMat]);
+      m.position.copy(sh.center);
+      const vel=velOf(dir);
+      const spin=vel.length()/R;
+      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin)});
+      group.add(m);
+    }
+  }
+  // small rubble between the slabs (generic hot rocks, impact-driven too)
+  const NCH=Math.round((shardGeos.length?18:46)*(1-0.72*gas));
   const szF=1-0.35*gas;
   for(let i=0;i<NCH;i++){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
     const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
     m.position.copy(dir).multiplyScalar(R*(0.35+0.6*Math.random()));
-    m.scale.setScalar(R*(0.05+0.13*Math.random())*szF);
+    m.scale.setScalar(R*(0.04+0.09*Math.random())*szF);
     m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
-    const tang=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).cross(dir).normalize();
-    const vel=dir.multiplyScalar(R*(0.02+0.05*Math.random())).addScaledVector(tang,R*0.015*Math.random());
+    const vel=velOf(dir).multiplyScalar(1.35);
     chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)});
     group.add(m);
   }
@@ -1218,13 +1321,19 @@ function makeDebrisField(rec){
   const tint=new THREE.Color(rec.data.color||0xffd9b0).lerp(new THREE.Color(1,1,1),0.35);
   // NB: PointsMaterial.size is WORLD units — it ignores the mesh's per-frame
   // dot-floor scaling, so the update loop re-syncs it to mesh.scale each frame.
+  // gassy worlds die in a luminous additive cloud; rocky ones in smoke —
+  // additive can only brighten, so dense rock dust up close saturated the
+  // whole view to white. Normal-blended, darker points read as dust.
+  const glowy = gas>=0.6;
+  const hzSize=R*(0.12+0.42*gas), hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
   const hazeMat=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')),
-    color:tint, size:R*0.35*(1+0.8*gas)*rec.mesh.scale.x, sizeAttenuation:true, transparent:true,
-    opacity:0.55*(0.75+0.6*gas), blending:THREE.AdditiveBlending, depthWrite:false});
+    color:glowy?tint:tint.clone().multiplyScalar(0.42), size:hzSize*rec.mesh.scale.x,
+    sizeAttenuation:true, transparent:true, opacity:hzOp,
+    blending:glowy?THREE.AdditiveBlending:THREE.NormalBlending, depthWrite:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   group.add(haze);
-  debrisFields.push({rec,group,chunks,chunkMat,geos,haze,hazeMat,t:0,
-    gas, hazeSize:R*0.35*(1+0.8*gas), op0:0.55*(0.75+0.6*gas), fadeT:40*(0.6+1.3*gas)});
+  debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
+    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas)});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -1304,6 +1413,8 @@ function removeDebrisField(rec){
     const D=debrisFields[i]; if(D.rec!==rec) continue;
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
+    for(const g of (D.shardGeos||[])) g.dispose();
+    if(D.outerMat) D.outerMat.dispose();      // shared planet texture stays with the planet
     D.chunkMat.dispose();
     if(D.haze){ D.haze.geometry.dispose(); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
     debrisFields.splice(i,1);
@@ -1441,6 +1552,7 @@ function updateImpacts(dt){
           s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
+        if(hit.uv) rec._lastHit={u:hit.uv.x, v:hit.uv.y};
         impUpdateMelt(rec);
         if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
       }
