@@ -704,6 +704,8 @@ function updateEvapTails(simDt){   // simDt = sim-years advanced this frame (0 w
   if(!showTails) return;
   for(const t of evapTails){
     const rec=t.rec;
+    if(rec.destroyed){ if(t.points.visible) t.points.visible=false; continue; }   // debris doesn't outgas
+    if(!t.points.visible) t.points.visible=true;
     if(rec.aDisp!==t.lastADisp){   // scale mode flipped — old positions are meaningless
       t.ageYr.fill(1); t.lifeYr.fill(1); t.age01.fill(1);
       t.lastADisp=rec.aDisp; t.prevM=rec.M; t.emitAcc=0;
@@ -925,7 +927,7 @@ function applyStrike(rec, u, v, E){
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
   const fxP=wp.clone().addScaledVector(normal,R*0.04);
   spawnFlash(fxP,R,E); spawnShock(fxP,R,E);
-  if(!impImmune(rec)){
+  if(!impImmune(rec) && !rec.destroyed){
     emitBurst(fxP, Math.min(500, 120+Math.round(60*Math.log10(Math.max(1,E/1e21)))),
       impConeDir(normal,0.75), R*1.1, R*0.11, 1.9);
     const s=getScars(rec);
@@ -943,20 +945,86 @@ function applyStrike(rec, u, v, E){
   impShake=Math.min(0.045, impShake+0.008*Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J))+1)*Math.max(0,1-dist/(ref*4)));
 }
 
-/* crust shattered: the whole surface goes molten (and stays — no cooling) */
+/* crust shattered: the world actually comes apart. The planet mesh is hidden
+   and replaced (in place, still on its orbit) by a debris field — tumbling
+   rock chunks drifting apart plus a hot dust haze that expands and fades.
+   The info panel switches to "A debris field." until 🧽 Heal resurrects it. */
+const debrisFields=[];
 function shatterBody(rec){
-  rec.shattered=true;
-  const s=getScars(rec), g=s.glowC.getContext('2d'), c=s.charC.getContext('2d');
-  for(let i=0;i<280;i++){
-    const u=Math.random(), v=0.06+0.88*Math.random();
-    impSplat(g,u,v, 8+Math.random()*30, IMP_GLOW);
-    if(Math.random()<0.5) impSplat(c,u,v, 10+Math.random()*26, IMP_CHAR);
-  }
-  s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+  rec.shattered=true; rec.destroyed=true;
   const wp=worldPosOf(rec), R=rec.radius*rec.mesh.scale.x;
-  spawnFlash(wp,R*2.2,impBindingJ(rec));
+  spawnFlash(wp,R*2.6,impBindingJ(rec));
+  spawnShock(wp,R*2.0,impBindingJ(rec));
   emitBurst(wp, 800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
-    R*1.6, R*0.15, 2.6);
+    R*1.8, R*0.15, 2.8);
+  // hide the world + everything stuck to it (atmosphere, scar overlays)
+  for(const ch of rec.mesh.children) ch.visible=false;
+  rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
+  makeDebrisField(rec);
+  const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name+' ☠';
+  if(APP.currentData && APP.currentData.key===rec.data.key &&
+     document.getElementById('info').classList.contains('open')) openInfo(rec.data);
+  impShake=Math.min(0.06, impShake+0.03);
+}
+
+function makeDebrisField(rec){
+  const group=new THREE.Object3D();
+  rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
+  const R=rec.radius;                   // mesh-local units
+  const base=new THREE.Color(rec.data.color||0x9a8877);
+  const chunkMat=new THREE.MeshStandardMaterial({color:base.multiplyScalar(0.8),
+    roughness:0.95, emissive:0xff6a30, emissiveIntensity:0.6});
+  const geos=[];
+  for(let gi=0; gi<3; gi++){            // three jittered rock shapes, reused
+    const g=new THREE.SphereGeometry(1,7,5), pa=g.attributes.position;
+    for(let i=0;i<pa.count;i++){ const f=0.62+Math.random()*0.7;
+      pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
+    g.computeVertexNormals(); geos.push(g);
+  }
+  const chunks=[];
+  for(let i=0;i<46;i++){
+    const m=new THREE.Mesh(geos[i%3], chunkMat);
+    const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
+    m.position.copy(dir).multiplyScalar(R*(0.35+0.6*Math.random()));
+    m.scale.setScalar(R*(0.05+0.13*Math.random()));
+    m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
+    const tang=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).cross(dir).normalize();
+    const vel=dir.multiplyScalar(R*(0.02+0.05*Math.random())).addScaledVector(tang,R*0.015*Math.random());
+    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)});
+    group.add(m);
+  }
+  // hot dust haze: additive glow points that expand outward and fade away
+  const HN=700, hp=new Float32Array(HN*3);
+  for(let i=0;i<HN;i++){
+    const d=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize()
+      .multiplyScalar(R*(0.5+1.0*Math.random()));
+    hp[i*3]=d.x; hp[i*3+1]=d.y; hp[i*3+2]=d.z;
+  }
+  const hg=new THREE.BufferGeometry();
+  hg.setAttribute('position', new THREE.BufferAttribute(hp,3).setUsage(THREE.DynamicDrawUsage));
+  // NB: PointsMaterial.size is WORLD units — it ignores the mesh's per-frame
+  // dot-floor scaling, so the update loop re-syncs it to mesh.scale each frame.
+  const hazeMat=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,225,190,0.85)','rgba(160,110,75,0.28)')),
+    color:0xffd9b0, size:R*0.35*rec.mesh.scale.x, sizeAttenuation:true, transparent:true, opacity:0.55,
+    blending:THREE.AdditiveBlending, depthWrite:false});
+  const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
+  group.add(haze);
+  debrisFields.push({rec,group,chunks,chunkMat,geos,haze,hazeMat,t:0});
+}
+
+function removeDebrisField(rec){
+  for(let i=debrisFields.length-1;i>=0;i--){
+    const D=debrisFields[i]; if(D.rec!==rec) continue;
+    rec.mesh.remove(D.group);
+    for(const g of D.geos) g.dispose();
+    D.chunkMat.dispose();
+    if(D.haze){ D.haze.geometry.dispose(); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
+    debrisFields.splice(i,1);
+  }
+  rec.mesh.material.visible=true;
+  for(const ch of rec.mesh.children) ch.visible=true;
+  rec.destroyed=false;
+  const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name;
 }
 
 function impHeal(){
@@ -966,7 +1034,11 @@ function impHeal(){
     s.glowC.getContext('2d').clearRect(0,0,1024,512);
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
     rec.dmgJ=0; rec.shattered=false;
+    if(rec.destroyed) removeDebrisField(rec);   // resurrect the world
   }
+  for(const t of evapTails) t.points.visible=showTails;
+  if(APP.currentData && document.getElementById('info').classList.contains('open'))
+    openInfo(APP.currentData);
 }
 
 /* ---- asteroid projectiles: jittered rock + glow, homing at the chosen surface point ---- */
@@ -1064,7 +1136,7 @@ function updateImpacts(dt){
       const hit=hits[0], EJ=impPowW*dt;
       impBeam.firedJ+=EJ;
       const rec=impBeam.rec, R=rec.radius*rec.mesh.scale.x;
-      if(!impImmune(rec)){
+      if(!impImmune(rec) && !rec.destroyed){
         const s=getScars(rec);
         const th=Math.min(20, Math.max(0.5, 1.2*Math.cbrt(impPowW/1e18)));
         const rPx=th/180*512;
@@ -1121,7 +1193,28 @@ function updateImpacts(dt){
     P.g.attributes.aSize.needsUpdate=true;
     P.m.uniforms.uScaleH.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
   }
-  // heat glow cools (shattered worlds stay molten); batched, and only while hot —
+  // debris fields: chunks drift apart and tumble; the dust haze expands and fades
+  for(const D of debrisFields){
+    D.t+=dt;
+    for(const c of D.chunks){
+      c.m.position.addScaledVector(c.vel,dt);
+      c.m.rotation.x+=c.rot.x*dt; c.m.rotation.y+=c.rot.y*dt; c.m.rotation.z+=c.rot.z*dt;
+    }
+    D.chunkMat.emissiveIntensity=0.08+0.55*Math.exp(-D.t/30);   // embers cool
+    if(D.haze){
+      const fade=1/(1+D.t/40);
+      if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
+        D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
+      else{
+        D.hazeMat.opacity=0.55*fade;
+        D.hazeMat.size=D.rec.radius*0.35*D.rec.mesh.scale.x;   // track the dot-floor scaling
+        const hp=D.haze.geometry.attributes.position, k=1+dt*0.05;   // slow expansion
+        for(let i=0;i<hp.count;i++) hp.setXYZ(i, hp.getX(i)*k, hp.getY(i)*k, hp.getZ(i)*k);
+        hp.needsUpdate=true;
+      }
+    }
+  }
+  // heat glow cools (shattered worlds are gone); batched, and only while hot —
   // once faded, no more full-canvas ops or texture re-uploads
   for(const rec of impScarred){
     if(rec.shattered || rec.scar.hot<=0) continue;
@@ -1464,7 +1557,7 @@ function hover(e){
     let txt=rec.data.name;
     if(impacting && rec){
       if(impImmune(rec)) txt+=' · immune to your weapons';
-      else if(rec.shattered) txt+=' · ☠ crust shattered';
+      else if(rec.destroyed) txt+=' · ☠ destroyed — a debris field';
       else{
         const E=impWeapon==='asteroid'?impKE():impPowW;
         const pct=E/impBindingJ(rec)*100;
@@ -1758,6 +1851,9 @@ function typeLabelFor(d){
 }
 function openInfo(d){
   APP.currentData=d;
+  // a destroyed world (impact lab) shows its debris-field epitaph instead
+  const drec=bodies.find(b=>b.data.key===d.key);
+  if(drec && drec.destroyed) return openInfoDestroyed(drec);
   // the author's word-for-word text, where the source document has it
   const verbatim = (typeof DESCRIPTIONS_VERBATIM!=='undefined') ? DESCRIPTIONS_VERBATIM[d.key] : null;
   // author's-text edition shows only the author's words, so hide my own tagline there
@@ -1804,6 +1900,35 @@ function openInfo(d){
   }
   document.getElementById('info').classList.add('open');
 }
+/* info panel for a world destroyed in the impact lab */
+function openInfoDestroyed(rec){
+  const d=rec.data;
+  document.getElementById('i-type').textContent='Debris field';
+  document.getElementById('i-name').innerHTML=d.name+'<span>destroyed</span>';
+  const tagEl=document.getElementById('i-tag');
+  tagEl.textContent='A debris field.'; tagEl.style.display='block';
+  document.getElementById('i-gallery').innerHTML='';
+  const t=document.getElementById('i-stats'); t.innerHTML='';
+  [['Status','☠ Destroyed'],
+   ['Cause','Bombardment (impact lab)'],
+   ['Energy absorbed', (rec.dmgJ||0).toExponential(2).replace('e+','e')+' J'],
+   ['Binding energy', impBindingJ(rec).toExponential(2).replace('e+','e')+' J']
+  ].forEach(([k,v])=>{ const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
+  const ds=document.getElementById('i-desc'); ds.innerHTML='';
+  const p=document.createElement('p');
+  p.textContent=d.name+' is gone. Its accumulated bombardment exceeded its gravitational '+
+    'binding energy and the world came apart. Where '+d.name+' once was, an expanding cloud of '+
+    'shattered crust, mantle fragments and still-cooling ejecta now drifts along the old orbit, '+
+    'slowly dissipating into space.';
+  ds.appendChild(p);
+  const hint=document.createElement('p');
+  hint.style.cssText='font-style:italic;color:#8ea2c0;font-size:12px';
+  hint.textContent='(🧽 Heal in the impact lab restores the planet.)';
+  ds.appendChild(hint);
+  document.getElementById('info').classList.add('open');
+}
+
 function closeInfo(){ document.getElementById('info').classList.remove('open'); setActiveNav(selected); }
 
 function buildGlossary(){
