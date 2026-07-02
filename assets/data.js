@@ -67,6 +67,7 @@ const PLANETS = [
     emissive: 0x3a1402, emissiveScale: 0.35,
     atmo: 0xe0a868,
     evapTail: true,       // it sheds vaporised envelope — drawn as a comet-like gas tail
+    debrisGas: 0.95,      // impact lab: mostly gaseous envelope — shatters into a huge gas cloud
     stats: [
       ["Type", "Hot super-Neptune (composition) / hot Saturn (mass)"],
       ["Mass", "98.8 M⊕ (0.311 Jupiter)"],
@@ -102,6 +103,7 @@ const PLANETS = [
     palette: ["#caa84a","#3fae9e","#cfe0e8","#5fc0b0","#d98a4a","#e8d59a"],
     emissive: 0x10201e, emissiveScale: 0.10,
     atmo: 0x7fd0c4,
+    debrisGas: 0.4,       // impact lab: mostly rock/iron under the envelope — rocky debris, some gas
     stats: [
       ["Type", "Hot mini / sub-Neptune"],
       ["Mass", "10.4 M⊕"],

@@ -554,7 +554,7 @@ function applySizes(){
 function applyScaleMode(){
   starGroup.scale.setScalar(starVisR()/STAR_R_COMPRESS);
   for(const rec of bodies){
-    if(rec.helio){ rec.aDisp=distDisp(rec.data.dist); rebuildOrbitLine(rec); }
+    if(rec.helio){ rec.aDisp=distDisp(rec.helioA!=null?rec.helioA:rec.data.dist); rebuildOrbitLine(rec); }
     else if(rec.isMoon){ rec.aDisp = realScale?rec.aDispReal:rec.aDispCompressed; rebuildOrbitLine(rec); }
   }
   applySizes();
@@ -994,6 +994,7 @@ function shatterBody(rec){
   for(const ch of rec.mesh.children) ch.visible=false;
   rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
   makeDebrisField(rec);
+  liberateMoons(rec);                   // its moons sail on around Ra on their own new orbits
   const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name+' ☠';
   if(APP.currentData && APP.currentData.key===rec.data.key &&
      document.getElementById('info').classList.contains('open')) openInfo(rec.data);
@@ -1004,6 +1005,11 @@ function makeDebrisField(rec){
   const group=new THREE.Object3D();
   rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
   const R=rec.radius;                   // mesh-local units
+  // composition: 0 = bare rock, 1 = almost all gas. data.debrisGas overrides
+  // (Amunet 0.95, Wadjet 0.4); otherwise estimated from the body kind.
+  const GAS_BY_KIND={gasgiant:0.8, browndwarf:0.9, ocean:0.35, iceworld:0.3, icemoon:0.3, terran:0.22, lava:0.1, rocky:0.12};
+  const gas = rec.data.debrisGas!=null ? rec.data.debrisGas :
+              (GAS_BY_KIND[rec.data.kind]!=null ? GAS_BY_KIND[rec.data.kind] : 0.2);
   const rockT=impRockTex();
   // emissiveMap = the rock albedo too: the ember glow follows the fracture
   // detail instead of flooding the chunks flat orange
@@ -1017,37 +1023,113 @@ function makeDebrisField(rec){
   const seedBase=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
   for(let gi=0; gi<3; gi++) geos.push(makeRockGeo(11,8, seedBase+gi*7919));  // three rock shapes, reused
   const chunks=[];
-  for(let i=0;i<46;i++){
+  const NCH=Math.round(46*(1-0.72*gas));           // gassy worlds shed few solid core fragments
+  const szF=1-0.35*gas;
+  for(let i=0;i<NCH;i++){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
     const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
     m.position.copy(dir).multiplyScalar(R*(0.35+0.6*Math.random()));
-    m.scale.setScalar(R*(0.05+0.13*Math.random()));
+    m.scale.setScalar(R*(0.05+0.13*Math.random())*szF);
     m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
     const tang=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).cross(dir).normalize();
     const vel=dir.multiplyScalar(R*(0.02+0.05*Math.random())).addScaledVector(tang,R*0.015*Math.random());
     chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)});
     group.add(m);
   }
-  // hot dust haze: additive glow points that expand outward and fade away
-  const HN=700, hp=new Float32Array(HN*3);
+  // gas/dust haze: additive glow points that expand outward and dissipate.
+  // Amount, spread, brightness and lifetime all scale with the gas fraction;
+  // tinted by the body's own colour (Amunet bursts bronze, Wadjet teal).
+  const HN=Math.round(500+1600*gas), hp=new Float32Array(HN*3);
   for(let i=0;i<HN;i++){
     const d=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize()
-      .multiplyScalar(R*(0.5+1.0*Math.random()));
+      .multiplyScalar(R*(0.5+(1.0+0.9*gas)*Math.random()));
     hp[i*3]=d.x; hp[i*3+1]=d.y; hp[i*3+2]=d.z;
   }
   const hg=new THREE.BufferGeometry();
   hg.setAttribute('position', new THREE.BufferAttribute(hp,3).setUsage(THREE.DynamicDrawUsage));
+  const tint=new THREE.Color(rec.data.color||0xffd9b0).lerp(new THREE.Color(1,1,1),0.35);
   // NB: PointsMaterial.size is WORLD units — it ignores the mesh's per-frame
   // dot-floor scaling, so the update loop re-syncs it to mesh.scale each frame.
-  const hazeMat=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,225,190,0.85)','rgba(160,110,75,0.28)')),
-    color:0xffd9b0, size:R*0.35*rec.mesh.scale.x, sizeAttenuation:true, transparent:true, opacity:0.55,
-    blending:THREE.AdditiveBlending, depthWrite:false});
+  const hazeMat=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')),
+    color:tint, size:R*0.35*(1+0.8*gas)*rec.mesh.scale.x, sizeAttenuation:true, transparent:true,
+    opacity:0.55*(0.75+0.6*gas), blending:THREE.AdditiveBlending, depthWrite:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   group.add(haze);
-  debrisFields.push({rec,group,chunks,chunkMat,geos,haze,hazeMat,t:0});
+  debrisFields.push({rec,group,chunks,chunkMat,geos,haze,hazeMat,t:0,
+    gas, hazeSize:R*0.35*(1+0.8*gas), op0:0.55*(0.75+0.6*gas), fadeT:40*(0.6+1.3*gas)});
+}
+
+/* ---- moon liberation: a destroyed planet no longer binds its moons ----
+   Each moon keeps its instantaneous heliocentric state vector — the parent's
+   true Kepler velocity plus the moon's physical orbital velocity around it
+   (vis-viva with the parent's estimated mass) — converted into proper new
+   Ra-centric orbital elements (a, e, plane, periapsis, phase). Runs once per
+   destruction, so accuracy costs nothing per frame. Real units: AU and years,
+   in Kepler form where mu = 4pi^2 * (M / M_sun). */
+const MU_RA=4*Math.PI*Math.PI*1.139;      // AU^3/yr^2 — Ra is 1.139 M_sun
+const SUN_KG=1.989e30;
+function keplerStateAU(aAU,e,q,M,mu){     // -> instantaneous {r (AU), v (AU/yr)}
+  const E=kepler(M,e), b=aAU*Math.sqrt(1-e*e);
+  const n=Math.sqrt(mu/(aAU*aAU*aAU));    // mean motion, rad/yr
+  const Edot=n/(1-e*Math.cos(E));
+  return {
+    r:new THREE.Vector3(aAU*(Math.cos(E)-e),0,b*Math.sin(E)).applyQuaternion(q),
+    v:new THREE.Vector3(-aAU*Math.sin(E)*Edot,0,b*Math.cos(E)*Edot).applyQuaternion(q)
+  };
+}
+function liberateMoons(parentRec){
+  const muP=4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG);
+  const ps=keplerStateAU(parentRec.data.dist, parentRec.e, parentRec.q, parentRec.M%(Math.PI*2), MU_RA);
+  for(const m of bodies){
+    if(m.parentHolder!==parentRec.holder || m===parentRec || m.destroyed) continue;
+    const ms=keplerStateAU(m.data.dist, m.e, m.q, m.M%(Math.PI*2), muP);
+    const r=ps.r.clone().add(ms.r), v=ps.v.clone().add(ms.v);
+    const rl=r.length(), v2=v.lengthSq();
+    let a=1/(2/rl - v2/MU_RA);
+    const h=new THREE.Vector3().crossVectors(r,v);
+    const ev=r.clone().multiplyScalar(v2-MU_RA/rl).addScaledVector(v,-r.dot(v)).multiplyScalar(1/MU_RA);
+    let e=ev.length();
+    if(!(a>0) || e>=0.985){ e=Math.min(e,0.985); a=rl/(1-0.9*e); }  // ejection edge case: keep it drawably bound
+    const ph=e>1e-6 ? ev.normalize() : r.clone().normalize();       // periapsis direction
+    const hn=h.lengthSq()>1e-12 ? h.normalize() : new THREE.Vector3(0,1,0);
+    // engine convention (see positionBody): the orbit normal is local -y
+    const Y=hn.clone().negate(), Z=new THREE.Vector3().crossVectors(ph,Y);
+    const qn=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(ph,Y,Z));
+    let nu=Math.acos(Math.max(-1,Math.min(1, r.clone().normalize().dot(ph))));
+    if(r.dot(v)<0) nu=Math.PI*2-nu;                                 // inbound half of the orbit
+    const E2=2*Math.atan2(Math.sqrt(1-e)*Math.sin(nu/2), Math.sqrt(1+e)*Math.cos(nu/2));
+    // stash the pre-destruction orbit for 🧽 Heal, then rewire to Ra
+    m._preLib={parentRec, isMoon:m.isMoon, aDispReal:m.aDispReal, aDispCompressed:m.aDispCompressed,
+               e:m.e, q:m.q, M:m.M, period:m.period, orbitLine:m.orbitLine};
+    if(m.orbitLine) m.orbitLine.visible=false;      // the old ellipse around the dead parent
+    m.parentHolder=sunHolder; sunHolder.add(m.holder);
+    m.helio=true; m.isMoon=false; m.helioA=a;
+    m.e=e; m.q=qn; m.M=E2-e*Math.sin(E2);
+    m.period=Math.sqrt(a*a*a/1.139);                // real Kepler years, like every helio body
+    m.aDisp=distDisp(a);
+    const g=new THREE.BufferGeometry().setFromPoints(orbitPoints(m.aDisp,e));
+    const lm=new THREE.LineBasicMaterial({color:new THREE.Color(m.data.color||0x88aaff),transparent:true,opacity:0.32});
+    m.orbitLine=new THREE.Line(g,lm); m.orbitLine.quaternion.copy(qn); m.orbitLine.visible=showOrbits;
+    sunHolder.add(m.orbitLine);
+    positionBody(m);
+  }
 }
 
 function removeDebrisField(rec){
+  // resurrecting the planet re-captures its liberated moons onto their old orbits
+  for(const m of bodies){
+    if(!m._preLib || m._preLib.parentRec!==rec) continue;
+    if(m.orbitLine){ sunHolder.remove(m.orbitLine); m.orbitLine.geometry.dispose(); m.orbitLine.material.dispose(); }
+    const P=m._preLib;
+    m.orbitLine=P.orbitLine; if(m.orbitLine) m.orbitLine.visible=showOrbits;
+    m.parentHolder=rec.holder; rec.holder.add(m.holder);
+    m.helio=false; m.isMoon=P.isMoon; m.helioA=null;
+    m.e=P.e; m.q=P.q; m.M=P.M; m.period=P.period;
+    m.aDispReal=P.aDispReal; m.aDispCompressed=P.aDispCompressed;
+    m.aDisp=realScale?P.aDispReal:P.aDispCompressed;
+    positionBody(m);
+    m._preLib=null;
+  }
   for(let i=debrisFields.length-1;i>=0;i--){
     const D=debrisFields[i]; if(D.rec!==rec) continue;
     rec.mesh.remove(D.group);
@@ -1237,12 +1319,12 @@ function updateImpacts(dt){
     const eb=D.chunkMat.userData.emberBase||0.6;
     D.chunkMat.emissiveIntensity=eb*(0.13+0.87*Math.exp(-D.t/30));   // embers cool
     if(D.haze){
-      const fade=1/(1+D.t/40);
+      const fade=1/(1+D.t/D.fadeT);
       if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
         D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
       else{
-        D.hazeMat.opacity=0.55*fade;
-        D.hazeMat.size=D.rec.radius*0.35*D.rec.mesh.scale.x;   // track the dot-floor scaling
+        D.hazeMat.opacity=D.op0*fade;
+        D.hazeMat.size=D.hazeSize*D.rec.mesh.scale.x;   // track the dot-floor scaling
         const hp=D.haze.geometry.attributes.position, k=1+dt*0.05;   // slow expansion
         for(let i=0;i<hp.count;i++) hp.setXYZ(i, hp.getX(i)*k, hp.getY(i)*k, hp.getZ(i)*k);
         hp.needsUpdate=true;
