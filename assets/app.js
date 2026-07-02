@@ -811,6 +811,23 @@ function impBindingJ(rec){ const R=(rec.data.radiusKm||1000)*1000, M=impBodyMass
 function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'; }
 function impKE(){ return 0.5*impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3)*Math.pow(impSpdKms*1000,2); }
 
+/* Lumpy-rock geometry: displace a sphere by smooth 3D noise of each vertex's
+   DIRECTION. Seam/pole vertices are duplicated in SphereGeometry — noise keyed
+   on position moves the duplicates identically, keeping the mesh watertight
+   (per-vertex random jitter tore it open like crumpled paper). */
+function makeRockGeo(wSeg,hSeg,seed){
+  const g=new THREE.SphereGeometry(1,wSeg,hSeg), pa=g.attributes.position;
+  const fbm=makeNoise3(seed>>>0), v=new THREE.Vector3();
+  for(let i=0;i<pa.count;i++){
+    v.set(pa.getX(i),pa.getY(i),pa.getZ(i)).normalize();
+    const f=0.84 + 0.30*fbm(v.x*1.6+3.7, v.y*1.6+3.7, v.z*1.6+3.7, 4)
+                 + 0.07*fbm(v.x*4.5, v.y*4.5, v.z*4.5, 3);
+    pa.setXYZ(i, v.x*f, v.y*f, v.z*f);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 /* Three's SphereGeometry: phi=u·2π, theta=(1−uv.y)·π (see its source) —
    lets us convert a raycast uv to the exact point on the (spinning) mesh. */
 function uvToLocal(rec, u, v, out){
@@ -997,12 +1014,8 @@ function makeDebrisField(rec){
         roughness:0.95, emissive:0xff6a30, emissiveIntensity:0.6});
   chunkMat.userData.emberBase = rockT?1.4:0.6;
   const geos=[];
-  for(let gi=0; gi<3; gi++){            // three jittered rock shapes, reused
-    const g=new THREE.SphereGeometry(1,9,6), pa=g.attributes.position;
-    for(let i=0;i<pa.count;i++){ const f=0.62+Math.random()*0.7;
-      pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
-    g.computeVertexNormals(); geos.push(g);
-  }
+  const seedBase=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
+  for(let gi=0; gi<3; gi++) geos.push(makeRockGeo(11,8, seedBase+gi*7919));  // three rock shapes, reused
   const chunks=[];
   for(let i=0;i<46;i++){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
@@ -1069,11 +1082,7 @@ function launchAsteroid(rec, hit){
   const E=impKE();
   const tgtR=rec.radius*rec.mesh.scale.x;
   const size=Math.max(tgtR*0.05, Math.min(tgtR*0.45, tgtR*0.45*Math.cbrt(impDiaKm/1000)));
-  const geo=new THREE.SphereGeometry(1,10,7);
-  const pa=geo.attributes.position;
-  for(let i=0;i<pa.count;i++){ const f=0.72+Math.random()*0.5;
-    pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
-  geo.computeVertexNormals();
+  const geo=makeRockGeo(11,8, (Math.random()*1e9)>>>0);
   const rockT=impRockTex();
   const mesh=new THREE.Mesh(geo, rockT
     ? new THREE.MeshStandardMaterial({map:rockT,roughness:0.95,emissive:0x1c0e06})
