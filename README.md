@@ -39,7 +39,8 @@ summary in the default mode, and a short note in author's-text mode.)
 | --- | --- |
 | Orbit camera | Left-drag |
 | Zoom | Scroll wheel |
-| Pan | Right-drag |
+| Orbit camera (alt) | Right-drag |
+| Pan | Middle-drag |
 | Focus a world | Click it / pick from the list / click its label |
 | Play / pause | Bottom bar |
 | Time speed | "Speed" slider (0.05× – 40×, logarithmic) |

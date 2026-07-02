@@ -130,6 +130,11 @@
     color:var(--txt);font-size:12px;padding:4px 9px;border-radius:7px;transform:translate(-50%,-160%);
     opacity:0;transition:opacity .12s;white-space:nowrap;z-index:30}
   #helpbtn{top:16px;right:16px;width:34px;height:34px;border-radius:50%}
+  /* ⓘ — touch devices only: taps focus a world without opening the big info
+     sheet, this button toggles it (lights up while the sheet is open) */
+  #infobtn{top:58px;right:16px;width:34px;height:34px;border-radius:50%;display:none;
+    align-items:center;justify-content:center;font-size:16px}
+  @media(pointer:coarse){ #infobtn{display:inline-flex} }
   #navbtn{top:16px;left:18px;width:40px;height:40px;border-radius:10px;display:none;
     align-items:center;justify-content:center;font-size:18px;z-index:41}
   #help{top:60px;right:16px;width:300px;padding:16px 18px;display:none;font-size:12.5px;line-height:1.7;z-index:25}
@@ -230,9 +235,10 @@
 
 <button id="navbtn" class="btn panel" aria-label="Toggle body list" title="Body list">☰</button>
 <button id="helpbtn" class="btn panel" title="Help & glossary">?</button>
+<button id="infobtn" class="btn panel" title="Show / hide info about the selected world">ⓘ</button>
 <div id="help" class="panel scrollthin">
   <h4>Navigate</h4>
-  <div class="g"><b>Drag</b> — orbit camera<br><b>Scroll</b> — zoom in / out<br><b>Right-drag</b> — pan<br><b>Click a world</b> — focus &amp; read about it<br><b>List / labels</b> — jump to any body</div>
+  <div class="g"><b>Drag</b> — orbit camera (left or right button)<br><b>Scroll</b> — zoom in / out<br><b>Middle-drag</b> — pan<br><b>Click a world</b> — focus &amp; read about it<br><b>On touch screens</b> — tap focuses; ⓘ (top right) opens the info sheet<br><b>List / labels</b> — jump to any body</div>
   <h4>About the scale</h4>
   <div class="g"><b>Real scale</b> (default) places every orbit at its true distance in AU — so Amunet hugs the star and Horus sits far out at 46 AU; zoom out to find Shu and Horus. <b>Compressed</b> (toggle in the bottom bar) squeezes the huge 0.05–46 AU range so the whole system fits on screen at once. Body sizes are exaggerated in both modes (true sizes would be invisible). Real figures are in each world's data panel; orbital <b>speeds</b> follow Kepler's laws.</div>
   <h4 id="gloss-h">Glossary</h4>

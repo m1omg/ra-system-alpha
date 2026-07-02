@@ -267,6 +267,10 @@ const bodies=[];           // every animated body
 const pickables=[];        // meshes for raycasting
 let selected=null;
 
+// Touch devices: tapping a world focuses it but does NOT auto-open the big info
+// sheet — the ⓘ button (top-right) toggles it. Desktop keeps click-to-read.
+const MOBILE_UI = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+
 // --- impact lab state (💥 button; module lives before the Animation section) ---
 let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18;
 
@@ -455,6 +459,8 @@ function build(){
 
   controls=new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping=true; controls.dampingFactor=0.06;
+  // right-drag orbits exactly like left-drag (pan moved to middle-drag)
+  controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE};
   controls.minDistance=realScale?0.004:0.8; controls.maxDistance=40000;   // real mode: fly right up to a world
   controls.zoomSpeed=2.4;                  // wheel zooms further per notch
   controls.target.set(0,0,0);
@@ -513,9 +519,9 @@ function build(){
 
   // optional deep-link: index.html#satis focuses a body on load
   const hk=(location.hash||'').replace('#','').toLowerCase();
-  if(hk && bodies.some(b=>b.data.key===hk)) setTimeout(()=>focusBody(hk,true), 400);
+  if(hk && bodies.some(b=>b.data.key===hk)) setTimeout(()=>focusBody(hk,'force'), 400);
   window.addEventListener('hashchange',()=>{ const k=location.hash.replace('#','').toLowerCase();
-    if(bodies.some(b=>b.data.key===k)) focusBody(k,true); });
+    if(bodies.some(b=>b.data.key===k)) focusBody(k,'force'); });
 
   animate();
 }
@@ -785,6 +791,16 @@ let impMatI=1;
 const impAsteroids=[], impFx=[], impScarred=[];
 let impBeam=null, impShake=0, impPool=null, impPoolActiveT=0;
 let _impFlashTex=null, _impRingTex=null;
+// baked rock albedo (gpt-image-2) for asteroids + debris chunks; falls back to
+// flat colours if the file is missing. Preloaded on entering impact mode.
+let _impRockTex=null, _impRockReq=false;
+function impRockTex(){
+  if(!_impRockReq){ _impRockReq=true;
+    new THREE.TextureLoader().load('assets/img/textures/debris.webp',
+      function(t){ _impRockTex=t; }, undefined, function(){});
+  }
+  return _impRockTex;
+}
 const impRC=new THREE.Raycaster();
 const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
 
@@ -971,12 +987,18 @@ function makeDebrisField(rec){
   const group=new THREE.Object3D();
   rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
   const R=rec.radius;                   // mesh-local units
-  const base=new THREE.Color(rec.data.color||0x9a8877);
-  const chunkMat=new THREE.MeshStandardMaterial({color:base.multiplyScalar(0.8),
-    roughness:0.95, emissive:0xff6a30, emissiveIntensity:0.6});
+  const rockT=impRockTex();
+  // emissiveMap = the rock albedo too: the ember glow follows the fracture
+  // detail instead of flooding the chunks flat orange
+  const chunkMat=rockT
+    ? new THREE.MeshStandardMaterial({map:rockT, roughness:0.95,
+        emissive:0xff6a30, emissiveMap:rockT, emissiveIntensity:1.4})
+    : new THREE.MeshStandardMaterial({color:new THREE.Color(rec.data.color||0x9a8877).multiplyScalar(0.8),
+        roughness:0.95, emissive:0xff6a30, emissiveIntensity:0.6});
+  chunkMat.userData.emberBase = rockT?1.4:0.6;
   const geos=[];
   for(let gi=0; gi<3; gi++){            // three jittered rock shapes, reused
-    const g=new THREE.SphereGeometry(1,7,5), pa=g.attributes.position;
+    const g=new THREE.SphereGeometry(1,9,6), pa=g.attributes.position;
     for(let i=0;i<pa.count;i++){ const f=0.62+Math.random()*0.7;
       pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
     g.computeVertexNormals(); geos.push(g);
@@ -1052,7 +1074,10 @@ function launchAsteroid(rec, hit){
   for(let i=0;i<pa.count;i++){ const f=0.72+Math.random()*0.5;
     pa.setXYZ(i, pa.getX(i)*f, pa.getY(i)*f, pa.getZ(i)*f); }
   geo.computeVertexNormals();
-  const mesh=new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x8a7767,roughness:0.95,emissive:0x1c0e06}));
+  const rockT=impRockTex();
+  const mesh=new THREE.Mesh(geo, rockT
+    ? new THREE.MeshStandardMaterial({map:rockT,roughness:0.95,emissive:0x1c0e06})
+    : new THREE.MeshStandardMaterial({color:0x8a7767,roughness:0.95,emissive:0x1c0e06}));
   mesh.scale.setScalar(size);
   const glowMap=new THREE.CanvasTexture(texGlow('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowMap,transparent:true,
@@ -1200,7 +1225,8 @@ function updateImpacts(dt){
       c.m.position.addScaledVector(c.vel,dt);
       c.m.rotation.x+=c.rot.x*dt; c.m.rotation.y+=c.rot.y*dt; c.m.rotation.z+=c.rot.z*dt;
     }
-    D.chunkMat.emissiveIntensity=0.08+0.55*Math.exp(-D.t/30);   // embers cool
+    const eb=D.chunkMat.userData.emberBase||0.6;
+    D.chunkMat.emissiveIntensity=eb*(0.13+0.87*Math.exp(-D.t/30));   // embers cool
     if(D.haze){
       const fade=1/(1+D.t/40);
       if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
@@ -1240,6 +1266,7 @@ function updateImpacts(dt){
 function toggleImpact(){ impacting?exitImpact():enterImpact(); }
 function enterImpact(){
   if(flying) exitFly();
+  impRockTex();                 // kick off the rock-texture load before anything fires
   impacting=true;
   document.getElementById('implab').classList.add('on');
   const b=document.getElementById('t-impact'); if(b) b.classList.add('on');
@@ -1465,6 +1492,11 @@ function setupInteraction(){
   document.getElementById('reset').onclick=resetView;
   document.getElementById('close').onclick=closeInfo;
   document.getElementById('helpbtn').onclick=()=>document.getElementById('help').classList.toggle('open');
+  const ib=document.getElementById('infobtn');   // mobile: ⓘ toggles the info sheet
+  if(ib) ib.onclick=()=>{
+    if(document.getElementById('info').classList.contains('open')) closeInfo();
+    else{ const rec=bodies.find(b=>b.data.key===selected); if(rec) openInfo(rec.data); }
+  };
   const navbtn=document.getElementById('navbtn');
   if(navbtn) navbtn.onclick=()=>document.getElementById('nav').classList.toggle('open');
 
@@ -1626,7 +1658,8 @@ function focusBody(key, openPanel){
     if(rec.data.kind==='star') tween.dist = starVisR()*7;
   }
   selected=key; setActiveNav(key);
-  if(openPanel!==false) openInfo(rec.data);
+  // 'force' (deep links) always opens; plain true is suppressed on touch devices
+  if(openPanel==='force' || (openPanel!==false && !MOBILE_UI)) openInfo(rec.data);
 }
 
 /* ============================================================
@@ -1899,7 +1932,10 @@ function openInfo(d){
     if(verbatim){ addSource("From the source — author's text"); addParas(verbatim); }
   }
   document.getElementById('info').classList.add('open');
+  syncInfoBtn();
 }
+function syncInfoBtn(){ const ib=document.getElementById('infobtn');
+  if(ib) ib.classList.toggle('on', document.getElementById('info').classList.contains('open')); }
 /* info panel for a world destroyed in the impact lab */
 function openInfoDestroyed(rec){
   const d=rec.data;
@@ -1927,9 +1963,10 @@ function openInfoDestroyed(rec){
   hint.textContent='(🧽 Heal in the impact lab restores the planet.)';
   ds.appendChild(hint);
   document.getElementById('info').classList.add('open');
+  syncInfoBtn();
 }
 
-function closeInfo(){ document.getElementById('info').classList.remove('open'); setActiveNav(selected); }
+function closeInfo(){ document.getElementById('info').classList.remove('open'); setActiveNav(selected); syncInfoBtn(); }
 
 function buildGlossary(){
   const el=document.getElementById('gloss');
