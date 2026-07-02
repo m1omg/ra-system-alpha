@@ -30,7 +30,7 @@ const YEARS_PER_SEC = 0.030;              // sim years per real second when time
 const SEC_PER_YEAR  = 31557600;           // 365.25 days
 const RATE_MIN_YPS  = 1/SEC_PER_YEAR;     // slider min = real-time (1 sim-second per real-second)
 const RATE_MAX_YPS  = 2.0;                // slider max ≈ 2 years / second
-const DEFAULT_RATE_YPS = 0.0006;          // ≈ 6 hours / second — gentle default motion
+const DEFAULT_RATE_YPS = RATE_MIN_YPS;    // default = true real-time (1 s/s; planets ~frozen)
 const rateToSlider = (yps)=> 100*Math.log(yps/RATE_MIN_YPS)/Math.log(RATE_MAX_YPS/RATE_MIN_YPS);
 const DEFAULT_SPEED_V = rateToSlider(DEFAULT_RATE_YPS);
 const DEFAULT_SIZE_V  = 100;             // Size slider value for the default body size (sizeMult = 1.0)
