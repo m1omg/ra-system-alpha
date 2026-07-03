@@ -1285,6 +1285,7 @@ function applyStrike(rec, u, v, E, imp){
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
   const fxP=wp.clone().addScaledVector(normal,R*0.04);
   const thM=impMeltPoolDeg(rec,E);           // lava sea, at its physical size on this world
+  sfxImpact(rec,E);
   const meltish=Math.min(1, thM/12);         // 0 = cratering strike, 1 = region-melting monster
   spawnFlash(fxP,R*(1+1.2*meltish),E); spawnShock(fxP,R*(1+0.8*meltish),E);
   if(!impImmune(rec) && !rec.destroyed){
@@ -1330,6 +1331,7 @@ function applyStrike(rec, u, v, E, imp){
 const debrisFields=[];
 function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
+  sfxShatter(rec);
   const wp=worldPosOf(rec), R=rec.radius*rec.mesh.scale.x;
   spawnFlash(wp,R*2.6,impBindingJ(rec));
   spawnShock(wp,R*2.0,impBindingJ(rec));
@@ -1792,6 +1794,141 @@ function impHeal(){
   for(const t of evapTails) t.points.visible=showTails;
   if(APP.currentData && document.getElementById('info').classList.contains('open'))
     openInfo(APP.currentData);
+  sfxChime();
+}
+
+/* ============================================================
+   Sound effects — procedural Web Audio, no files (offline).
+   Not realistic (space is silent) — rule of cool, off by default.
+   Master bus: compressor glue + a synthesized 2.6 s hall reverb.
+   ============================================================ */
+let sfxOn=false, sfxAC=null, sfxMaster=null, sfxNoiseBuf=null, sfxBeamN=null;
+function sfxCtx(){
+  if(sfxAC) return sfxAC;
+  const Ctor=window.AudioContext||window.webkitAudioContext; if(!Ctor) return null;
+  sfxAC=new Ctor();
+  const comp=sfxAC.createDynamicsCompressor();
+  comp.threshold.value=-18; comp.knee.value=18; comp.ratio.value=6;
+  comp.attack.value=0.004; comp.release.value=0.28;
+  comp.connect(sfxAC.destination);
+  sfxMaster=sfxAC.createGain(); sfxMaster.gain.value=0.9;
+  sfxMaster.connect(comp);
+  const sr=sfxAC.sampleRate, ir=sfxAC.createBuffer(2,2.6*sr|0,sr);   // exp-decaying noise = hall
+  for(let ch=0;ch<2;ch++){ const d=ir.getChannelData(ch);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,3.2); }
+  const verb=sfxAC.createConvolver(); verb.buffer=ir;
+  const wet=sfxAC.createGain(); wet.gain.value=0.35;
+  sfxMaster.connect(verb); verb.connect(wet); wet.connect(comp);
+  return sfxAC;
+}
+function sfxReady(){ if(!sfxOn||!sfxCtx()) return false;
+  if(sfxAC.state==='suspended') sfxAC.resume();               // strikes ARE user gestures
+  return sfxAC.state!=='closed';
+}
+function sfxNoiseSrc(){
+  if(!sfxNoiseBuf){ sfxNoiseBuf=sfxAC.createBuffer(1,sfxAC.sampleRate*2,sfxAC.sampleRate);
+    const d=sfxNoiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+  const s=sfxAC.createBufferSource(); s.buffer=sfxNoiseBuf; s.loop=true; return s;
+}
+function sfxDistGain(rec){                                    // closer to the fireworks = louder
+  const R=rec.radius*rec.mesh.scale.x||1;
+  const d=camera.position.distanceTo(worldPosOf(rec));
+  return Math.max(0.12, Math.min(1, Math.sqrt(8*R/Math.max(d,8*R))));
+}
+/* one boom: sine sub-drop + noise crack through a sweeping lowpass; k 0..1 sizes it */
+function sfxBoom(g0,k,t){
+  const o=sfxAC.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(120-60*k,t); o.frequency.exponentialRampToValueAtTime(24,t+0.5+1.2*k);
+  const og=sfxAC.createGain(); og.gain.setValueAtTime(0.9*g0,t);
+  og.gain.exponentialRampToValueAtTime(1e-4,t+0.9+1.6*k);
+  o.connect(og); og.connect(sfxMaster); o.start(t); o.stop(t+1+1.7*k);
+  const n=sfxNoiseSrc(), f=sfxAC.createBiquadFilter(); f.type='lowpass';
+  f.frequency.setValueAtTime(6000,t); f.frequency.exponentialRampToValueAtTime(120,t+0.7+1.5*k);
+  const ng=sfxAC.createGain(); ng.gain.setValueAtTime(0.7*g0,t);
+  ng.gain.exponentialRampToValueAtTime(1e-4,t+0.8+1.8*k);
+  n.connect(f); f.connect(ng); ng.connect(sfxMaster); n.start(t); n.stop(t+1+2*k);
+}
+function sfxImpact(rec,E){
+  if(!sfxReady()) return;
+  const k=Math.min(1,Math.max(0,(Math.log10(Math.max(1,E))-20)/14));   // 1e20..1e34 J → 0..1
+  sfxBoom(sfxDistGain(rec)*(0.35+0.65*k), k, sfxAC.currentTime);
+}
+function sfxShatter(rec){
+  if(!sfxReady()) return;
+  const t=sfxAC.currentTime, g0=Math.max(0.5,sfxDistGain(rec));
+  sfxBoom(g0*1.2, 1, t);
+  const n=sfxNoiseSrc(), f=sfxAC.createBiquadFilter();       // long seismic rumble
+  f.type='lowpass'; f.frequency.setValueAtTime(90,t); f.frequency.exponentialRampToValueAtTime(35,t+6);
+  const ng=sfxAC.createGain(); ng.gain.setValueAtTime(0.8*g0,t+0.15);
+  ng.gain.exponentialRampToValueAtTime(1e-4,t+7);
+  n.connect(f); f.connect(ng); ng.connect(sfxMaster); n.start(t); n.stop(t+7.2);
+  for(let i=0;i<14;i++){                                     // debris crackle
+    const ct=t+0.15+Math.random()*2.2, cd=0.04+Math.random()*0.09;
+    const c=sfxNoiseSrc(), cf=sfxAC.createBiquadFilter();
+    cf.type='bandpass'; cf.frequency.value=400+Math.random()*2100; cf.Q.value=2.5;
+    const cg=sfxAC.createGain(); cg.gain.setValueAtTime(0,ct);
+    cg.gain.linearRampToValueAtTime((0.08+Math.random()*0.22)*g0,ct+0.008);
+    cg.gain.exponentialRampToValueAtTime(1e-4,ct+cd);
+    c.connect(cf); cf.connect(cg); cg.connect(sfxMaster); c.start(ct); c.stop(ct+cd+0.05);
+  }
+}
+function sfxWhoosh(T){                                        // asteroid run-in, rises toward arrival
+  if(!sfxReady()) return;
+  const t=sfxAC.currentTime, d=Math.min(T,3.2);
+  const n=sfxNoiseSrc(), f=sfxAC.createBiquadFilter();
+  f.type='bandpass'; f.Q.value=1.1;
+  f.frequency.setValueAtTime(260,t); f.frequency.exponentialRampToValueAtTime(1600,t+d);
+  const g=sfxAC.createGain(); g.gain.setValueAtTime(1e-4,t);
+  g.gain.exponentialRampToValueAtTime(0.16,t+d*0.85); g.gain.exponentialRampToValueAtTime(1e-4,t+d);
+  n.connect(f); f.connect(g); g.connect(sfxMaster); n.start(t); n.stop(t+d+0.05);
+}
+function sfxBeamStart(){
+  if(!sfxReady()||sfxBeamN) return;
+  const t=sfxAC.currentTime, b=Math.min(1,Math.max(0,(Math.log10(impPowW)-12)/22));
+  const g=sfxAC.createGain(); g.gain.setValueAtTime(1e-4,t);
+  g.gain.exponentialRampToValueAtTime(0.20+0.14*b,t+0.12);
+  g.connect(sfxMaster);
+  const f=sfxAC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=320+520*b; f.Q.value=8;
+  f.connect(g);
+  const o1=sfxAC.createOscillator(); o1.type='sawtooth'; o1.frequency.value=64;
+  const o2=sfxAC.createOscillator(); o2.type='sawtooth'; o2.frequency.value=64.7;   // slow beat
+  o1.connect(f); o2.connect(f);
+  const lfo=sfxAC.createOscillator(); lfo.frequency.value=5.5;                      // filter wobble
+  const lg=sfxAC.createGain(); lg.gain.value=120+90*b; lfo.connect(lg); lg.connect(f.frequency);
+  const sh=sfxAC.createOscillator(); sh.type='sine'; sh.frequency.value=1960;       // shimmer
+  const vib=sfxAC.createOscillator(); vib.frequency.value=7;
+  const vg=sfxAC.createGain(); vg.gain.value=26; vib.connect(vg); vg.connect(sh.frequency);
+  const sg=sfxAC.createGain(); sg.gain.value=0.05; sh.connect(sg); sg.connect(g);
+  const hiss=sfxNoiseSrc(), hf=sfxAC.createBiquadFilter();
+  hf.type='bandpass'; hf.frequency.value=3000; hf.Q.value=1.2;
+  const hg=sfxAC.createGain(); hg.gain.value=0.05; hiss.connect(hf); hf.connect(hg); hg.connect(g);
+  for(const x of [o1,o2,lfo,sh,vib,hiss]) x.start(t);
+  sfxBeamN={g, stops:[o1,o2,lfo,sh,vib,hiss]};
+}
+function sfxBeamStop(){
+  if(!sfxBeamN||!sfxAC) return;
+  const N=sfxBeamN, t=sfxAC.currentTime; sfxBeamN=null;
+  N.g.gain.cancelScheduledValues(t); N.g.gain.setValueAtTime(N.g.gain.value,t);
+  N.g.gain.exponentialRampToValueAtTime(1e-4,t+0.15);
+  for(const x of N.stops){ try{ x.stop(t+0.2); }catch(_){} }
+  setTimeout(()=>{ try{ N.g.disconnect(); }catch(_){} },400);
+}
+function sfxChime(){                                          // 🧽 Heal: a soft two-note bell
+  if(!sfxReady()) return;
+  const t=sfxAC.currentTime;
+  [[880,0],[1318.5,0.09]].forEach(([hz,dt])=>{
+    const o=sfxAC.createOscillator(); o.type='sine'; o.frequency.value=hz;
+    const g=sfxAC.createGain(); g.gain.setValueAtTime(0,t+dt);
+    g.gain.linearRampToValueAtTime(0.16,t+dt+0.012); g.gain.exponentialRampToValueAtTime(1e-4,t+dt+1.1);
+    o.connect(g); g.connect(sfxMaster); o.start(t+dt); o.stop(t+dt+1.2);
+  });
+}
+function toggleSfx(){
+  sfxOn=!sfxOn;
+  try{ localStorage.setItem('ra-sfx', sfxOn?'1':'0'); }catch(_){}
+  const b=document.getElementById('t-sfx'); if(b) b.classList.toggle('on',sfxOn);
+  if(sfxOn){ if(sfxReady()){ sfxChime(); if(impBeam) sfxBeamStart(); } }
+  else { sfxBeamStop(); if(sfxAC&&sfxAC.state==='running') sfxAC.suspend(); }
 }
 
 /* ---- asteroid projectiles: jittered rock + glow, homing at the chosen surface point ---- */
@@ -1826,6 +1963,7 @@ function launchAsteroid(rec, hit){
   impAsteroids.push({rec,u,v,mesh,glowMap,spMat,start,t:0,T,E,
     mKg:impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3), vKms:impSpdKms,   // for the momentum kick
     spin:new THREE.Vector3(Math.random()*4-2,Math.random()*4-2,Math.random()*4-2)});
+  sfxWhoosh(T);
 }
 
 /* ---- laser: frozen world-space ray; the body orbits/rotates through it ---- */
@@ -1846,9 +1984,11 @@ function startBeam(rec, e){
   impBeam={rec, origin:impRC.ray.origin.clone(), dir:impRC.ray.direction.clone(),
     core, sheath, hitGlow, missT:0, sparkT:0, firedJ:0};
   controls.enabled=false;
+  sfxBeamStart();
 }
 function stopBeam(){
   if(!impBeam) return;
+  sfxBeamStop();
   for(const o of [impBeam.core,impBeam.sheath,impBeam.hitGlow]){
     scene.remove(o); if(o.geometry) o.geometry.dispose(); o.material.dispose();
   }
@@ -2282,6 +2422,9 @@ function setupInteraction(){
     if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData); }; }
   updateTextUI();
   const tls=document.getElementById('t-tails'); if(tls) tls.onclick=toggleTails;
+  const sx=document.getElementById('t-sfx');
+  if(sx){ sx.onclick=toggleSfx;
+    try{ if(localStorage.getItem('ra-sfx')==='1'){ sfxOn=true; sx.classList.add('on'); } }catch(_){} }
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
     for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits; };
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);

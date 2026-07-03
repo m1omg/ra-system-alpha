@@ -73,6 +73,7 @@ titles: {
   't-tails':'Zapne/vypne vyparovacie chvosty (Amunet, Sekhmet)',
   't-fly':'Voľný let (reálna mierka)',
   't-impact':'Impaktné laboratórium — nastaviteľné dopady asteroidov a laser',
+  't-sfx':'Zvukové efekty — nerealistické (vesmír je tichý), ale pre efekt',
   't-lang':'Slovenčina / English',
   'imp-heal':'Odstráni všetky jazvy a vynuluje poškodenie',
   'imp-exit':'Zavrieť (Esc)',
