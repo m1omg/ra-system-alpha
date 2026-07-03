@@ -148,7 +148,7 @@ function texGas(palette, seed, opts){
 /* ---- rocky / lava / icy mottled (seamless, height-ramp shading) ---- */
 function texRocky(p, seed, opts){
   opts=opts||{};
-  const w=TXW,h=TXH,c=newCanvas(w,h),ctx=c.getContext('2d');
+  const w=opts.w||TXW,h=opts.h||TXH,c=newCanvas(w,h),ctx=c.getContext('2d');
   const img=ctx.createImageData(w,h),d=img.data;
   const fbm=makeNoise3(seed);
   // height ramp: dark lowlands -> base -> mid -> bright highlands
@@ -253,6 +253,39 @@ function texGlow(inner, outer){
   g.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=g; ctx.fillRect(0,0,s,s);
   return c;
+}
+
+/* ============================================================
+   Canvas-texture survival (Android): backgrounded tabs can have their
+   2D-canvas backing stores DISCARDED — image-based textures (the baked
+   .webp maps) reload fine, but every canvas-based texture (magma oceans,
+   scars, glow sprites…) comes back blank. A tiny sentinel canvas detects
+   the wipe on return and registered repainters restore the content.
+   ============================================================ */
+const _cvRepaint=[];
+let _cvSentinel=null;
+function regCanvasTex(tex, fn){ _cvRepaint.push({tex, fn}); return tex; }
+function unregCanvasTex(tex){
+  for(let i=_cvRepaint.length-1;i>=0;i--) if(_cvRepaint[i].tex===tex) _cvRepaint.splice(i,1);
+}
+function cvArmSentinel(){
+  if(!_cvSentinel) _cvSentinel=newCanvas(4,4);
+  const c=_cvSentinel.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,4,4);
+}
+function cvCheckRestore(){
+  if(!_cvSentinel) return;
+  let lost=false;
+  try{ lost=_cvSentinel.getContext('2d').getImageData(0,0,1,1).data[3]===0; }catch(_){ lost=true; }
+  if(!lost) return;
+  cvArmSentinel();
+  for(const r of _cvRepaint){ try{ r.fn(); r.tex.needsUpdate=true; }catch(_){ } }
+}
+document.addEventListener('visibilitychange',function(){ if(!document.hidden) setTimeout(cvCheckRestore,60); });
+/* glow-sprite texture that repaints itself after a canvas wipe */
+function glowCanvasTex(inner, outer){
+  const c=texGlow(inner,outer), t=new THREE.CanvasTexture(c);
+  regCanvasTex(t, function(){ c.getContext('2d').drawImage(texGlow(inner,outer),0,0); });
+  return t;
 }
 
 /* ============================================================
@@ -388,23 +421,34 @@ function makeAtmosphere(radius, color, strength){
 function buildBodyMesh(data, radius){
   const seed = (data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
   const geo=new THREE.SphereGeometry(radius, 64, 48);
-  let mat, emap=null;
-  let tex;
-  if(data.kind==='star'){
-    tex=texStar(["#ffb347","#ffe9b0","#fff8ee","#ffdf9a"], seed);
-  }else if(data.kind==='gasgiant'||data.kind==='browndwarf'){
-    tex=texGas(data.palette||["#888","#bbb","#666"], seed, {turb:0.06,streak:0.18});
-  }else if(data.kind==='lava'){
-    const r=texRocky(data.rocky, seed, {glow:'#ffb84a', emissData:true});
-    tex=r.map; emap=r.emap;
-  }else if(data.terran){
-    tex=texTerran(data.terran, seed);
-  }else if(data.rocky){
-    tex=texRocky(data.rocky, seed, {ice:data.terran&&data.terran.ice});
-  }else{ // iceworld with palette
-    tex=texGas(data.palette||["#9ab","#cde","#8aa"], seed, {turb:0.08,streak:0.10});
-  }
+  let mat;
+  const gen=()=>{                          // deterministic — reused to repaint after a canvas wipe
+    let tex, emap=null;
+    if(data.kind==='star'){
+      tex=texStar(["#ffb347","#ffe9b0","#fff8ee","#ffdf9a"], seed);
+    }else if(data.kind==='gasgiant'||data.kind==='browndwarf'){
+      tex=texGas(data.palette||["#888","#bbb","#666"], seed, {turb:0.06,streak:0.18});
+    }else if(data.kind==='lava'){
+      const r=texRocky(data.rocky, seed, {glow:'#ffb84a', emissData:true});
+      tex=r.map; emap=r.emap;
+    }else if(data.terran){
+      tex=texTerran(data.terran, seed);
+    }else if(data.rocky){
+      tex=texRocky(data.rocky, seed, {ice:data.terran&&data.terran.ice});
+    }else{ // iceworld with palette
+      tex=texGas(data.palette||["#9ab","#cde","#8aa"], seed, {turb:0.08,streak:0.10});
+    }
+    return {tex, emap};
+  };
+  const g0=gen();
+  const tex=g0.tex, emap=g0.emap;
   const map=new THREE.CanvasTexture(tex); map.anisotropy=4;
+  regCanvasTex(map, function(){            // only if the procedural map is still the live one
+    if(!mat || mat.map!==map) return;
+    const g=gen(); tex.getContext('2d').drawImage(g.tex,0,0);
+    if(emap && mat.emissiveMap && mat.emissiveMap.image===emap){
+      emap.getContext('2d').drawImage(g.emap,0,0); mat.emissiveMap.needsUpdate=true; }
+  });
   if(data.kind==='star'){
     mat=new THREE.MeshBasicMaterial({map});
   }else{
@@ -592,6 +636,8 @@ function build(){
   // evaporation tails (bodies flagged evapTail in data.js — planets and moons)
   for(const rec of bodies) if(rec.data.evapTail) makeEvapTail(rec);
 
+  cvArmSentinel();                                        // Android canvas-wipe detector
+  renderer.domElement.addEventListener('webglcontextrestored', ()=>setTimeout(cvCheckRestore,60));
   buildNav(); buildGlossary();
   // language toggle (English default; Slovak from assets/lang-sk.js)
   const lb=document.getElementById('t-lang');
@@ -677,16 +723,14 @@ function setScaleMode(real){
 
 function addStarGlow(holder, r, inner, outer, scale){
   // depthTest:true so planets in front of the star occlude its glow (no see-through wash)
-  const c=texGlow(rgbaStr(inner,1), rgbaStr(outer,0.55));
-  const map=new THREE.CanvasTexture(c);
+  const map=glowCanvasTex(rgbaStr(inner,1), rgbaStr(outer,0.55));
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map, color:0xffffff, transparent:true,
     blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true}));
   sp.scale.set(r*scale, r*scale, 1);
   holder.add(sp);
   // soft inner corona
-  const c2=texGlow(rgbaStr(inner,0.9), rgbaStr(inner,0.0));
-  const sp2=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c2), transparent:true,
-    blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true}));
+  const sp2=new THREE.Sprite(new THREE.SpriteMaterial({map:glowCanvasTex(rgbaStr(inner,0.9), rgbaStr(inner,0.0)),
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true}));
   sp2.scale.set(r*scale*0.55, r*scale*0.55,1); holder.add(sp2);
 }
 function rgbaStr(hex,a){ const [r,g,b]=hex2rgb(hex); return `rgba(${r|0},${g|0},${b|0},${a})`; }
@@ -955,10 +999,27 @@ function getScars(rec){
     new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
-  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0};
+  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[]};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
+  // Android canvas wipe: replay the permanent marks (char + melt) from the log
+  regCanvasTex(charT, function(){
+    const s=rec.scar;
+    s.charC.getContext('2d').clearRect(0,0,1024,512);
+    s.meltC.getContext('2d').clearRect(0,0,1024,512);
+    s.glowC.getContext('2d').clearRect(0,0,1024,512);   // transient heat: just cleared
+    for(const L of s.log){
+      const ctx=(L.l==='m'?s.meltC:s.charC).getContext('2d');
+      if(L.a!=null){ ctx.save(); ctx.globalAlpha=L.a; impSplat(ctx,L.u,L.v,L.r,L.s); ctx.restore(); }
+      else impSplat(ctx,L.u,L.v,L.r,L.s);
+    }
+    s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
+  });
   return rec.scar;
+}
+function scarLog(s, l, u, v, r, style, a){
+  s.log.push({l,u,v,r,s:style,a});
+  if(s.log.length>2600) s.log.splice(0,600);            // cap: long laser burns
 }
 
 /* ---- melting tiers, from the real energy budget. Heating rock to ~1700 K
@@ -989,9 +1050,12 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   const s=getScars(rec);
   if(s.ocean) return s.ocean;
   const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
-  const t=new THREE.CanvasTexture(texRocky(
-    {b:'#1c0803', base:'#4a1206', a:'#8a2408', c:'#d4501a'}, (seed^0x9e37)>>>0, {glow:'#ffc24e'}));
+  const genO=()=>texRocky({b:'#1c0803', base:'#4a1206', a:'#8a2408', c:'#d4501a'},
+    (seed^0x9e37)>>>0, {glow:'#ffc24e'});
+  const cv=genO();
+  const t=new THREE.CanvasTexture(cv);
   t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;                 // wraps → the magma can churn
+  regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genO(),0,0); });  // Android canvas wipe
   const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.007,64,48),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
@@ -1085,8 +1149,8 @@ function impSplat(ctx, u, v, rPx, style){
   }
 }
 
-function impFlashTexture(){ if(!_impFlashTex) _impFlashTex=new THREE.CanvasTexture(
-  texGlow('rgba(255,250,232,1)','rgba(255,160,60,0.55)')); return _impFlashTex; }
+function impFlashTexture(){ if(!_impFlashTex) _impFlashTex=glowCanvasTex('rgba(255,250,232,1)','rgba(255,160,60,0.55)');
+  return _impFlashTex; }
 function impRingTexture(){
   if(_impRingTex) return _impRingTex;
   const s=256, c=newCanvas(s,s), ctx=c.getContext('2d');
@@ -1182,12 +1246,14 @@ function applyStrike(rec, u, v, E, imp){
     const th=Math.max(0.8, impCraterDeg(rec,E), thM*1.15);      // char rim just beyond the melt
     const rPx=th/180*512;
     const gasy=(rec.data.kind==='gasgiant');
-    if(!gasy) impSplat(s.charC.getContext('2d'), u, 1-v, rPx, IMP_CHAR);
+    if(!gasy){ impSplat(s.charC.getContext('2d'), u, 1-v, rPx, IMP_CHAR);
+      scarLog(s,'c',u,1-v,rPx,IMP_CHAR,null); }
     if(!gasy && thM>0.25){                   // big hits leave a permanent lava sea, not just char
       const mc=s.meltC.getContext('2d');
       mc.save(); mc.globalAlpha=0.45+0.55*meltish;
       impSplat(mc, u, 1-v, thM/180*512, IMP_LAVA);
       mc.restore(); s.meltT.needsUpdate=true;
+      scarLog(s,'m',u,1-v,thM/180*512,IMP_LAVA,0.45+0.55*meltish);
     }
     impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15+0.9*meltish), IMP_GLOW);
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
@@ -1294,22 +1360,30 @@ function makeShardGeo(dir, angR, k, depth, R){
    own map charred nearly black, with molten cracks glowing through it —
    no surviving oceans or forests. */
 function impScorchedSkin(rec){
-  const c=newCanvas(1024,512), ctx=c.getContext('2d');
-  let drew=false;
-  const img=rec.mesh.material.map && rec.mesh.material.map.image;
-  if(img){
-    try{                                 // probe first: a tainted canvas would break the GL upload
-      const pr=newCanvas(2,2); pr.getContext('2d').drawImage(img,0,0,2,2);
-      pr.getContext('2d').getImageData(0,0,1,1);
-      ctx.drawImage(img,0,0,1024,512); drew=true;
-    }catch(_){ drew=false; }
-  }
-  if(!drew){ ctx.fillStyle='#'+new THREE.Color(rec.data.color||0x887766).getHexString(); ctx.fillRect(0,0,1024,512); }
-  ctx.fillStyle='rgba(14,9,6,0.78)'; ctx.fillRect(0,0,1024,512);   // baked to char
+  // 512×256 — shards are small; full res cost a visible hitch on tablets
+  const W=512,H=256, c=newCanvas(W,H), ec=newCanvas(W,H);
   const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
-  const r=texRocky({b:'#140602', base:'#3a0e04', a:'#6a1a06', c:'#a03210'},
-    (seed^0x51f3)>>>0, {glow:'#ffcf5e', emissData:true});   // molten-crack emissive map
-  return {map:new THREE.CanvasTexture(c), emap:new THREE.CanvasTexture(r.emap)};
+  const paint=function(){
+    const ctx=c.getContext('2d');
+    let drew=false;
+    const img=rec.mesh.material.map && rec.mesh.material.map.image;
+    if(img){
+      try{                               // probe first: a tainted canvas would break the GL upload
+        const pr=newCanvas(2,2); pr.getContext('2d').drawImage(img,0,0,2,2);
+        pr.getContext('2d').getImageData(0,0,1,1);
+        ctx.drawImage(img,0,0,W,H); drew=true;
+      }catch(_){ drew=false; }
+    }
+    if(!drew){ ctx.fillStyle='#'+new THREE.Color(rec.data.color||0x887766).getHexString(); ctx.fillRect(0,0,W,H); }
+    ctx.fillStyle='rgba(14,9,6,0.78)'; ctx.fillRect(0,0,W,H);      // baked to char
+    const r=texRocky({b:'#140602', base:'#3a0e04', a:'#6a1a06', c:'#a03210'},
+      (seed^0x51f3)>>>0, {glow:'#ffcf5e', emissData:true, w:W, h:H});
+    ec.getContext('2d').drawImage(r.emap,0,0);                     // molten-crack emissive
+  };
+  paint();
+  const map=new THREE.CanvasTexture(c), emap=new THREE.CanvasTexture(ec);
+  regCanvasTex(map, function(){ paint(); emap.needsUpdate=true; });  // Android canvas wipe
+  return {map, emap};
 }
 
 function makeDebrisField(rec){
@@ -1362,7 +1436,7 @@ function makeDebrisField(rec){
     outerMat=new THREE.MeshStandardMaterial({map:skin.map, roughness:1.0,
       emissive:0xffffff, emissiveMap:skin.emap, emissiveIntensity:2.2});
     outerMat.userData.emberBase=2.2;
-    const NS=Math.round(30*(1-0.5*gas));
+    const NS=Math.round(30*(1-0.5*gas)*(MOBILE_UI?0.65:1));   // fewer draw calls on tablets
     const GA=Math.PI*(3-Math.sqrt(5));
     for(let i=0;i<NS;i++){
       const y=1-2*(i+0.5)/NS, rr=Math.sqrt(Math.max(0,1-y*y)), a=GA*i;
@@ -1381,7 +1455,7 @@ function makeDebrisField(rec){
     }
   }
   // small rubble between the slabs (generic hot rocks, impact-driven too)
-  const NCH=Math.round((shardGeos.length?18:46)*(1-0.72*gas));
+  const NCH=Math.round((shardGeos.length?18:46)*(1-0.72*gas)*(MOBILE_UI?0.65:1));
   const szF=1-0.35*gas;
   for(let i=0;i<NCH;i++){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
@@ -1413,8 +1487,8 @@ function makeDebrisField(rec){
   const glowy = gas>=0.6;
   const hzSize=glowy?R*(0.12+0.42*gas):R*0.09, hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
   const hazeMat=new THREE.PointsMaterial({
-    map:new THREE.CanvasTexture(glowy?texGlow('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')
-                                     :texGlow('rgba(255,150,70,0.75)','rgba(120,30,8,0.18)')),
+    map:glowy?glowCanvasTex('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')
+             :glowCanvasTex('rgba(255,150,70,0.75)','rgba(120,30,8,0.18)'),
     color:glowy?tint:new THREE.Color(0xff8542), size:hzSize*rec.mesh.scale.x,
     sizeAttenuation:true, transparent:true, opacity:hzOp,
     blending:THREE.AdditiveBlending, depthWrite:false});
@@ -1449,7 +1523,7 @@ function keplerStateAU(aAU,e,q,M,mu){     // -> instantaneous {r (AU), v (AU/yr)
 const debrisRings=[];
 let lastSimDtYears=0;                     // set each frame in animate()
 function makeDebrisRing(rec){
-  const N=1400;
+  const N=MOBILE_UI?700:1400;               // half the sparkles on touch devices — indistinguishable
   const M0=rec.M%(Math.PI*2), n=Math.PI*2/rec.period;       // mean motion, rad per sim-year
   const Mi=new Float32Array(N), dn=new Float32Array(N), radJ=new Float32Array(N), vertJ=new Float32Array(N);
   const over=Math.max(1,(rec.dmgJ||0)/impBindingJ(rec));
@@ -1469,7 +1543,7 @@ function makeDebrisRing(rec){
   const g=new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute('color', new THREE.BufferAttribute(col,3));
-  const m=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,245,225,1)','rgba(255,210,150,0)')),
+  const m=new THREE.PointsMaterial({map:glowCanvasTex('rgba(255,245,225,1)','rgba(255,210,150,0)'),
     vertexColors:true, size:1, sizeAttenuation:true, transparent:true, opacity:0.9,
     blending:THREE.AdditiveBlending, depthWrite:false});
   const points=new THREE.Points(g,m); points.frustumCulled=false;
@@ -1481,9 +1555,15 @@ function updateDebrisRings(dtYears){
   for(const D of debrisRings){
     const rec=D.rec, a=rec.aDisp, e=rec.e;
     D.t+=dtYears;
+    // lazy: accumulate sim-time and only recompute once the points would have
+    // visibly moved (>~3e-4 rad along the orbit) or the display scale changed.
+    // At real-time rates the ring costs nothing; at high warp it shears live.
+    D.pend=(D.pend||0)+dtYears;
+    if(D.init && a===D.lastA && e===D.lastE && D.pend*D.n*1.05<3e-4) continue;
+    const step=D.pend; D.pend=0; D.init=true; D.lastA=a; D.lastE=e;
     const posA=D.g.attributes.position, b=a*Math.sqrt(1-e*e);
     for(let i=0;i<D.Mi.length;i++){
-      D.Mi[i]+=(D.n+D.dn[i])*dtYears;
+      D.Mi[i]+=(D.n+D.dn[i])*step;
       const E=kepler(D.Mi[i]%(Math.PI*2), e);
       const rj=1+D.radJ[i];
       _impV3.set(a*(Math.cos(E)-e)*rj, D.vertJ[i]*a, b*Math.sin(E)*rj).applyQuaternion(rec.q);
@@ -1601,16 +1681,16 @@ function removeDebrisField(rec){
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
     for(const g of (D.shardGeos||[])) g.dispose();
-    if(D.outerMat){ if(D.outerMat.map) D.outerMat.map.dispose();
+    if(D.outerMat){ if(D.outerMat.map){ unregCanvasTex(D.outerMat.map); D.outerMat.map.dispose(); }
       if(D.outerMat.emissiveMap) D.outerMat.emissiveMap.dispose(); D.outerMat.dispose(); }
     D.chunkMat.dispose();
-    if(D.haze){ D.haze.geometry.dispose(); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
+    if(D.haze){ D.haze.geometry.dispose(); unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
     debrisFields.splice(i,1);
   }
   for(let i=debrisRings.length-1;i>=0;i--){
     const D=debrisRings[i]; if(D.rec!==rec) continue;
     rec.parentHolder.remove(D.points); D.g.dispose();
-    D.points.material.map.dispose(); D.points.material.dispose();
+    unregCanvasTex(D.points.material.map); D.points.material.map.dispose(); D.points.material.dispose();
     debrisRings.splice(i,1);
   }
   rec.mesh.material.visible=true;
@@ -1626,6 +1706,7 @@ function impHeal(){
     s.charC.getContext('2d').clearRect(0,0,1024,512);
     s.glowC.getContext('2d').clearRect(0,0,1024,512);
     s.meltC.getContext('2d').clearRect(0,0,1024,512);
+    s.log.length=0;
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
     if(s.ocean){ s.ocean.material.opacity=0; s.ocean.material.color.setScalar(1); }
     if(s.halo) s.halo.material.uniforms.p.value=0;
@@ -1774,6 +1855,8 @@ function updateImpacts(dt){
             impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);
             impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.30, IMP_LAVA_SOFT);  // the burn line stays molten
             s.meltT.needsUpdate=true;
+            scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.55,IMP_CHAR_SOFT,null);
+            scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.30,IMP_LAVA_SOFT,null);
           }
           impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
           s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
@@ -1841,7 +1924,7 @@ function updateImpacts(dt){
     if(D.haze){
       const fade=1/(1+D.t/D.fadeT);
       if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
-        D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
+        unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
       else{
         D.hazeMat.opacity=D.op0*fade;
         D.hazeMat.size=D.hazeSize*D.rec.mesh.scale.x;   // track the dot-floor scaling
