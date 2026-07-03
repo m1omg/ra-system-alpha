@@ -2179,7 +2179,7 @@ function setupInteraction(){
   dom.addEventListener('pointerdown',e=>{ pdown=true; downX=lastX=e.clientX; downY=lastY=e.clientY; moved=false;
     if(document.activeElement&&document.activeElement.tagName==='INPUT') document.activeElement.blur(); // free keys for flight
     if(flying){ try{ dom.setPointerCapture(e.pointerId); }catch(_){} }   // keep look-drag alive off-canvas
-    if(!flying && impacting && impWeapon==='laser'){                     // press-and-hold on a world = burn
+    if(!flying && impacting && impWeapon==='laser' && e.button===0){     // press-and-hold (left button) on a world = burn
       const h=pickHit(e);
       if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) startBeam(rec,e); }
     }
@@ -2201,8 +2201,8 @@ function setupInteraction(){
     if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
     if(moved) return;
     if(flying){ setFlyTarget(pickNear(e)); }   // tap a world (tiny dots too) to target it
-    else if(impacting){                        // impact mode: a click strikes instead of focusing
-      if(impWeapon==='asteroid'){
+    else if(impacting){                        // impact mode: a left-click strikes instead of focusing
+      if(impWeapon==='asteroid' && e.button===0){
         const h=pickHit(e);
         if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) launchAsteroid(rec,h); }
       }
