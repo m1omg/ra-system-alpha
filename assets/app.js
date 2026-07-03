@@ -928,7 +928,7 @@ let impBeam=null, impShake=0, impPool=null, impPoolActiveT=0;
 let _impFlashTex=null, _impRingTex=null;
 // baked rock albedo (gpt-image-2) for asteroids + debris chunks; falls back to
 // flat colours if the file is missing. Preloaded on entering impact mode.
-let _impRockTex=null, _impRockReq=false;
+let _impRockTex=null, _impRockReq=false, _astGlowTex=null;
 function impRockTex(){
   if(!_impRockReq){ _impRockReq=true;
     new THREE.TextureLoader().load('assets/img/textures/debris.webp',
@@ -989,25 +989,28 @@ function uvToWorld(rec, u, v){ return rec.mesh.localToWorld(uvToLocal(rec,u,v,ne
    additive heat that cools via destination-out fades. ---- */
 function getScars(rec){
   if(rec.scar) return rec.scar;
-  const charC=newCanvas(1024,512), glowC=newCanvas(1024,512), meltC=newCanvas(1024,512);
+  // texture uploads are the mobile bottleneck: every needsUpdate re-sends the
+  // whole canvas to the GPU. Half resolution on touch devices = 4× cheaper.
+  const SW=MOBILE_UI?512:1024, SH=SW/2, SEG=MOBILE_UI?48:64, SEGH=MOBILE_UI?32:48;
+  const charC=newCanvas(SW,SH), glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
   const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
-  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,64,48),
+  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,SEG,SEGH),
     new THREE.MeshBasicMaterial({map:charT,transparent:true,depthWrite:false}));
-  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,64,48),
+  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,SEG,SEGH),
     new THREE.MeshBasicMaterial({map:meltT,transparent:true,depthWrite:false}));
-  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,64,48),
+  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,SEG,SEGH),
     new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
-  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[]};
+  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
   // Android canvas wipe: replay the permanent marks (char + melt) from the log
   regCanvasTex(charT, function(){
     const s=rec.scar;
-    s.charC.getContext('2d').clearRect(0,0,1024,512);
-    s.meltC.getContext('2d').clearRect(0,0,1024,512);
-    s.glowC.getContext('2d').clearRect(0,0,1024,512);   // transient heat: just cleared
+    s.charC.getContext('2d').clearRect(0,0,s.charC.width,s.charC.height);
+    s.meltC.getContext('2d').clearRect(0,0,s.meltC.width,s.meltC.height);
+    s.glowC.getContext('2d').clearRect(0,0,s.glowC.width,s.glowC.height);   // transient heat: just cleared
     for(const L of s.log){
       const ctx=(L.l==='m'?s.meltC:s.charC).getContext('2d');
       if(L.a!=null){ ctx.save(); ctx.globalAlpha=L.a; impSplat(ctx,L.u,L.v,L.r,L.s); ctx.restore(); }
@@ -1051,12 +1054,12 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   if(s.ocean) return s.ocean;
   const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
   const genO=()=>texRocky({b:'#1c0803', base:'#4a1206', a:'#8a2408', c:'#d4501a'},
-    (seed^0x9e37)>>>0, {glow:'#ffc24e'});
+    (seed^0x9e37)>>>0, {glow:'#ffc24e', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
   const cv=genO();
   const t=new THREE.CanvasTexture(cv);
   t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;                 // wraps → the magma can churn
   regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genO(),0,0); });  // Android canvas wipe
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.007,64,48),
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.007,MOBILE_UI?48:64,MOBILE_UI?32:48),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
   rec.mesh.add(m);
@@ -1137,14 +1140,16 @@ const IMP_LAVA_SOFT=[[0,'rgba(255,190,90,0.55)'],[0.5,'rgba(200,60,16,0.30)'],[1
 /* splat at canvas-space (u,v): longitude-stretched near the poles, drawn
    thrice (u−1,u,u+1) so it wraps the 0°/360° seam */
 function impSplat(ctx, u, v, rPx, style){
-  const W=1024,H=512, stretch=1/Math.max(Math.sin(v*Math.PI),0.20), rx=rPx*stretch;
+  // rPx is in 512-canvas-height units; adapt to this canvas (mobile is 256-high)
+  const W=ctx.canvas.width, H=ctx.canvas.height, r=rPx*(H/512);
+  const stretch=1/Math.max(Math.sin(v*Math.PI),0.20), rx=r*stretch;
   for(const du of [-1,0,1]){
     const cx=(u+du)*W, cy=v*H;
     if(cx+rx<0||cx-rx>W) continue;
-    ctx.save(); ctx.translate(cx,cy); ctx.scale(rx/rPx,1);
-    const g=ctx.createRadialGradient(0,0,0,0,0,rPx);
+    ctx.save(); ctx.translate(cx,cy); ctx.scale(rx/r,1);
+    const g=ctx.createRadialGradient(0,0,0,0,0,r);
     for(const s of style) g.addColorStop(s[0],s[1]);
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,rPx,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
     ctx.restore();
   }
 }
@@ -1703,10 +1708,10 @@ function removeDebrisField(rec){
 function impHeal(){
   for(const rec of impScarred){
     const s=rec.scar;
-    s.charC.getContext('2d').clearRect(0,0,1024,512);
-    s.glowC.getContext('2d').clearRect(0,0,1024,512);
-    s.meltC.getContext('2d').clearRect(0,0,1024,512);
-    s.log.length=0;
+    s.charC.getContext('2d').clearRect(0,0,s.charC.width,s.charC.height);
+    s.glowC.getContext('2d').clearRect(0,0,s.glowC.width,s.glowC.height);
+    s.meltC.getContext('2d').clearRect(0,0,s.meltC.width,s.meltC.height);
+    s.log.length=0; s.dirty=false;
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
     if(s.ocean){ s.ocean.material.opacity=0; s.ocean.material.color.setScalar(1); }
     if(s.halo) s.halo.material.uniforms.p.value=0;
@@ -1757,7 +1762,8 @@ function launchAsteroid(rec, hit){
     ? new THREE.MeshStandardMaterial({map:rockT,roughness:0.95,emissive:0x1c0e06})
     : new THREE.MeshStandardMaterial({color:0x8a7767,roughness:0.95,emissive:0x1c0e06}));
   mesh.scale.setScalar(size);
-  const glowMap=new THREE.CanvasTexture(texGlow('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
+  // one shared glow texture for all asteroids — was generated + GPU-uploaded per shot
+  const glowMap=_astGlowTex||(_astGlowTex=glowCanvasTex('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowMap,transparent:true,
     blending:THREE.AdditiveBlending,depthWrite:false}));
   sp.scale.setScalar(5); mesh.add(sp);
@@ -1824,7 +1830,7 @@ function updateImpacts(dt){
     if(k>=1){
       applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
       scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose();
-      a.spMat.dispose(); a.glowMap.dispose();
+      a.spMat.dispose();                     // glow map is shared — never disposed
       impAsteroids.splice(i,1); continue;
     }
     const e=k*k*(3-2*k);
@@ -1854,12 +1860,11 @@ function updateImpacts(dt){
           if(!gasy){
             impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);
             impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.30, IMP_LAVA_SOFT);  // the burn line stays molten
-            s.meltT.needsUpdate=true;
             scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.55,IMP_CHAR_SOFT,null);
             scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.30,IMP_LAVA_SOFT,null);
           }
           impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
-          s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.hot=7;
+          s.dirty=true; s.hot=7;     // GPU upload batched in the scar loop (~10 Hz, not per frame)
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
         if(hit.uv) rec._lastHit={u:hit.uv.x, v:hit.uv.y};
@@ -1964,12 +1969,19 @@ function updateImpacts(dt){
         }
       }
     }
+    // batched scar uploads: canvas paints are cheap, GPU re-uploads are not —
+    // laser burns mark dirty and we flush at ~10 Hz instead of every frame
+    if(s.dirty){
+      s.upT+=dt;
+      if(s.upT>0.09){ s.charT.needsUpdate=true; s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
+        s.dirty=false; s.upT=0; }
+    }
     if(s.hot<=0) continue;
     s.coolT+=dt; s.hot-=dt;
-    if(s.coolT>0.12){
+    if(s.coolT>0.25){                        // fade cadence: 4 uploads/s, imperceptible vs 8
       const g=s.glowC.getContext('2d');
       g.save(); g.globalCompositeOperation='destination-out';
-      g.globalAlpha=Math.min(0.9,0.28*s.coolT); g.fillRect(0,0,1024,512); g.restore();
+      g.globalAlpha=Math.min(0.9,0.28*s.coolT); g.fillRect(0,0,s.glowC.width,s.glowC.height); g.restore();
       s.glowT.needsUpdate=true; s.coolT=0;
     }
   }
