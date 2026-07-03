@@ -2424,7 +2424,8 @@ function setupInteraction(){
   const tls=document.getElementById('t-tails'); if(tls) tls.onclick=toggleTails;
   const sx=document.getElementById('t-sfx');
   if(sx){ sx.onclick=toggleSfx;
-    try{ if(localStorage.getItem('ra-sfx')==='1'){ sfxOn=true; sx.classList.add('on'); } }catch(_){} }
+    try{ sfxOn=localStorage.getItem('ra-sfx')!=='0'; }catch(_){ sfxOn=true; }   // on by default
+    sx.classList.toggle('on',sfxOn); }
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
     for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits; };
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);
