@@ -284,8 +284,14 @@ const UI_EN={
   'debris-type':'Debris field','debris-name-span':'destroyed','debris-tag':'A debris field.',
   'st-status':'Status','st-destroyed':'☠ Destroyed','st-cause':'Cause','st-cause-v':'Bombardment (impact lab)',
   'st-eabs':'Energy absorbed','st-ebind':'Binding energy',
-  'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, an expanding cloud of shattered crust, mantle fragments and still-cooling ejecta now drifts along the old orbit, slowly dissipating into space.',
+  'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, incandescent fragments and still-cooling ejecta drift apart — and Kepler shear is smearing them along the old orbit into a glittering debris ring. Speed up time to watch the arc close into a full ring.',
   'heal-hint':'(🧽 Heal in the impact lab restores the planet.)',
+  'nav-destroyed':'destroyed',
+  'st-orbit-now':'Orbit (current)',
+  'st-ring':'Debris ring','st-ring-v':'☄ shearing along the old orbit',
+  'tier-puff-1':' · envelope: superheated, glowing',
+  'tier-puff-2':' · envelope: inflated like a hot Jupiter — gas escaping',
+  'tier-puff-3':' · envelope: streaming away — breakup imminent',
   'imp-immune':' · immune to your weapons','imp-destroyed':' · ☠ destroyed — a debris field',
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
   'imp-melts-sea':' · melts a ~{km} km sea',
@@ -294,7 +300,7 @@ const UI_EN={
   'tier-molten':' · surface: fully molten, superheated','tier-white':' · surface: white-hot — breakup imminent',
   'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
   'imp-hint-ast':'Click a world to strike it · scars persist · enough total energy shatters a crust',
-  'imp-hint-las':'Press & hold on a world to fire · it rotates under your beam · release to stop',
+  'imp-hint-las':'Press & hold to fire · drag to sweep the beam across worlds · release to stop',
   'mat-0':'🧊 Ice','mat-1':'🪨 Rock','mat-2':'⛓ Iron',
   'fly-notarget':'◎ no target — tap a world',
   'doc-title':'The Ra System — Interactive 3D Simulation'
@@ -333,7 +339,8 @@ function setLang(l){
   try{ localStorage.setItem('ra-lang',LANG); }catch(_){}
   applyStaticLang(); updateLangBtn();
   const nav=document.getElementById('nav');
-  if(nav){ nav.innerHTML=''; buildNav(); setActiveNav(selected); }
+  if(nav){ nav.innerHTML=''; buildNav(); setActiveNav(selected);
+    for(const r of bodies) if(r.destroyed) updateNavStatus(r); }
   buildGlossary();
   const pb=document.getElementById('play'); if(pb) pb.innerHTML=playing?T('pause'):T('play');
   const sb=document.getElementById('t-scale'); if(sb) sb.innerHTML=realScale?T('real-scale'):T('compressed');
@@ -632,7 +639,7 @@ function addMoon(m, parentRec){
 /* ---- scale mode (compressed <-> real distances) ---- */
 function applySizes(){
   for(const rec of bodies){ if(rec.data.kind==='star') continue;
-    rec.mesh.scale.setScalar(sizeMult*bodyF()); }
+    rec.mesh.scale.setScalar(sizeMult*bodyF()*(rec.puffK||1)); }
 }
 function applyScaleMode(){
   starGroup.scale.setScalar(starVisR()/STAR_R_COMPRESS);
@@ -717,10 +724,11 @@ const EVAP_LEN_RADII=2.6;     // compressed mode: tail length in (exaggerated) p
 const EVAP_MAX_EMIT=256;      // per-frame emission cap (extreme time speeds recycle instead)
 const _evP=new THREE.Vector3(), _evD=new THREE.Vector3(), _evR=new THREE.Vector3();
 
-function makeEvapTail(rec){
+function makeEvapTail(rec, cfgOverride){
   // per-body config: evapTail:true = Amunet-strength defaults; or {alpha,rate,len} to soften.
   // data.tail (hex) tints the plume — e.g. Sekhmet's sulfur-orange.
-  const cfg=(typeof rec.data.evapTail==='object')?rec.data.evapTail:{};
+  // cfgOverride: dynamically-created tails (impact-heated gas giants shedding envelope).
+  const cfg=cfgOverride || ((typeof rec.data.evapTail==='object')?rec.data.evapTail:{});
   const tint=rec.data.tail!=null?new THREE.Color(rec.data.tail):null;
   const colA=tint?tint.clone().lerp(new THREE.Color(1,1,1),0.65):new THREE.Color(1.0,0.93,0.76);
   const colB=tint?tint.clone():new THREE.Color(0.95,0.62,0.30);
@@ -887,8 +895,20 @@ function impRockTex(){
 const impRC=new THREE.Raycaster();
 const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
 
-function impBodyMassKg(rec){ const R=(rec.data.radiusKm||1000)*1000;
+function impBodyMassKg(rec){
+  if(rec.data.massKg) return rec.data.massKg;               // exact, from the author's .ubox
+  const R=(rec.data.radiusKm||1000)*1000;
   return (impDensityByKind[rec.data.kind]||3500)*(4/3)*Math.PI*R*R*R; }
+function impBodyRho(rec){ const R=(rec.data.radiusKm||1000)*1000;
+  return impBodyMassKg(rec)/((4/3)*Math.PI*R*R*R); }
+/* what fraction of a disrupted body flashes to gas: its H/He envelope plus
+   its water (steam, at breakup temperatures) — from the .ubox depots */
+function impGasFrac(rec){
+  if(rec.data.comp) return Math.min(0.97,(rec.data.comp.gas||0)+(rec.data.comp.water||0));
+  if(rec.data.debrisGas!=null) return rec.data.debrisGas;
+  const GK={gasgiant:0.8, browndwarf:0.9, ocean:0.35, iceworld:0.3, icemoon:0.3, terran:0.22, lava:0.1, rocky:0.12};
+  return GK[rec.data.kind]!=null?GK[rec.data.kind]:0.2;
+}
 function impBindingJ(rec){ const R=(rec.data.radiusKm||1000)*1000, M=impBodyMassKg(rec);
   return 3*IMP_G*M*M/(5*R); }
 function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'; }
@@ -949,10 +969,14 @@ function getScars(rec){
    cold. Per strike, ~25% of the kinetic energy ends up as impact melt:
    V = 0.25·E/(ρ·e_melt) — a lava sea painted at its true size. ---- */
 const IMP_MELT_EJKG={icemoon:9e5, iceworld:9e5, ocean:1.2e6};   // J/kg to heat + melt; rock default
-function impMeltEJkg(rec){ return IMP_MELT_EJKG[rec.data.kind]||1.7e6; }
+function impMeltEJkg(rec){
+  const c=rec.data.comp;                                     // composition-weighted, when known
+  if(c) return Math.max(4e5, 1.7e6*((c.rock||0)+(c.iron||0)) + 2.8e6*(c.water||0) + 1.0e6*(c.gas||0));
+  return IMP_MELT_EJKG[rec.data.kind]||1.7e6;
+}
 function impMeltJ(rec){ return impBodyMassKg(rec)*impMeltEJkg(rec); }   // melt the whole body
 function impMeltPoolDeg(rec,E){              // angular radius of the lava sea one strike leaves
-  const rho=impDensityByKind[rec.data.kind]||3500;
+  const rho=impBodyRho(rec);
   const V=0.25*E/(rho*impMeltEJkg(rec));                        // m³ of melt
   const r=Math.cbrt(V*3/(2*Math.PI));                           // hemispherical pool
   return Math.min(80, r/((rec.data.radiusKm||1000)*1000)*57.2958);
@@ -983,8 +1007,31 @@ function getMagmaHalo(rec){                  // molten-limb glow (fresnel rim, l
   rec.mesh.add(s.halo);
   return s.halo;
 }
+/* ---- gas/ice giants have no surface to melt: pumping energy into the
+   envelope makes it PUFF UP like an inflated hot Jupiter — the radius swells,
+   the envelope glows from the heat, and gas streams away in an escaping tail.
+   At the binding energy it still comes apart completely. ---- */
+function impUpdatePuff(rec){
+  const f=Math.min(1,(rec.dmgJ||0)/impBindingJ(rec));
+  rec.puffTarget=1+0.55*Math.pow(f,0.7);                    // up to +55% radius near breakup
+  const m=rec.mesh.material;
+  if(m && m.emissive){
+    if(!rec._baseEmissive) rec._baseEmissive={c:m.emissive.clone(), i:m.emissiveIntensity||0};
+    m.emissive.copy(rec._baseEmissive.c).lerp(new THREE.Color(0xff7733), Math.min(1,f*1.6));
+    m.emissiveIntensity=rec._baseEmissive.i+1.3*f;          // heated envelope glows
+  }
+  if(f>0.05){                                               // envelope starts streaming away
+    let t=rec._puffTail || evapTails.find(x=>x.rec===rec);  // Amunet already trails one — boost it
+    if(!t){ t=makeEvapTail(rec,{alpha:0.3,rate:1}); t._created=true; t.points.visible=showTails; }
+    if(!t._base) t._base={rate:t.rate, alpha:t.points.material.uniforms.uAlpha.value};
+    t.rate=t._base.rate*(1+3.5*f);
+    t.points.material.uniforms.uAlpha.value=Math.max(t._base.alpha, 0.3+1.1*f);
+    rec._puffTail=t;
+  }
+}
 function impUpdateMelt(rec){                 // cumulative surface state from the melt budget
-  if(!rec.scar || impImmune(rec) || rec.data.kind==='gasgiant') return;
+  if(!rec.scar || impImmune(rec)) return;
+  if(rec.data.kind==='gasgiant'){ impUpdatePuff(rec); return; }
   const s=rec.scar;
   const mf=(rec.dmgJ||0)/impMeltJ(rec);      // fraction of the whole-world melt budget delivered
   const fU=(rec.dmgJ||0)/impBindingJ(rec);
@@ -1002,6 +1049,13 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
 }
 function impTierTxt(rec){                    // hover readout of the surface state
   if(!(rec.dmgJ>0)) return '';
+  if(rec.data.kind==='gasgiant'){            // no surface — the envelope inflates instead
+    const f=rec.dmgJ/impBindingJ(rec);
+    if(f>0.5)  return T('tier-puff-3');
+    if(f>0.15) return T('tier-puff-2');
+    if(f>0.01) return T('tier-puff-1');
+    return '';
+  }
   const mf=rec.dmgJ/impMeltJ(rec), fU=rec.dmgJ/impBindingJ(rec);
   if(fU>0.5)  return T('tier-white');
   if(mf>=1)   return T('tier-molten');
@@ -1110,8 +1164,9 @@ function impConeDir(normal, spread){
   };
 }
 
-/* ---- the strike itself: flash + shockwave + ejecta + painted crater + damage ---- */
-function applyStrike(rec, u, v, E){
+/* ---- the strike itself: flash + shockwave + ejecta + painted crater + damage.
+   imp (optional, asteroids): {mKg, vKms, dir} — the momentum kick that nudges the orbit ---- */
+function applyStrike(rec, u, v, E, imp){
   const wp=uvToWorld(rec,u,v);
   const R=rec.radius*rec.mesh.scale.x;
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
@@ -1141,6 +1196,12 @@ function applyStrike(rec, u, v, E){
     rec._lastHit={u,v};                      // the killing blow shapes how the world breaks apart
     impUpdateMelt(rec);                      // craters → melt seas → global magma ocean
     if(rec.dmgJ>=U && !rec.shattered) shatterBody(rec);
+    // momentum: the asteroid's m·v kicks the orbit — recomputed exactly
+    if(imp && imp.mKg && !rec.destroyed){
+      const dvKms=imp.mKg*imp.vKms/impBodyMassKg(rec);
+      if(perturbOrbit(rec, imp.dir, dvKms) && APP.currentData && APP.currentData.key===rec.data.key &&
+         document.getElementById('info').classList.contains('open')) openInfo(rec.data);
+    }
   }
   const dist=camera.position.distanceTo(wp);
   const ref=camera.position.distanceTo(controls.target)+1e-6;
@@ -1163,7 +1224,9 @@ function shatterBody(rec){
   for(const ch of rec.mesh.children) ch.visible=false;
   rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
   makeDebrisField(rec);
+  makeDebrisRing(rec);                  // Kepler shear smears it into a ring along the old orbit
   liberateMoons(rec);                   // its moons sail on around Ra on their own new orbits
+  updateNavStatus(rec);                 // sidebar: red ☠ destroyed badge
   const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name+' ☠';
   if(APP.currentData && APP.currentData.key===rec.data.key &&
      document.getElementById('info').classList.contains('open')) openInfo(rec.data);
@@ -1226,15 +1289,36 @@ function makeShardGeo(dir, angR, k, depth, R){
   return {geo:g, center:c};
 }
 
+/* Fragments of a world-shattering impact are HOT: dumping a planet's binding
+   energy into it melts and bakes everything. The shard skin is the planet's
+   own map charred nearly black, with molten cracks glowing through it —
+   no surviving oceans or forests. */
+function impScorchedSkin(rec){
+  const c=newCanvas(1024,512), ctx=c.getContext('2d');
+  let drew=false;
+  const img=rec.mesh.material.map && rec.mesh.material.map.image;
+  if(img){
+    try{                                 // probe first: a tainted canvas would break the GL upload
+      const pr=newCanvas(2,2); pr.getContext('2d').drawImage(img,0,0,2,2);
+      pr.getContext('2d').getImageData(0,0,1,1);
+      ctx.drawImage(img,0,0,1024,512); drew=true;
+    }catch(_){ drew=false; }
+  }
+  if(!drew){ ctx.fillStyle='#'+new THREE.Color(rec.data.color||0x887766).getHexString(); ctx.fillRect(0,0,1024,512); }
+  ctx.fillStyle='rgba(14,9,6,0.78)'; ctx.fillRect(0,0,1024,512);   // baked to char
+  const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
+  const r=texRocky({b:'#140602', base:'#3a0e04', a:'#6a1a06', c:'#a03210'},
+    (seed^0x51f3)>>>0, {glow:'#ffcf5e', emissData:true});   // molten-crack emissive map
+  return {map:new THREE.CanvasTexture(c), emap:new THREE.CanvasTexture(r.emap)};
+}
+
 function makeDebrisField(rec){
   const group=new THREE.Object3D();
   rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
   const R=rec.radius;                   // mesh-local units
-  // composition: 0 = bare rock, 1 = almost all gas. data.debrisGas overrides
-  // (Amunet 0.95, Wadjet 0.4); otherwise estimated from the body kind.
-  const GAS_BY_KIND={gasgiant:0.8, browndwarf:0.9, ocean:0.35, iceworld:0.3, icemoon:0.3, terran:0.22, lava:0.1, rocky:0.12};
-  const gas = rec.data.debrisGas!=null ? rec.data.debrisGas :
-              (GAS_BY_KIND[rec.data.kind]!=null ? GAS_BY_KIND[rec.data.kind] : 0.2);
+  // composition: 0 = bare rock, 1 = almost all gas — the H/He envelope plus
+  // water flashed to steam, from the .ubox depots (Amunet 0.48, Wadjet 0.27)
+  const gas=impGasFrac(rec);
   const rockT=impRockTex();
   // emissiveMap = the rock albedo too: the ember glow follows the fracture
   // detail instead of flooding the chunks flat orange
@@ -1273,9 +1357,11 @@ function makeDebrisField(rec){
   // kind 'gasgiant' but mostly rock (debrisGas 0.4) and breaks into slabs.
   const shardGeos=[]; let outerMat=null;
   if(gas<0.85){
-    outerMat=new THREE.MeshStandardMaterial({map:rec.mesh.material.map||null,
-      color:rec.mesh.material.map?0xffffff:(rec.data.color||0x9a8877), roughness:1.0});
-    if(outerMat.map){ outerMat.map.wrapS=THREE.RepeatWrapping; outerMat.map.needsUpdate=true; }
+    const skin=impScorchedSkin(rec);     // charred crust with molten cracks — not the living surface
+    skin.map.wrapS=THREE.RepeatWrapping; skin.emap.wrapS=THREE.RepeatWrapping;
+    outerMat=new THREE.MeshStandardMaterial({map:skin.map, roughness:1.0,
+      emissive:0xffffff, emissiveMap:skin.emap, emissiveIntensity:2.2});
+    outerMat.userData.emberBase=2.2;
     const NS=Math.round(30*(1-0.5*gas));
     const GA=Math.PI*(3-Math.sqrt(5));
     for(let i=0;i<NS;i++){
@@ -1321,15 +1407,17 @@ function makeDebrisField(rec){
   const tint=new THREE.Color(rec.data.color||0xffd9b0).lerp(new THREE.Color(1,1,1),0.35);
   // NB: PointsMaterial.size is WORLD units — it ignores the mesh's per-frame
   // dot-floor scaling, so the update loop re-syncs it to mesh.scale each frame.
-  // gassy worlds die in a luminous additive cloud; rocky ones in smoke —
-  // additive can only brighten, so dense rock dust up close saturated the
-  // whole view to white. Normal-blended, darker points read as dust.
+  // gassy worlds die in a luminous cloud of their own colour; rocky ones in
+  // INCANDESCENT dust — small, dim-orange additive embers (big bright points
+  // saturated the frame white; gray smoke hid the glowing fragments)
   const glowy = gas>=0.6;
-  const hzSize=R*(0.12+0.42*gas), hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
-  const hazeMat=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')),
-    color:glowy?tint:tint.clone().multiplyScalar(0.42), size:hzSize*rec.mesh.scale.x,
+  const hzSize=glowy?R*(0.12+0.42*gas):R*0.09, hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
+  const hazeMat=new THREE.PointsMaterial({
+    map:new THREE.CanvasTexture(glowy?texGlow('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')
+                                     :texGlow('rgba(255,150,70,0.75)','rgba(120,30,8,0.18)')),
+    color:glowy?tint:new THREE.Color(0xff8542), size:hzSize*rec.mesh.scale.x,
     sizeAttenuation:true, transparent:true, opacity:hzOp,
-    blending:glowy?THREE.AdditiveBlending:THREE.NormalBlending, depthWrite:false});
+    blending:THREE.AdditiveBlending, depthWrite:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   group.add(haze);
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
@@ -1354,34 +1442,132 @@ function keplerStateAU(aAU,e,q,M,mu){     // -> instantaneous {r (AU), v (AU/yr)
     v:new THREE.Vector3(-aAU*Math.sin(E)*Edot,0,b*Math.cos(E)*Edot).applyQuaternion(q)
   };
 }
+/* ---- Kepler shear: the debris of a destroyed world doesn't stay put — each
+   fragment keeps a slightly different orbital period, so over (sim) time the
+   cloud smears along the dead planet's orbit into a glittering arc and finally
+   a full ring. Driven by SIM time: crank the time warp to watch it spread. ---- */
+const debrisRings=[];
+let lastSimDtYears=0;                     // set each frame in animate()
+function makeDebrisRing(rec){
+  const N=1400;
+  const M0=rec.M%(Math.PI*2), n=Math.PI*2/rec.period;       // mean motion, rad per sim-year
+  const Mi=new Float32Array(N), dn=new Float32Array(N), radJ=new Float32Array(N), vertJ=new Float32Array(N);
+  const over=Math.max(1,(rec.dmgJ||0)/impBindingJ(rec));
+  const ovk=Math.min(3, Math.log10(over)+1);
+  const spread=0.004*(0.4+0.6*ovk);                          // fractional Δn → shear rate scales with overkill
+  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
+  const tint=new THREE.Color(rec.data.color||0xffd9b0);
+  for(let i=0;i<N;i++){
+    Mi[i]=M0+(Math.random()-0.5)*0.06;
+    dn[i]=n*spread*(Math.random()*2-1);
+    radJ[i]=(Math.random()-0.5)*0.012;                       // fraction of the orbit radius
+    vertJ[i]=(Math.random()-0.5)*0.006;
+    const c=tint.clone().lerp(new THREE.Color(1,1,1),0.25+0.5*Math.random())
+      .multiplyScalar(0.35+0.65*Math.random());              // varied brightness = glitter
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('color', new THREE.BufferAttribute(col,3));
+  const m=new THREE.PointsMaterial({map:new THREE.CanvasTexture(texGlow('rgba(255,245,225,1)','rgba(255,210,150,0)')),
+    vertexColors:true, size:1, sizeAttenuation:true, transparent:true, opacity:0.9,
+    blending:THREE.AdditiveBlending, depthWrite:false});
+  const points=new THREE.Points(g,m); points.frustumCulled=false;
+  rec.parentHolder.add(points);                              // moons ring their parent planet
+  debrisRings.push({rec,points,g,Mi,dn,radJ,vertJ,n,t:0});
+  updateDebrisRings(0);                                      // place the points immediately
+}
+function updateDebrisRings(dtYears){
+  for(const D of debrisRings){
+    const rec=D.rec, a=rec.aDisp, e=rec.e;
+    D.t+=dtYears;
+    const posA=D.g.attributes.position, b=a*Math.sqrt(1-e*e);
+    for(let i=0;i<D.Mi.length;i++){
+      D.Mi[i]+=(D.n+D.dn[i])*dtYears;
+      const E=kepler(D.Mi[i]%(Math.PI*2), e);
+      const rj=1+D.radJ[i];
+      _impV3.set(a*(Math.cos(E)-e)*rj, D.vertJ[i]*a, b*Math.sin(E)*rj).applyQuaternion(rec.q);
+      posA.setXYZ(i,_impV3.x,_impV3.y,_impV3.z);
+    }
+    posA.needsUpdate=true;
+    D.points.material.size=a*0.006;                          // tracks scale-mode changes
+  }
+}
+
+/* state vector {r AU, v AU/yr} -> orbital elements, engine conventions
+   (orbit normal = local -y; see positionBody). Shared by moon liberation
+   and impact-momentum orbit perturbation. */
+function stateToElements(r,v,mu){
+  const rl=r.length(), v2=v.lengthSq();
+  let a=1/(2/rl - v2/mu);
+  const h=new THREE.Vector3().crossVectors(r,v);
+  const ev=r.clone().multiplyScalar(v2-mu/rl).addScaledVector(v,-r.dot(v)).multiplyScalar(1/mu);
+  let e=ev.length();
+  if(!(a>0) || e>=0.985){ e=Math.min(e,0.985); a=rl/(1-0.9*e); }  // ejection edge case: keep it drawably bound
+  const ph=e>1e-6 ? ev.normalize() : r.clone().normalize();       // periapsis direction
+  const hn=h.lengthSq()>1e-12 ? h.normalize() : new THREE.Vector3(0,1,0);
+  const Y=hn.clone().negate(), Z=new THREE.Vector3().crossVectors(ph,Y);
+  const qn=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(ph,Y,Z));
+  let nu=Math.acos(Math.max(-1,Math.min(1, r.clone().normalize().dot(ph))));
+  if(r.dot(v)<0) nu=Math.PI*2-nu;                                 // inbound half of the orbit
+  const E2=2*Math.atan2(Math.sqrt(1-e)*Math.sin(nu/2), Math.sqrt(1+e)*Math.cos(nu/2));
+  return {a, e, q:qn, M:E2-e*Math.sin(E2)};
+}
+
+/* impact momentum: dv = m·v / M — recompute the struck body's orbit from its
+   perturbed state vector, exactly. Planets get true new heliocentric elements;
+   moons get exact new local elements with the display pacing scaled by Kepler. */
+const KMS_PER_AUYR=4.74047;
+function perturbOrbit(rec, dirWorld, dvKms){
+  if(!(dvKms>1e-7) || rec.data.kind==='star' || rec.destroyed) return false;
+  const dvA=dvKms/KMS_PER_AUYR;
+  if(rec.helio){
+    const aCur=rec.helioA!=null?rec.helioA:rec.data.dist;
+    const st=keplerStateAU(aCur, rec.e, rec.q, rec.M%(Math.PI*2), MU_RA);
+    st.v.addScaledVector(dirWorld, dvA);
+    const el=stateToElements(st.r, st.v, MU_RA);
+    if(!rec._origOrbit) rec._origOrbit={helio:true, helioA:rec.helioA, e:rec.e, q:rec.q.clone(), period:rec.period};
+    rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
+    rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
+    rec.aDisp=distDisp(el.a);
+  } else if(rec.isMoon){
+    const pRec=bodies.find(b=>b.holder===rec.parentHolder);
+    if(!pRec) return false;
+    const muP=4*Math.PI*Math.PI*(impBodyMassKg(pRec)/SUN_KG);
+    const aCur=rec._physA!=null?rec._physA:rec.data.dist;
+    const st=keplerStateAU(aCur, rec.e, rec.q, rec.M%(Math.PI*2), muP);
+    st.v.addScaledVector(dirWorld, dvA);
+    const el=stateToElements(st.r, st.v, muP);
+    if(!rec._origOrbit) rec._origOrbit={helio:false, _physA:rec._physA||null, e:rec.e, q:rec.q.clone(),
+      period:rec.period, aDispReal:rec.aDispReal, aDispCompressed:rec.aDispCompressed};
+    const ratio=el.a/aCur;
+    rec._physA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
+    rec.period*=Math.pow(ratio,1.5);       // keep the tuned display pacing, scaled by Kepler's third law
+    rec.aDispReal*=ratio; rec.aDispCompressed*=ratio;
+    rec.aDisp=realScale?rec.aDispReal:rec.aDispCompressed;
+  } else return false;
+  if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+  rec.orbitPerturbed=true;
+  positionBody(rec);
+  return true;
+}
+
 function liberateMoons(parentRec){
   const muP=4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG);
   const ps=keplerStateAU(parentRec.data.dist, parentRec.e, parentRec.q, parentRec.M%(Math.PI*2), MU_RA);
   for(const m of bodies){
     if(m.parentHolder!==parentRec.holder || m===parentRec || m.destroyed) continue;
-    const ms=keplerStateAU(m.data.dist, m.e, m.q, m.M%(Math.PI*2), muP);
+    const ms=keplerStateAU(m._physA!=null?m._physA:m.data.dist, m.e, m.q, m.M%(Math.PI*2), muP);
     const r=ps.r.clone().add(ms.r), v=ps.v.clone().add(ms.v);
-    const rl=r.length(), v2=v.lengthSq();
-    let a=1/(2/rl - v2/MU_RA);
-    const h=new THREE.Vector3().crossVectors(r,v);
-    const ev=r.clone().multiplyScalar(v2-MU_RA/rl).addScaledVector(v,-r.dot(v)).multiplyScalar(1/MU_RA);
-    let e=ev.length();
-    if(!(a>0) || e>=0.985){ e=Math.min(e,0.985); a=rl/(1-0.9*e); }  // ejection edge case: keep it drawably bound
-    const ph=e>1e-6 ? ev.normalize() : r.clone().normalize();       // periapsis direction
-    const hn=h.lengthSq()>1e-12 ? h.normalize() : new THREE.Vector3(0,1,0);
-    // engine convention (see positionBody): the orbit normal is local -y
-    const Y=hn.clone().negate(), Z=new THREE.Vector3().crossVectors(ph,Y);
-    const qn=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(ph,Y,Z));
-    let nu=Math.acos(Math.max(-1,Math.min(1, r.clone().normalize().dot(ph))));
-    if(r.dot(v)<0) nu=Math.PI*2-nu;                                 // inbound half of the orbit
-    const E2=2*Math.atan2(Math.sqrt(1-e)*Math.sin(nu/2), Math.sqrt(1+e)*Math.cos(nu/2));
+    const el=stateToElements(r,v,MU_RA);
+    const a=el.a, e=el.e, qn=el.q;
     // stash the pre-destruction orbit for 🧽 Heal, then rewire to Ra
     m._preLib={parentRec, isMoon:m.isMoon, aDispReal:m.aDispReal, aDispCompressed:m.aDispCompressed,
                e:m.e, q:m.q, M:m.M, period:m.period, orbitLine:m.orbitLine};
     if(m.orbitLine) m.orbitLine.visible=false;      // the old ellipse around the dead parent
     m.parentHolder=sunHolder; sunHolder.add(m.holder);
     m.helio=true; m.isMoon=false; m.helioA=a;
-    m.e=e; m.q=qn; m.M=E2-e*Math.sin(E2);
+    m.e=e; m.q=qn; m.M=el.M;
     m.period=Math.sqrt(a*a*a/1.139);                // real Kepler years, like every helio body
     m.aDisp=distDisp(a);
     const g=new THREE.BufferGeometry().setFromPoints(orbitPoints(m.aDisp,e));
@@ -1402,6 +1588,7 @@ function removeDebrisField(rec){
     m.orbitLine=P.orbitLine; if(m.orbitLine) m.orbitLine.visible=showOrbits;
     m.parentHolder=rec.holder; rec.holder.add(m.holder);
     m.helio=false; m.isMoon=P.isMoon; m.helioA=null;
+    m._origOrbit=null; m.orbitPerturbed=false; m._physA=null;   // _preLib restore wins over any nudge
     m.e=P.e; m.q=P.q; m.M=P.M; m.period=P.period;
     m.aDispReal=P.aDispReal; m.aDispCompressed=P.aDispCompressed;
     m.aDisp=realScale?P.aDispReal:P.aDispCompressed;
@@ -1414,14 +1601,22 @@ function removeDebrisField(rec){
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
     for(const g of (D.shardGeos||[])) g.dispose();
-    if(D.outerMat) D.outerMat.dispose();      // shared planet texture stays with the planet
+    if(D.outerMat){ if(D.outerMat.map) D.outerMat.map.dispose();
+      if(D.outerMat.emissiveMap) D.outerMat.emissiveMap.dispose(); D.outerMat.dispose(); }
     D.chunkMat.dispose();
     if(D.haze){ D.haze.geometry.dispose(); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
     debrisFields.splice(i,1);
   }
+  for(let i=debrisRings.length-1;i>=0;i--){
+    const D=debrisRings[i]; if(D.rec!==rec) continue;
+    rec.parentHolder.remove(D.points); D.g.dispose();
+    D.points.material.map.dispose(); D.points.material.dispose();
+    debrisRings.splice(i,1);
+  }
   rec.mesh.material.visible=true;
   for(const ch of rec.mesh.children) ch.visible=true;
   rec.destroyed=false;
+  updateNavStatus(rec);
   const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name;
 }
 
@@ -1436,7 +1631,33 @@ function impHeal(){
     if(s.halo) s.halo.material.uniforms.p.value=0;
     s.oceanM=0; s.oceanHot=0;
     rec.dmgJ=0; rec.shattered=false;
+    // deflate a puffed-up giant and calm its boosted/created escape tail
+    rec.puffTarget=1; rec.puffK=1;
+    if(rec._baseEmissive && rec.mesh.material.emissive){
+      rec.mesh.material.emissive.copy(rec._baseEmissive.c);
+      rec.mesh.material.emissiveIntensity=rec._baseEmissive.i; rec._baseEmissive=null;
+    }
+    if(rec._puffTail){
+      const t=rec._puffTail;
+      if(t._created){ scene.remove(t.points); t.g.dispose(); t.points.material.dispose();
+        const ti=evapTails.indexOf(t); if(ti>=0) evapTails.splice(ti,1); }
+      else if(t._base){ t.rate=t._base.rate; t.points.material.uniforms.uAlpha.value=t._base.alpha; t._base=null; }
+      rec._puffTail=null;
+    }
     if(rec.destroyed) removeDebrisField(rec);   // resurrect the world
+  }
+  if(!realScale) applySizes();                  // deflated giants: reapply compressed-mode scales
+  // undo impact-momentum orbit changes (liberated moons were restored above)
+  for(const rec of bodies){
+    if(!rec._origOrbit || rec._preLib){ if(rec._preLib) rec._origOrbit=null; continue; }
+    const O=rec._origOrbit;
+    rec.e=O.e; rec.q=O.q; rec.period=O.period;
+    if(O.helio){ rec.helioA=O.helioA; rec.aDisp=distDisp(rec.helioA!=null?rec.helioA:rec.data.dist); }
+    else { rec._physA=O._physA; rec.aDispReal=O.aDispReal; rec.aDispCompressed=O.aDispCompressed;
+           rec.aDisp=realScale?rec.aDispReal:rec.aDispCompressed; }
+    if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+    rec.orbitPerturbed=false; rec._origOrbit=null;
+    positionBody(rec);
   }
   for(const t of evapTails) t.points.visible=showTails;
   if(APP.currentData && document.getElementById('info').classList.contains('open'))
@@ -1472,6 +1693,7 @@ function launchAsteroid(rec, hit){
   const start=tgtW.clone().addScaledVector(A,-dist);
   const T=Math.min(3.6, Math.max(1.4, 3.6-0.55*Math.log10(impSpdKms/11)));
   impAsteroids.push({rec,u,v,mesh,glowMap,spMat,start,t:0,T,E,
+    mKg:impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3), vKms:impSpdKms,   // for the momentum kick
     spin:new THREE.Vector3(Math.random()*4-2,Math.random()*4-2,Math.random()*4-2)});
 }
 
@@ -1519,7 +1741,7 @@ function updateImpacts(dt){
     const tgt=uvToWorld(a.rec,a.u,a.v);
     const k=a.t/a.T;
     if(k>=1){
-      applyStrike(a.rec,a.u,a.v,a.E);
+      applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
       scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose();
       a.spMat.dispose(); a.glowMap.dispose();
       impAsteroids.splice(i,1); continue;
@@ -1528,13 +1750,18 @@ function updateImpacts(dt){
     a.mesh.position.lerpVectors(a.start,tgt,e);
     a.mesh.rotation.x+=a.spin.x*dt; a.mesh.rotation.y+=a.spin.y*dt; a.mesh.rotation.z+=a.spin.z*dt;
   }
-  // laser
+  // laser — follows the pointer; sweeping onto another world retargets it
   if(impBeam){
     impRC.ray.origin.copy(impBeam.origin); impRC.ray.direction.copy(impBeam.dir);
-    const hits=impRC.intersectObject(impBeam.rec.mesh,false);
-    if(hits.length){
+    const all=impRC.intersectObjects(pickables,false);
+    let hit=null;
+    for(const h of all){                 // debris fields don't stop the beam
+      const r2=bodies.find(b=>b.data.key===h.object.userData.bodyKey);
+      if(r2 && !r2.destroyed){ hit=h; impBeam.rec=r2; break; }
+    }
+    if(hit){
       impBeam.missT=0;
-      const hit=hits[0], EJ=impPowW*dt;
+      const EJ=impPowW*dt;
       impBeam.firedJ+=EJ;
       const rec=impBeam.rec, R=rec.radius*rec.mesh.scale.x;
       if(!impImmune(rec) && !rec.destroyed){
@@ -1574,7 +1801,7 @@ function updateImpacts(dt){
     } else {
       impBeam.missT+=dt;
       impBeam.core.visible=impBeam.sheath.visible=impBeam.hitGlow.visible=false;
-      if(impBeam.missT>0.4) stopBeam();
+      if(impBeam.missT>1.5) stopBeam();      // forgiving: sweeping between worlds keeps the beam alive
     }
   }
   // one-shot fx sprites
@@ -1607,8 +1834,10 @@ function updateImpacts(dt){
       c.m.position.addScaledVector(c.vel,dt);
       c.m.rotation.x+=c.rot.x*dt; c.m.rotation.y+=c.rot.y*dt; c.m.rotation.z+=c.rot.z*dt;
     }
-    const eb=D.chunkMat.userData.emberBase||0.6;
-    D.chunkMat.emissiveIntensity=eb*(0.13+0.87*Math.exp(-D.t/30));   // embers cool
+    // world-shattering fragments stay incandescent for a long time
+    const cool=0.10+0.90*Math.exp(-D.t/75);
+    D.chunkMat.emissiveIntensity=(D.chunkMat.userData.emberBase||0.6)*cool;
+    if(D.outerMat) D.outerMat.emissiveIntensity=(D.outerMat.userData.emberBase||2.2)*cool;
     if(D.haze){
       const fade=1/(1+D.t/D.fadeT);
       if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
@@ -1622,9 +1851,16 @@ function updateImpacts(dt){
       }
     }
   }
+  // debris rings shear along the orbit on SIM time (time warp spreads them)
+  if(debrisRings.length) updateDebrisRings(lastSimDtYears);
   // heat glow cools (shattered worlds are gone); batched, and only while hot —
   // once faded, no more full-canvas ops or texture re-uploads
   for(const rec of impScarred){
+    // heated gas giants ease toward their inflated radius
+    if(rec.puffTarget && Math.abs((rec.puffK||1)-rec.puffTarget)>1e-4){
+      rec.puffK=(rec.puffK||1)+(rec.puffTarget-(rec.puffK||1))*Math.min(1,dt*0.9);
+      if(!realScale && !rec.destroyed) rec.mesh.scale.setScalar(sizeMult*bodyF()*rec.puffK);
+    }
     if(rec.shattered) continue;
     const s=rec.scar;
     if(s.ocean && s.oceanM>0){
@@ -1709,7 +1945,7 @@ function updateImpactUI(){
   if(!dia) return;
   impDiaKm=0.1*Math.pow(10,(+dia.value)/25);                 // 0.1 – 1,000 km, log
   impSpdKms=11*Math.pow(30000/11,(+spd.value)/100);          // 11 – 30,000 km/s, log
-  impPowW=1e12*Math.pow(10,(+pow.value)*0.18);               // 1e12 – 1e30 W, log
+  impPowW=1e12*Math.pow(10,(+pow.value)*0.22);               // 1e12 – 1e34 W, log — enough to unbind giants
   impRho=IMP_MATS[impMatI][1];
   document.getElementById('imp-dia-v').textContent = impDiaKm<10?(+impDiaKm.toPrecision(2)+' km'):(Math.round(impDiaKm).toLocaleString()+' km');
   document.getElementById('imp-spd-v').textContent = impSpdKms<100?(+impSpdKms.toPrecision(2)+' km/s'):(Math.round(impSpdKms).toLocaleString()+' km/s');
@@ -1744,7 +1980,8 @@ function animate(){
     elapsedYears += YEARS_PER_SEC*timeScale*dt;          // real sim-time elapsed
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
-  updateEvapTails(playing ? YEARS_PER_SEC*timeScale*dt : 0);
+  lastSimDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
+  updateEvapTails(lastSimDtYears);
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
 
   if(flying){
@@ -1788,7 +2025,7 @@ function updateBodySizes(){
     const d = camera.position.distanceTo(_szPos);
     const target = Math.max(realRadiusScene(rec.data.radiusKm)*sizeMult, d*f);   // max(real, dot-floor)
     if(rec.data.kind==='star') starGroup.scale.setScalar(target/STAR_R_COMPRESS);
-    else rec.mesh.scale.setScalar(target/rec.radius);
+    else rec.mesh.scale.setScalar(target/rec.radius*(rec.puffK||1));
   }
 }
 
@@ -1855,7 +2092,15 @@ function setupInteraction(){
   dom.addEventListener('pointermove',e=>{
     if(Math.abs(e.clientX-downX)>4||Math.abs(e.clientY-downY)>4) moved=true;
     if(flying){ if(pdown) flyLook(e.clientX-lastX, e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; }
-    else hover(e);
+    else {
+      if(impBeam){                       // drag the beam Universe-Sandbox style: it follows the pointer
+        const r=dom.getBoundingClientRect();
+        mouse.x=((e.clientX-r.left)/r.width)*2-1; mouse.y=-((e.clientY-r.top)/r.height)*2+1;
+        impRC.setFromCamera(mouse,camera);
+        impBeam.origin.copy(impRC.ray.origin); impBeam.dir.copy(impRC.ray.direction);
+      }
+      hover(e);
+    }
   });
   dom.addEventListener('pointerup',e=>{ pdown=false;
     if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
@@ -2280,6 +2525,20 @@ function buildNav(){
 function setActiveNav(key){
   document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.key===key));
 }
+/* sidebar badge: a destroyed world swaps its ✦ life tag for a red ☠ one */
+function updateNavStatus(rec){
+  const el=document.querySelector('.navitem[data-key="'+rec.data.key+'"]'); if(!el) return;
+  let tag=el.querySelector('.tag');
+  if(rec.destroyed){
+    if(!tag){ tag=document.createElement('span'); tag.className='tag'; el.appendChild(tag); }
+    tag.className='tag dead'; tag.removeAttribute('title');
+    tag.innerHTML='☠&nbsp;'+T('nav-destroyed');
+  } else if(rec.data.life){
+    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
+    tag.className='tag'; tag.title=T('life-title');
+    tag.innerHTML='✦&nbsp;'+T('life-'+rec.data.life);
+  } else if(tag) tag.remove();
+}
 
 function typeLabelFor(d){
   if(d.kind==='star') return T('type-star');
@@ -2316,6 +2575,16 @@ function openInfo(d){
   const t=document.getElementById('i-stats'); t.innerHTML='';
   (locStats(d)||[]).forEach(([k,v])=>{ const tr=document.createElement('tr');
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
+  // an impact-nudged orbit overrides the book values — show the live elements
+  const prec=bodies.find(b=>b.data.key===d.key);
+  if(prec && prec.orbitPerturbed && !prec.destroyed){
+    const aAU=prec.helio?(prec.helioA!=null?prec.helioA:prec.data.dist):(prec._physA!=null?prec._physA:prec.data.dist);
+    const val=prec.helio
+      ? (+aAU.toPrecision(4))+' AU · e='+(+prec.e.toPrecision(3))+' · '+(+prec.period.toPrecision(3))+' '+T('e-yr')
+      : Math.round(aAU*1.496e8).toLocaleString()+' km · e='+(+prec.e.toPrecision(3));
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>⚠ '+T('st-orbit-now')+'</td><td>'+val+'</td>'; t.appendChild(tr);
+  }
   // description
   const ds=document.getElementById('i-desc'); ds.innerHTML='';
   const addParas=(text)=>{ (text||'').split('\n\n').forEach(par=>{ if(!par.trim())return;
@@ -2354,7 +2623,8 @@ function openInfoDestroyed(rec){
   [[T('st-status'),T('st-destroyed')],
    [T('st-cause'),T('st-cause-v')],
    [T('st-eabs'), (rec.dmgJ||0).toExponential(2).replace('e+','e')+' J'],
-   [T('st-ebind'), impBindingJ(rec).toExponential(2).replace('e+','e')+' J']
+   [T('st-ebind'), impBindingJ(rec).toExponential(2).replace('e+','e')+' J'],
+   [T('st-ring'), T('st-ring-v')]
   ].forEach(([k,v])=>{ const tr=document.createElement('tr');
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
   const ds=document.getElementById('i-desc'); ds.innerHTML='';

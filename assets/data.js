@@ -36,6 +36,7 @@ const STAR = {
   color: 0xfff1d6,
   light: 0xfff4e0,
   radiusKm: 835000,          // ~1.2 R☉ (visual radius is set separately)
+  massKg: 2.266e30, comp: { iron: 0,     rock: 0,     water: 0,     gas: 1.0   },   // Universe Sandbox .ubox depots
   rotationPeriod: 18,
   stats: [
     ["Mass", "1.139 M☉"],
@@ -62,12 +63,12 @@ const PLANETS = [
     tagline: "Hot super-Neptune — a big brother of Neptune wearing Jupiter's clothes",
     dist: 0.0485, ecc: 0.0, period: 0.0100,
     radiusKm: 42879, rotationPeriod: 5,
+    massKg: 5.903e26, comp: { iron: 0.090, rock: 0.428, water: 0.161, gas: 0.321 },   // Universe Sandbox .ubox depots
     color: 0xc89a63,
     palette: ["#7a4a2a","#caa06a","#e6c08a","#b87a3c","#e8e0d0","#d98a4a"],
     emissive: 0x3a1402, emissiveScale: 0.35,
     atmo: 0xe0a868,
     evapTail: true,       // it sheds vaporised envelope — drawn as a comet-like gas tail
-    debrisGas: 0.95,      // impact lab: mostly gaseous envelope — shatters into a huge gas cloud
     stats: [
       ["Type", "Hot super-Neptune (composition) / hot Saturn (mass)"],
       ["Mass", "98.8 M⊕ (0.311 Jupiter)"],
@@ -99,11 +100,11 @@ const PLANETS = [
     tagline: "Hot sub-Neptune — a hybrid of Venus and Neptune, 100% hellish",
     dist: 0.25, ecc: 0.0, period: 0.1171,
     radiusKm: 15468, rotationPeriod: 8,
+    massKg: 6.210e25, comp: { iron: 0.374, rock: 0.356, water: 0.248, gas: 0.022 },   // Universe Sandbox .ubox depots
     color: 0x4fb3a6,
     palette: ["#caa84a","#3fae9e","#cfe0e8","#5fc0b0","#d98a4a","#e8d59a"],
     emissive: 0x10201e, emissiveScale: 0.10,
     atmo: 0x7fd0c4,
-    debrisGas: 0.4,       // impact lab: mostly rock/iron under the envelope — rocky debris, some gas
     stats: [
       ["Type", "Hot mini / sub-Neptune"],
       ["Mass", "10.4 M⊕"],
@@ -136,6 +137,7 @@ const PLANETS = [
     tagline: "AreanXeric — the driest world in the Ra system",
     dist: 0.66, ecc: 0.0, period: 0.5024,
     radiusKm: 3840, rotationPeriod: 1.4,
+    massKg: 1.430e24, comp: { iron: 0.488, rock: 0.512, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
     color: 0xa83c1e,
     palette: ["#6e2410","#b8431e","#d6562a","#8a2e14","#c8552a","#e07a3c"],
     rocky: { base:"#8a2c12", a:"#c4501f", b:"#5e1e0c", c:"#e08038" },
@@ -171,6 +173,7 @@ const PLANETS = [
     tagline: "Vitriolic BathyGaian — an ocean of sulfuric acid, and alien life",
     dist: 1.448, ecc: 0.05, period: 1.633,
     radiusKm: 8270, rotationPeriod: 1.1,
+    massKg: 1.254e25, comp: { iron: 0.172, rock: 0.827, water: 0.001, gas: 0     },   // Universe Sandbox .ubox depots
     color: 0x9c5236,
     terran: { ocean:"#7a3a22", ocean2:"#9c5236", land:"#caa07a", cloud:"#e8d8c0", landAmt:0.18 },
     palette: ["#5a2a18","#9c5236","#c8895f","#7a3a22"],
@@ -205,6 +208,7 @@ const PLANETS = [
     tagline: "AreanLacustric — a Mars-sized world that birthed intelligent life",
     dist: 1.71, ecc: 0.02, period: 2.095,
     radiusKm: 3890, rotationPeriod: 1.0,
+    massKg: 1.493e24, comp: { iron: 0.370, rock: 0.630, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
     color: 0x3a6ea5,
     terran: { ocean:"#16386b", ocean2:"#2b62a0", land:"#8a3fb0", land2:"#b86fd0", cloud:"#eef2f6", landAmt:0.40, veg:true },
     atmo: 0x88b6ff,
@@ -244,6 +248,7 @@ const PLANETS = [
     tagline: "BathyPelagic — a flawless blue marble that is a desert for life",
     dist: 3.50, ecc: 0.179, period: 6.135,
     radiusKm: 13728, rotationPeriod: 6,
+    massKg: 5.433e25, comp: { iron: 0.116, rock: 0.603, water: 0.281, gas: 0     },   // Universe Sandbox .ubox depots
     color: 0x2a6bb0,
     terran: { ocean:"#0e3a72", ocean2:"#2f73bd", land:"#dfeaf2", cloud:"#dfeefa", landAmt:-0.15, ice:true },
     atmo: 0x7ab0ee,
@@ -280,6 +285,7 @@ const PLANETS = [
     tagline: "A cold, low-density world on the system's frozen frontier",
     dist: 15.7, ecc: 0.113, period: 58.29,
     radiusKm: 10680, rotationPeriod: 9,
+    massKg: 6.519e24, comp: { iron: 0.146, rock: 0.439, water: 0.375, gas: 0.041 },   // Universe Sandbox .ubox depots
     color: 0xaebfcf,
     palette: ["#7f93a8","#b6c6d6","#dde8f0","#9aaabd"],
     atmo: 0x9fb6cc,
@@ -306,6 +312,7 @@ const MOONS = [
     tagline: "A molten Io–Venus hybrid trailing a comet-like tail",
     dist: 0.0016, ecc: 0.02, period: 0.030,
     radiusKm: 1287, rotationPeriod: 0.6,
+    massKg: 5.590e22, comp: { iron: 0.650, rock: 0.350, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
     color: 0xd98a32,
     rocky: { base:"#7a3a10", a:"#e6a83a", b:"#2a1206", c:"#ffd060" },
     emissive: 0x401400, emissiveScale: 0.5,
@@ -356,6 +363,7 @@ const MOONS = [
     tagline: "An ice-ocean moon with open water under a vacuum sky — and life",
     dist: 0.0009133, ecc: 0.086, period: 0.026,   // 136,610 km from Uat-Ur, expressed in AU
     radiusKm: 1836, rotationPeriod: 1.2,
+    massKg: 1.031e23, comp: { iron: 0.227, rock: 0.727, water: 0.046, gas: 0     },   // Universe Sandbox .ubox depots
     color: 0xcfd6c4,
     rocky: { base:"#8a8f7a", a:"#e8e2c8", b:"#3a5a6a", c:"#d8c24a" },
     atmo: 0x9fc0c8, atmoThin: true,
@@ -385,6 +393,7 @@ const MOONS = [
     tagline: "Where do Mars-like worlds end and icy moons begin?",
     dist: 0.0015085, ecc: 0.019, period: 0.050,   // 225,660 km from Uat-Ur, expressed in AU
     radiusKm: 2475, rotationPeriod: 2.0,
+    massKg: 2.534e23, comp: { iron: 0.109, rock: 0.888, water: 0.003, gas: 0     },   // Universe Sandbox .ubox depots
     color: 0xc4b6a4,
     rocky: { base:"#7a6a58", a:"#cbbfae", b:"#5a4a3a", c:"#e8ddca" },
     atmoThin: true, atmo: 0xb0a890,
@@ -414,6 +423,7 @@ const HORUS = {
   tagline: "A brown-dwarf companion to Ra — a failed star with worlds of its own",
   dist: 45.8, ecc: 0.141, period: 290.4,
   radiusKm: 62920, rotationPeriod: 7,
+  massKg: 8.841e28, comp: { iron: 0.003, rock: 0.012, water: 0.016, gas: 0.968 },   // Universe Sandbox .ubox depots
   color: 0x7a2418,
   palette: ["#3a0e06","#7a2010","#a83418","#581608","#c24a22"],
   emissive: 0x6a1a08, emissiveScale: 0.7,
@@ -440,6 +450,7 @@ const HORUS_MOONS = [
     key:"anubis", name:"Anubis", parent:"horus", kind:"ocean",
     tagline:"The deceptive god of death — a 'blue marble' that is utterly dead",
     dist:0.00852, ecc:0.0158, period:0.018, radiusKm:4700, rotationPeriod:1.4,
+    massKg: 2.798e24, comp: { iron: 0.099, rock: 0.442, water: 0.459, gas: 0     },   // Universe Sandbox .ubox depots
     color:0x4a7fa8,
     terran:{ ocean:"#2a5a7a", ocean2:"#4f86ad", land:"#c8c0b0", cloud:"#dfeaf0", landAmt:-0.15, ice:true },
     atmo:0x9fc8e0,
@@ -461,6 +472,7 @@ const HORUS_MOONS = [
     key:"khonsu", name:"Khonsu", parent:"horus", kind:"rocky",
     tagline:"A cold, rocky moon of the brown dwarf",
     dist:0.0125, ecc:0.0066, period:0.030, radiusKm:4900, rotationPeriod:2,
+    massKg: 3.307e24, comp: { iron: 0.136, rock: 0.728, water: 0.136, gas: 0     },   // Universe Sandbox .ubox depots
     color:0x9a8d7a,
     rocky:{ base:"#6f6354", a:"#a89880", b:"#463d32", c:"#c8bba6" },
     stats:[
@@ -477,6 +489,7 @@ const HORUS_MOONS = [
     key:"nut", name:"Nut", parent:"horus", kind:"icemoon",
     tagline:"A frigid, ice-shelled, Europa-like world of Horus",
     dist:0.0156, ecc:0.0104, period:0.042, radiusKm:7500, rotationPeriod:3,
+    massKg: 1.036e25, comp: { iron: 0.255, rock: 0.745, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
     color:0xbcd0d8,
     rocky:{ base:"#cdd9e2", a:"#eaf1f6", b:"#7d96a8", c:"#c7a487" },  // pale ice + tan lineae
     atmoThin:true, atmo:0xaccad6,
@@ -494,6 +507,7 @@ const HORUS_MOONS = [
     key:"osiris", name:"Osiris", parent:"horus", kind:"gasgiant",
     tagline:"A mini-Neptune orbiting a brown dwarf",
     dist:0.781, ecc:0.014, period:0.16, radiusKm:24000, rotationPeriod:6,
+    massKg: 9.227e25, comp: { iron: 0.015, rock: 0.040, water: 0.222, gas: 0.723 },   // Universe Sandbox .ubox depots
     color:0x6fb0c8,
     palette:["#3a7a96","#6fb0c8","#bfe2ee","#4f93ad","#a8d8e6"],
     atmo:0x9fd6e8,
