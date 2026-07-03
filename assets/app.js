@@ -321,6 +321,8 @@ const UI_EN={
   'heal-hint':'(🧽 Heal in the impact lab restores the planet.)',
   'nav-destroyed':'destroyed',
   'st-orbit-now':'Orbit (current)',
+  'st-mass-now':'Mass (current)',
+  'tier-massloss':' · mass −{p} %',
   'st-ring':'Debris ring','st-ring-v':'☄ shearing along the old orbit',
   'tier-puff-1':' · envelope: superheated, glowing',
   'tier-puff-2':' · envelope: inflated like a hot Jupiter — gas escaping',
@@ -391,7 +393,7 @@ let selected=null;
 const MOBILE_UI = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 
 // --- impact lab state (💥 button; module lives before the Animation section) ---
-let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18;
+let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18, impInfoT=0;
 
 // --- free-roam flight state ---
 let flying=false, flyModel='flycam', flyAutoSpeed=true, throttleFrac=0, throttleKms=0, autoOrient=false, flyThrust=0;
@@ -939,12 +941,44 @@ function impRockTex(){
 const impRC=new THREE.Raycaster();
 const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
 
-function impBodyMassKg(rec){
+function impBodyMassKg0(rec){                               // original (undamaged) mass
   if(rec.data.massKg) return rec.data.massKg;               // exact, from the author's .ubox
   const R=(rec.data.radiusKm||1000)*1000;
   return (impDensityByKind[rec.data.kind]||3500)*(4/3)*Math.PI*R*R*R; }
+/* ---- mass loss: once a world is superheated, further energy boils material
+   off into space (the escaping tail). Stateless, from cumulative dmgJ:
+   rocky worlds lose mass past the whole-body melt budget, paying vaporization
+   + escape energy per kg; a puffed giant's envelope only has to be lifted. */
+const IMP_VAP_EJKG={icemoon:3.2e6, iceworld:3.2e6, ocean:5e6};  // J/kg to heat + vaporize; rock default
+function impVapEJkg(rec){
+  const c=rec.data.comp;
+  if(c) return Math.max(8e5, 1.4e7*((c.rock||0)+(c.iron||0)) + 3.1e6*(c.water||0) + 5e5*(c.gas||0));
+  return IMP_VAP_EJKG[rec.data.kind]||1.4e7;
+}
+function impMassLostKg(rec){
+  if(!(rec.dmgJ>0)||impImmune(rec)) return 0;
+  const M0=impBodyMassKg0(rec), R=(rec.data.radiusKm||1000)*1000;
+  const eEsc=IMP_G*M0/R;
+  let over, eKg;
+  if(rec.data.kind==='gasgiant'){                           // loss starts with the escaping-gas tail
+    over=(rec.dmgJ||0)-0.05*(3*IMP_G*M0*M0/(5*R)); eKg=eEsc;
+  } else {                                                  // loss starts once superheated: fully molten,
+    const U0=3*IMP_G*M0*M0/(5*R);                           // or (small cold moons) nearing breakup
+    over=(rec.dmgJ||0)-Math.min(M0*impMeltEJkg(rec), 0.25*U0); eKg=impVapEJkg(rec)+eEsc;
+  }
+  if(over<=0) return 0;
+  return Math.min(0.5*M0, over/eKg);                        // ≥ that and breakup wins anyway
+}
+function impBodyMassKg(rec){ return impBodyMassKg0(rec)-impMassLostKg(rec); }
+function impMassNowTxt(rec){                                // "1.98 M⊕ (−3.2 %)" for the info panel
+  const M0=impBodyMassKg0(rec), M=impBodyMassKg(rec), lf=1-M/M0;
+  const me=M/5.972e24;
+  const mtxt = me>=0.01 ? (+me.toPrecision(3))+' M⊕' : M.toExponential(2).replace('e+','e')+' kg';
+  const p = lf<0.10 ? (lf*100).toFixed(1) : String(Math.round(lf*100));
+  return mtxt+' (−'+p+' %)';
+}
 function impBodyRho(rec){ const R=(rec.data.radiusKm||1000)*1000;
-  return impBodyMassKg(rec)/((4/3)*Math.PI*R*R*R); }
+  return impBodyMassKg0(rec)/((4/3)*Math.PI*R*R*R); }       // bulk density of the surviving body
 /* what fraction of a disrupted body flashes to gas: its H/He envelope plus
    its water (steam, at breakup temperatures) — from the .ubox depots */
 function impGasFrac(rec){
@@ -1087,14 +1121,15 @@ function impUpdatePuff(rec){
     m.emissive.copy(rec._baseEmissive.c).lerp(new THREE.Color(0xff7733), Math.min(1,f*1.6));
     m.emissiveIntensity=rec._baseEmissive.i+1.3*f;          // heated envelope glows
   }
-  if(f>0.05){                                               // envelope starts streaming away
-    let t=rec._puffTail || evapTails.find(x=>x.rec===rec);  // Amunet already trails one — boost it
-    if(!t){ t=makeEvapTail(rec,{alpha:0.3,rate:1}); t._created=true; t.points.visible=showTails; }
-    if(!t._base) t._base={rate:t.rate, alpha:t.points.material.uniforms.uAlpha.value};
-    t.rate=t._base.rate*(1+3.5*f);
-    t.points.material.uniforms.uAlpha.value=Math.max(t._base.alpha, 0.3+1.1*f);
-    rec._puffTail=t;
-  }
+  if(f>0.05) impBoostTail(rec,f);                           // envelope starts streaming away
+}
+function impBoostTail(rec,f){                               // escaping-material tail (mass loss made visible)
+  let t=rec._puffTail || evapTails.find(x=>x.rec===rec);    // Amunet already trails one — boost it
+  if(!t){ t=makeEvapTail(rec,{alpha:0.3,rate:1}); t._created=true; t.points.visible=showTails; }
+  if(!t._base) t._base={rate:t.rate, alpha:t.points.material.uniforms.uAlpha.value};
+  t.rate=t._base.rate*(1+3.5*f);
+  t.points.material.uniforms.uAlpha.value=Math.max(t._base.alpha, 0.3+1.1*f);
+  rec._puffTail=t;
 }
 function impUpdateMelt(rec){                 // cumulative surface state from the melt budget
   if(!rec.scar || impImmune(rec)) return;
@@ -1107,6 +1142,8 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   // superheat: past the full budget — or nearing breakup — it runs white-hot
   const hot = Math.min(1, Math.max(mf>1?(mf-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
   s.oceanM=m; s.oceanHot=hot;
+  // superheated crust boils off as rock vapor — the mass actually leaves (impMassLostKg)
+  if(hot>0.05) impBoostTail(rec, 0.4*hot);
   if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0;
     if(s.halo) s.halo.material.uniforms.p.value=0; return; }
   const o=getMagmaOcean(rec);
@@ -1114,7 +1151,14 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   o.material.color.setScalar(1+0.25*m+2.6*hot);                 // overdriven = white-hot under ACES
   getMagmaHalo(rec).material.uniforms.p.value=1.6*(0.35*m+0.9*hot);
 }
-function impTierTxt(rec){                    // hover readout of the surface state
+function impTierTxt(rec){                    // hover readout of the surface state (+ mass boiled off)
+  const base=impTierBase(rec);
+  if(!base) return base;
+  const lf=impMassLostKg(rec)/impBodyMassKg0(rec);
+  if(lf>0.001) return base+T('tier-massloss').replace('{p}', lf<0.10?(lf*100).toFixed(1):String(Math.round(lf*100)));
+  return base;
+}
+function impTierBase(rec){
   if(!(rec.dmgJ>0)) return '';
   if(rec.data.kind==='gasgiant'){            // no surface — the envelope inflates instead
     const f=rec.dmgJ/impBindingJ(rec);
@@ -1985,6 +2029,19 @@ function updateImpacts(dt){
       s.glowT.needsUpdate=true; s.coolT=0;
     }
   }
+  // keep an open info panel's live mass row current while material boils off
+  impInfoT+=dt;
+  if(impInfoT>0.5){
+    impInfoT=0;
+    if(APP.currentData && document.getElementById('info').classList.contains('open')){
+      const rec=bodies.find(b=>b.data.key===APP.currentData.key);
+      if(rec && !rec.destroyed){
+        const cell=document.getElementById('i-mass-now');
+        if(cell) cell.textContent=impMassNowTxt(rec);
+        else if(impMassLostKg(rec)/impBodyMassKg0(rec)>0.001) openInfo(rec.data);  // first crossing: add the row
+      }
+    }
+  }
   // camera shake (decaying)
   if(impShake>1e-4){
     const ref=camera.position.distanceTo(controls.target);
@@ -2679,6 +2736,12 @@ function openInfo(d){
       : Math.round(aAU*1.496e8).toLocaleString()+' km · e='+(+prec.e.toPrecision(3));
     const tr=document.createElement('tr');
     tr.innerHTML='<td>⚠ '+T('st-orbit-now')+'</td><td>'+val+'</td>'; t.appendChild(tr);
+  }
+  // mass boiled off by superheating overrides the book value — show what's left
+  if(prec && !prec.destroyed && impMassLostKg(prec)/impBodyMassKg0(prec)>0.001){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>⚠ '+T('st-mass-now')+'</td><td id="i-mass-now">'+impMassNowTxt(prec)+'</td>';
+    t.appendChild(tr);
   }
   // description
   const ds=document.getElementById('i-desc'); ds.innerHTML='';

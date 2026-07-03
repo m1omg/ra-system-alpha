@@ -28,6 +28,8 @@ ui: {
   'heal-hint':'(🧽 Uzdraviť v impaktnom laboratóriu planétu obnoví.)',
   'nav-destroyed':'zničený',
   'st-orbit-now':'Dráha (aktuálna)',
+  'st-mass-now':'Hmotnosť (aktuálna)',
+  'tier-massloss':' · hmotnosť −{p} %',
   'st-ring':'Prstenec trosiek','st-ring-v':'☄ rozmazáva sa pozdĺž pôvodnej dráhy',
   'tier-puff-1':' · obal: prehriaty, žiari',
   'tier-puff-2':' · obal: nafúknutý ako horúci Jupiter — plyn uniká',
