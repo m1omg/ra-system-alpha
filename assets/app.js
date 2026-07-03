@@ -292,6 +292,14 @@ function glowCanvasTex(inner, outer){
    Three.js scene
    ============================================================ */
 const APP = {};
+
+/* ---- which system? Ra (default) or our real Solar System (data-sol.js) ---- */
+let SYS='ra';
+try{ if(localStorage.getItem('ra-system')==='sol' && typeof SOL_SYSTEM!=='undefined') SYS='sol'; }catch(_){}
+const DS = SYS==='sol'
+  ? {STAR:SOL_SYSTEM.STAR, PLANETS:SOL_SYSTEM.PLANETS, MOONS:SOL_SYSTEM.MOONS,
+     HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY}
+  : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY};
 let scene,camera,renderer,controls,clock;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
 let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
@@ -311,6 +319,10 @@ const UI_EN={
   'authors-text':"📖 Author's text",'summary-source':'📖 Summary + source',
   'type-star':'Star','type-bd':'Brown dwarf','type-moon':'Moon','type-planet':'Planet',
   'nav-ra':'Ra System','nav-horus':'Horus subsystem',
+  'nav-sol':'The Solar System',
+  'title-sol-h1':'The <b>Solar</b> System',
+  'doc-title-sol':'The Solar System — Interactive 3D Simulation',
+  'sys-to-sol':'⇄ 🌍 Solar System','sys-to-ra':'⇄ ✨ Ra System',
   'life-title':'harbours life','life-intelligent':'intelligent','life-alien':'alien','life-seeded':'seeded','life-native':'native',
   'from-source':"From the source — author's text",
   'no-desc':'(No description in the source document yet — summary shown.)',
@@ -353,6 +365,12 @@ function locVerbatim(key){
   if(LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.verbatim[key]) return LANG_SK.verbatim[key];
   return (typeof DESCRIPTIONS_VERBATIM!=='undefined')?DESCRIPTIONS_VERBATIM[key]:null;
 }
+function locName(d){
+  if(LANG==='sk' && typeof LANG_SK!=='undefined'){
+    const l=LANG_SK.data[d.key]; if(l && l.name) return l.name;
+  }
+  return d.name;
+}
 const _staticEn={};
 function applyStaticLang(){
   if(typeof LANG_SK==='undefined') return;
@@ -367,6 +385,12 @@ function applyStaticLang(){
     el.setAttribute('title', LANG==='sk'?LANG_SK.titles[id]:_staticEn[k]);
   }
   document.title=T('doc-title');
+  applySysTitles();
+}
+function applySysTitles(){
+  if(SYS!=='sol') return;
+  const h=document.getElementById('title-h1'); if(h) h.innerHTML=T('title-sol-h1');
+  document.title=T('doc-title-sol');
 }
 function updateLangBtn(){ const b=document.getElementById('t-lang'); if(b) b.textContent = LANG==='sk'?'🌐 EN':'🌐 SK'; }
 function setLang(l){
@@ -381,6 +405,10 @@ function setLang(l){
   const sb=document.getElementById('t-scale'); if(sb) sb.innerHTML=realScale?T('real-scale'):T('compressed');
   const tb=document.getElementById('t-text'); if(tb) tb.innerHTML=USE_VERBATIM?T('authors-text'):T('summary-source');
   const sp=document.getElementById('speed'); if(sp) setSpeed(+sp.value);
+  const sysb=document.getElementById('t-system');
+  if(sysb) sysb.innerHTML = SYS==='sol'?T('sys-to-ra'):T('sys-to-sol');
+  for(const r of bodies){ const el=labelEls[r.data.key];
+    if(el) el.textContent=locName(r.data)+(r.destroyed?' ☠':''); }
   if(typeof updateImpactUI==='function') updateImpactUI();
   if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData);
 }
@@ -404,6 +432,47 @@ const _flyPrevTarget=new THREE.Vector3();
 const flyKeys={};
 
 const labelLayer=document.getElementById('labels');
+
+/* flat banded annulus in the planet's equator plane (Saturn). The band
+   strip is a seeded 1D canvas (registered for Android canvas-wipe replay);
+   UVs are remapped radially so the strip reads as concentric rings. */
+function makeBodyRings(rec){
+  const cfg=rec.data.rings;
+  const inner=rec.radius*cfg.inner, outer=rec.radius*cfg.outer;
+  const geo=new THREE.RingGeometry(inner,outer,96,1);
+  const pos=geo.attributes.position, uv=geo.attributes.uv;
+  for(let i=0;i<pos.count;i++){
+    const r=Math.hypot(pos.getX(i),pos.getY(i));
+    uv.setXY(i,(r-inner)/(outer-inner),0.5);
+  }
+  const cv=newCanvas(512,4);
+  const paint=()=>{
+    const ctx=cv.getContext('2d');
+    ctx.clearRect(0,0,512,4);
+    let sd=1234567;
+    const rnd=()=>{ sd=(sd*1103515245+12345)>>>0; return sd/4294967296; };
+    for(let x=0;x<512;x++){
+      const f=x/512;
+      let a=0.55+0.45*Math.sin(f*40+rnd()*2)*rnd();         // fine ringlets
+      a*=0.35+0.65*Math.min(1,f*6)*(1-Math.pow(f,3)*0.35);  // dim inner edge, soft outer
+      if(f>0.66 && f<0.74) a*=0.10;                          // Cassini division
+      if(f<0.06) a*=0.3;
+      ctx.fillStyle=cfg.color||'#d8c9a6';
+      ctx.globalAlpha=Math.max(0,Math.min(1,a))*0.9;
+      ctx.fillRect(x,0,1,4);
+    }
+  };
+  paint();
+  const t=new THREE.CanvasTexture(cv);
+  regCanvasTex(t,paint);
+  const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:t,side:THREE.DoubleSide,
+    transparent:true,depthWrite:false,opacity:0.95}));
+  m.rotation.x=Math.PI/2;
+  m.renderOrder=1;
+  rec.mesh.add(m);
+  rec.ringsMesh=m;
+  return m;
+}
 
 function makeAtmosphere(radius, color, strength){
   const mat=new THREE.ShaderMaterial({
@@ -609,31 +678,36 @@ function build(){
   // ---- Ra ---- (star visuals live in starGroup so they can be scaled per mode)
   sunHolder=new THREE.Object3D(); scene.add(sunHolder);
   starGroup=new THREE.Object3D(); sunHolder.add(starGroup);
-  sunMesh=buildBodyMesh(STAR, STAR_R_COMPRESS); starGroup.add(sunMesh); pickables.push(sunMesh);
+  sunMesh=buildBodyMesh(DS.STAR, STAR_R_COMPRESS); starGroup.add(sunMesh); pickables.push(sunMesh);
   addStarGlow(starGroup, STAR_R_COMPRESS, '#fffaf0', '#ffdf9a', 5.4);
-  bodies.push({data:STAR, holder:sunHolder, mesh:sunMesh, orbitLine:null, radius:STAR_R_COMPRESS,
-    aDisp:0, e:0, q:new THREE.Quaternion(), period:1, M:0, spin:0.35/STAR.rotationPeriod,
+  bodies.push({data:DS.STAR, holder:sunHolder, mesh:sunMesh, orbitLine:null, radius:STAR_R_COMPRESS,
+    aDisp:0, e:0, q:new THREE.Quaternion(), period:1, M:0, spin:0.35/DS.STAR.rotationPeriod,
     parentHolder:scene, helio:false});
 
   // ---- planets ----
-  for(const p of PLANETS){
-    addBody(p, sunHolder, { aDisp:distDisp(p.dist), incl:inclFor(p.key), node:nodeFor(p.key), orbitOpacity:0.34 });
+  for(const p of DS.PLANETS){
+    addBody(p, sunHolder, { aDisp:distDisp(p.dist), incl:(p.incl!=null?p.incl:inclFor(p.key)),
+      node:nodeFor(p.key), orbitOpacity:0.34 });
   }
   // ---- moons of planets ----
-  for(const m of MOONS){
+  for(const m of DS.MOONS){
     const parent=bodies.find(b=>b.data.key===m.parent);
     if(!parent) continue;
     addMoon(m, parent);
   }
 
-  // ---- Horus + its moons ----
-  horusRec=addBody(HORUS, sunHolder, { aDisp:distDisp(HORUS.dist), incl:inclFor('horus'), node:nodeFor('horus'),
-                    radius:sizeDisp(HORUS.radiusKm), orbitOpacity:0.28 });
-  horusHolder=horusRec.holder;
-  addStarGlow(horusRec.mesh, horusRec.radius, '#ff7a44', '#7a1c08', 2.4);  // glow scales with mesh
-  const hLight=new THREE.PointLight(0xff5a2a, aiTex?0.55:0.9, horusRec.radius*70, 1.2);
-  horusRec.mesh.add(hLight);
-  for(const m of HORUS_MOONS){ addMoon(m, horusRec); }
+  // ---- Horus + its moons (Ra system only) ----
+  if(DS.HORUS){
+    horusRec=addBody(DS.HORUS, sunHolder, { aDisp:distDisp(DS.HORUS.dist), incl:inclFor('horus'), node:nodeFor('horus'),
+                      radius:sizeDisp(DS.HORUS.radiusKm), orbitOpacity:0.28 });
+    horusHolder=horusRec.holder;
+    addStarGlow(horusRec.mesh, horusRec.radius, '#ff7a44', '#7a1c08', 2.4);  // glow scales with mesh
+    const hLight=new THREE.PointLight(0xff5a2a, aiTex?0.55:0.9, horusRec.radius*70, 1.2);
+    horusRec.mesh.add(hLight);
+    for(const m of DS.HORUS_MOONS){ addMoon(m, horusRec); }
+  }
+  // ring systems (Saturn) — a flat banded annulus in the equator plane
+  for(const rec of bodies) if(rec.data.rings) makeBodyRings(rec);
 
   // evaporation tails (bodies flagged evapTail in data.js — planets and moons)
   for(const rec of bodies) if(rec.data.evapTail) makeEvapTail(rec);
@@ -641,6 +715,8 @@ function build(){
   cvArmSentinel();                                        // Android canvas-wipe detector
   renderer.domElement.addEventListener('webglcontextrestored', ()=>setTimeout(cvCheckRestore,60));
   buildNav(); buildGlossary();
+  applySysTitles();
+  if(SYS==='sol'){ const tb=document.getElementById('t-text'); if(tb) tb.style.display='none'; }
   // language toggle (English default; Slovak from assets/lang-sk.js)
   const lb=document.getElementById('t-lang');
   if(lb) lb.onclick=function(){ setLang(LANG==='sk'?'en':'sk'); };
@@ -666,7 +742,7 @@ function build(){
 
 function addMoon(m, parentRec){
   // per-subsystem display distance
-  const sysMoons = (parentRec.data.key==='horus')?HORUS_MOONS:MOONS.filter(x=>x.parent===parentRec.data.key);
+  const sysMoons = (DS.HORUS && parentRec.data.key===DS.HORUS.key)?DS.HORUS_MOONS:DS.MOONS.filter(x=>x.parent===parentRec.data.key);
   const refDist = Math.min.apply(null, sysMoons.map(x=>x.dist));
   const spacing = Math.max(2.2, parentRec.radius*0.95);
   // compressed: tuned for visibility; real: the moon's TRUE distance from its parent
@@ -1344,7 +1420,7 @@ function shatterBody(rec){
   makeDebrisRing(rec);                  // Kepler shear smears it into a ring along the old orbit
   liberateMoons(rec);                   // its moons sail on around Ra on their own new orbits
   updateNavStatus(rec);                 // sidebar: red ☠ destroyed badge
-  const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name+' ☠';
+  const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data)+' ☠';
   if(APP.currentData && APP.currentData.key===rec.data.key &&
      document.getElementById('info').classList.contains('open')) openInfo(rec.data);
   impShake=Math.min(0.06, impShake+0.03);
@@ -1748,7 +1824,7 @@ function removeDebrisField(rec){
   for(const ch of rec.mesh.children) ch.visible=true;
   rec.destroyed=false;
   updateNavStatus(rec);
-  const el=labelEls[rec.data.key]; if(el) el.textContent=rec.data.name;
+  const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data);
 }
 
 function impHeal(){
@@ -2334,7 +2410,7 @@ function ensureLabels(){
     const el=document.createElement('div');
     el.className='lbl '+(rec.data.parent==='ra'||rec.data.kind==='star'?'major':'');
     if(rec.data.kind==='star') el.className='lbl star';
-    el.textContent=rec.data.name;
+    el.textContent=locName(rec.data);
     el.style.color = '#'+new THREE.Color(rec.data.color||0xcfe0ff).getHexString();
     if(rec.data.kind==='star') el.style.color='#ffd98a';
     el.addEventListener('click',()=>focusBody(rec.data.key,true));
@@ -2422,6 +2498,12 @@ function setupInteraction(){
     if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData); }; }
   updateTextUI();
   const tls=document.getElementById('t-tails'); if(tls) tls.onclick=toggleTails;
+  const sysb=document.getElementById('t-system');
+  if(sysb){
+    sysb.innerHTML = SYS==='sol'?T('sys-to-ra'):T('sys-to-sol');
+    sysb.onclick=()=>{ try{ localStorage.setItem('ra-system', SYS==='sol'?'ra':'sol'); }catch(_){}
+      location.hash=''; location.reload(); };
+  }
   const sx=document.getElementById('t-sfx');
   if(sx){ sx.onclick=toggleSfx;
     try{ sfxOn=localStorage.getItem('ra-sfx')!=='0'; }catch(_){ sfxOn=true; }   // on by default
@@ -2527,7 +2609,7 @@ function hover(e){
   const k=pick(e);
   renderer.domElement.style.cursor = impacting ? 'crosshair' : (k?'pointer':'grab');
   if(k){ const rec=bodies.find(b=>b.data.key===k);
-    let txt=rec.data.name;
+    let txt=locName(rec.data);
     if(impacting && rec){
       if(impImmune(rec)) txt+=T('imp-immune');
       else if(rec.destroyed) txt+=T('imp-destroyed');
@@ -2731,7 +2813,7 @@ function updateFlyHUD(){
   const tg=document.getElementById('fly-target'), eta=document.getElementById('fly-eta');
   if(flyTarget){
     const tp=worldPosOf(flyTarget), rangeKm=camera.position.distanceTo(tp)*KM_PER_UNIT;
-    if(tg) tg.textContent='◎ '+flyTarget.data.name+' · '+fmtDist(rangeKm);
+    if(tg) tg.textContent='◎ '+locName(flyTarget.data)+' · '+fmtDist(rangeKm);
     _fa.copy(tp).sub(camera.position).normalize();
     const closeKms=flyVel.dot(_fa)*KM_PER_UNIT;
     if(eta) eta.textContent = 'ETA '+(closeKms>1?fmtTime(rangeKm/closeKms):'—');
@@ -2801,22 +2883,24 @@ function navItem(data, sub){
   el.className='navitem'+(sub?' sub':'');
   el.dataset.key=data.key;
   const col='#'+new THREE.Color(data.color||0xcccccc).getHexString();
-  el.innerHTML=`<span class="dot" style="color:${col}"></span><span>${data.name}</span>`+
+  el.innerHTML=`<span class="dot" style="color:${col}"></span><span>${locName(data)}</span>`+
     (data.life?`<span class="tag" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'');
   el.onclick=()=>focusBody(data.key,true);
   return el;
 }
 function buildNav(){
   const nav=document.getElementById('nav');
-  const h=document.createElement('h3'); h.textContent=T('nav-ra'); nav.appendChild(h);
-  nav.appendChild(navItem(STAR));
-  for(const p of PLANETS){
+  const h=document.createElement('h3'); h.textContent=SYS==='sol'?T('nav-sol'):T('nav-ra'); nav.appendChild(h);
+  nav.appendChild(navItem(DS.STAR));
+  for(const p of DS.PLANETS){
     nav.appendChild(navItem(p));
-    for(const m of MOONS.filter(x=>x.parent===p.key)) nav.appendChild(navItem(m,true));
+    for(const m of DS.MOONS.filter(x=>x.parent===p.key)) nav.appendChild(navItem(m,true));
   }
-  const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
-  nav.appendChild(navItem(HORUS));
-  for(const m of HORUS_MOONS) nav.appendChild(navItem(m,true));
+  if(DS.HORUS){
+    const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
+    nav.appendChild(navItem(DS.HORUS));
+    for(const m of DS.HORUS_MOONS) nav.appendChild(navItem(m,true));
+  }
 }
 function setActiveNav(key){
   document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.key===key));
@@ -2839,7 +2923,7 @@ function updateNavStatus(rec){
 function typeLabelFor(d){
   if(d.kind==='star') return T('type-star');
   if(d.kind==='browndwarf') return T('type-bd');
-  if(d.parent && d.parent!=='ra') return T('type-moon');
+  if(d.parent && d.parent!==DS.STAR.key) return T('type-moon');
   return T('type-planet');
 }
 function openInfo(d){
@@ -2853,7 +2937,7 @@ function openInfo(d){
   // author's-text edition shows only the author's words, so hide my own tagline there
   const authorOnly = USE_VERBATIM && !!verbatim;
   document.getElementById('i-type').textContent=typeLabelFor(d);
-  document.getElementById('i-name').innerHTML=d.name+(d.alt?`<span>${d.alt}</span>`:'');
+  document.getElementById('i-name').innerHTML=locName(d)+(d.alt?`<span>${d.alt}</span>`:'');
   // tagline is my own line — hide it only when showing the author's own words alone
   const tagEl=document.getElementById('i-tag');
   tagEl.textContent = authorOnly ? '' : (locTagline(d)||'');
@@ -2917,7 +3001,7 @@ function syncInfoBtn(){ const ib=document.getElementById('infobtn');
 function openInfoDestroyed(rec){
   const d=rec.data;
   document.getElementById('i-type').textContent=T('debris-type');
-  document.getElementById('i-name').innerHTML=d.name+'<span>'+T('debris-name-span')+'</span>';
+  document.getElementById('i-name').innerHTML=locName(d)+'<span>'+T('debris-name-span')+'</span>';
   const tagEl=document.getElementById('i-tag');
   tagEl.textContent=T('debris-tag'); tagEl.style.display='block';
   document.getElementById('i-gallery').innerHTML='';
@@ -2931,7 +3015,7 @@ function openInfoDestroyed(rec){
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
   const ds=document.getElementById('i-desc'); ds.innerHTML='';
   const p=document.createElement('p');
-  p.textContent=T('debris-epitaph').replace(/\{name\}/g,d.name);
+  p.textContent=T('debris-epitaph').replace(/\{name\}/g,locName(d));
   ds.appendChild(p);
   const hint=document.createElement('p');
   hint.style.cssText='font-style:italic;color:#8ea2c0;font-size:12px';
@@ -2945,7 +3029,7 @@ function closeInfo(){ document.getElementById('info').classList.remove('open'); 
 
 function buildGlossary(){
   const el=document.getElementById('gloss');
-  const gl=(LANG==='sk' && typeof LANG_SK!=='undefined' && LANG_SK.glossary)||GLOSSARY;
+  const gl=(LANG==='sk' && typeof LANG_SK!=='undefined' && (SYS==='sol'?LANG_SK.glossarySol:LANG_SK.glossary))||DS.GLOSSARY;
   el.innerHTML=gl.map(([k,v])=>`<b>${k}</b> — ${v}`).join('<br>');
 }
 

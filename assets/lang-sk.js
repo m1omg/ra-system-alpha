@@ -18,6 +18,10 @@ ui: {
   'authors-text':'📖 Autorov text','summary-source':'📖 Zhrnutie + zdroj',
   'type-star':'Hviezda','type-bd':'Hnedý trpaslík','type-moon':'Mesiac','type-planet':'Planéta',
   'nav-ra':'Sústava Ra','nav-horus':'Podsústava Horus',
+  'nav-sol':'Slnečná sústava',
+  'title-sol-h1':'<b>Slnečná</b> sústava',
+  'doc-title-sol':'Slnečná sústava — interaktívna 3D simulácia',
+  'sys-to-sol':'⇄ 🌍 Slnečná sústava','sys-to-ra':'⇄ ✨ Sústava Ra',
   'life-title':'hostí život','life-intelligent':'inteligentný','life-alien':'cudzí','life-seeded':'zanesený','life-native':'pôvodný',
   'from-source':'Zo zdroja — autorov text (preklad)',
   'no-desc':'(Zdrojový dokument tento svet zatiaľ neopisuje — zobrazené je zhrnutie.)',
@@ -74,6 +78,7 @@ titles: {
   't-fly':'Voľný let (reálna mierka)',
   't-impact':'Impaktné laboratórium — nastaviteľné dopady asteroidov a laser',
   't-sfx':'Zvukové efekty — nerealistické (vesmír je tichý), ale pre efekt',
+  't-system':'Prepni medzi fiktívnou sústavou Ra a našou skutočnou Slnečnou sústavou',
   't-lang':'Slovenčina / English',
   'imp-heal':'Odstráni všetky jazvy a vynuluje poškodenie',
   'imp-exit':'Zavrieť (Esc)',
@@ -88,6 +93,164 @@ titles: {
 },
 
 data: {
+
+  /* ---------- Slnečná sústava ---------- */
+  sun: {
+    name:'Slnko',
+    tagline:'Hviezda hlavnej postupnosti G2V — jediná hviezda, o ktorej vieme, že svieti na život',
+    stats:[['Hmotnosť','1 M☉ (333 000 M⊕)'],['Spektrálny typ','G2V'],['Teplota','5 772 K povrch · 15,7 mil. K jadro'],
+           ['Svietivosť','3,83 × 10²⁶ W'],['Vek','4,6 miliardy rokov']],
+    desc:'Slnko drží 99,86 % hmotnosti Slnečnej sústavy a každú sekundu spáli šesťsto miliónov ton vodíka. Je to žltý trpaslík v strednom veku, pokojnejší než väčšina hviezd jeho veľkosti — a práve táto stabilita dala Zemi štyri miliardy neprerušených rokov na to, aby si vypestovala biosféru.\n\nO ďalších päť miliárd rokov sa nafúkne na červeného obra, pohltí Merkúr a Venušu a skončí ako pomaly chladnúci biely trpaslík zahalený v žiariacom rubáši vlastnej atmosféry.'
+  },
+  mercury: {
+    name:'Merkúr',
+    tagline:'Spálená železná delová guľa — najmenšia a najrýchlejšia planéta',
+    stats:[['Typ','Terestrická planéta'],['Hmotnosť','0,055 M⊕'],['Priemer','4 879 km'],['Gravitácia','0,38 g'],
+           ['Obežná vzdialenosť','0,39 AU'],['Deň (slnečný)','176 pozemských dní — dlhší než jeho rok'],
+           ['Teplota','−173 °C v noci · +427 °C cez deň'],['Mesiace','Žiadne']],
+    desc:'Merkúr je väčšinou jadro: železné srdce tvorí 70 % jeho hmotnosti a obaľuje ho len tenká kamenná kôra bičovaná blízkym Slnkom. Takmer bez atmosféry, ktorá by prenášala teplo, sa jeho povrch medzi poludním a polnocou hojdá o 600 °C — najextrémnejší teplotný rozsah zo všetkých planét.\n\nPomalá 59-dňová rotácia a rýchly 88-dňový obeh sa skladajú tak, že jediný deň od východu po východ Slnka trvá dva merkúrovské roky. V trvalo zatienených polárnych kráteroch — neuveriteľne — prežíva ľad.'
+  },
+  venus: {
+    name:'Venuša',
+    tagline:'Zlé dvojča Zeme — skleníkový kolaps pod kyselinovými oblakmi',
+    stats:[['Typ','Terestrická planéta'],['Hmotnosť','0,815 M⊕'],['Priemer','12 104 km'],['Gravitácia','0,90 g'],
+           ['Obežná vzdialenosť','0,72 AU'],['Deň','243 pozemských dní, točí sa opačne'],
+           ['Povrch','+464 °C · 92 atmosfér CO₂'],['Mesiace','Žiadne']],
+    desc:'Venuša má veľkosť Zeme aj hustotu Zeme — a nič iné na nej zemské nie je. Drvivá atmosféra oxidu uhličitého zadržiava toľko tepla, že roztaví olovo, vo dne v noci, od pólu k pólu; oblaky sú kvapôčky kyseliny sírovej a vzduch pri povrchu tlačí ako kilometer oceánu.\n\nTočí sa opačne a pomalšie, než obieha — venušanský deň prežije jej rok. Pred miliardami rokov mohla mať oceány, kým ich skleníkový kolaps nevyvaril do neba. Je to trvalá výstraha, ako môže obývateľný svet zomrieť.'
+  },
+  earth: {
+    name:'Zem',
+    tagline:'Bledomodrá bodka — jediný svet, o ktorom vieme, že nesie život',
+    stats:[['Typ','Terestrická planéta'],['Hmotnosť','1 M⊕ (5,97 × 10²⁴ kg)'],['Priemer','12 742 km'],['Gravitácia','1 g'],
+           ['Obežná vzdialenosť','1 AU'],['Deň','23 h 56 min'],['Povrch','71 % oceán · priemer 15 °C'],['Mesiace','Mesiac']],
+    desc:'Zem je jediný svet Slnečnej sústavy s kvapalnou vodou na povrchu, jediný s platňovou tektonikou a — pokiaľ vieme — jediné miesto vo vesmíre, kde sa hmota usporiadala tak, aby sa nad tým všetkým dokázala čudovať. Jej kyslíková atmosféra je čistá biológia: nepoznáme proces, ktorý by udržal pätinu vzduchu horľavú, okrem štyroch miliárd rokov fotosyntézy.\n\nNezvyčajne veľký mesiac jej stabilizuje sklon osi a daruje stále ročné obdobia naprieč geologickým časom. Každý človek, ktorý kedy žil, žil tu.'
+  },
+  mars: {
+    name:'Mars',
+    tagline:'Zhrdzavený svet — studená púšť, ktorou kedysi tiekli rieky',
+    stats:[['Typ','Terestrická planéta'],['Hmotnosť','0,107 M⊕'],['Priemer','6 779 km'],['Gravitácia','0,38 g'],
+           ['Obežná vzdialenosť','1,52 AU'],['Deň','24 h 37 min'],['Povrch','priemer −63 °C · 0,006 atmosféry'],
+           ['Mesiace','Fobos, Deimos']],
+    desc:'Mars je fosília obývateľného sveta. Vyschnuté riečiská, delty a dná jazier zaznamenávajú teplú, vlhkú mladosť; dnes voda prežíva ako polárny ľad a permafrost pod atmosférou pritenkou na dážď. Prach oxidu železa — hrdza — farbí celú planétu do jej slávneho odtieňa.\n\nHostí najvyššiu sopku Slnečnej sústavy (Olympus Mons, 22 km) aj jej najveľkolepejší kaňon (Valles Marineris, dlhý ako Spojené štáty široké). Žiadna iná planéta nebola preskúmaná dôkladnejšie — a na žiadnej skôr nepristanú ľudské čižmy.'
+  },
+  jupiter: {
+    name:'Jupiter',
+    tagline:'Kráľ planét — ťažší než všetky ostatné dokopy',
+    stats:[['Typ','Plynný obor'],['Hmotnosť','318 M⊕'],['Priemer','139 822 km'],['Gravitácia','2,53 g (vrchol oblakov)'],
+           ['Obežná vzdialenosť','5,2 AU'],['Deň','9 h 56 min — najkratší zo všetkých planét'],
+           ['Veľká červená škvrna','Búrka širšia než Zem, zúri ≥190 rokov'],['Mesiace','95 známych — Io, Európa, Ganymedes, Kallisto…']],
+    desc:'Jupiter preváži všetky ostatné planéty dokopy, dva a pol krát. Je to guľa vodíka a hélia bez akéhokoľvek povrchu: oblaky hustnú na kvapalinu, kvapalina na kovový vodík, okolo horúceho hustého jadra. Desaťhodinová rotácia šľahá atmosféru do pásových búrok, ktorými je slávny — samotná Veľká červená škvrna by prehltla Zem.\n\nJeho gravitácia vládne sústave: pasie pás asteroidov, vrhá kométy k Slnku alebo ich vyhadzuje von, a nesie sprievod 95 mesiacov — štyri z nich sú svety samy osebe, objavené v okamihu, keď ktokoľvek prvý raz namieril ďalekohľad na oblohu.'
+  },
+  saturn: {
+    name:'Saturn',
+    tagline:'Klenot Slnečnej sústavy — plynný obor ľahší než voda',
+    stats:[['Typ','Plynný obor'],['Hmotnosť','95,2 M⊕'],['Priemer','116 464 km (270 000 km s prstencami)'],
+           ['Gravitácia','1,06 g (vrchol oblakov)'],['Obežná vzdialenosť','9,5 AU'],['Deň','10 h 33 min'],
+           ['Hustota','0,69 g/cm³ — plával by'],['Mesiace','146 známych — Titan, Enceladus, Rhea…']],
+    desc:'Saturnove prstence sú z vodného ľadu — miliardy úlomkov od zrniek prachu po domy, rozpäté cez 280 000 km, no miestami len desať metrov hrubé. Sú pravdepodobne mladé (možno mladšie než dinosaury) a pomaly pršia na planétu; užite si ich, kým trvajú.\n\nPlanéta pod nimi je najredšia v Slnečnej sústave — v priemere ľahšia než voda — a točí sa tak rýchlo, že sa viditeľne vydúva na rovníku. Medzi jej 146 mesiacmi je Titan so svojimi metánovými morami aj malý Enceladus, ktorého gejzíry na južnom póle chrlia skrytý oceán do vesmíru.'
+  },
+  uranus: {
+    name:'Urán',
+    tagline:'Prevrátená planéta — ľadový obor, ktorý sa kotúľa po svojej dráhe',
+    stats:[['Typ','Ľadový obor'],['Hmotnosť','14,5 M⊕'],['Priemer','50 724 km'],['Gravitácia','0,90 g (vrchol oblakov)'],
+           ['Obežná vzdialenosť','19,2 AU'],['Sklon osi','98° — obieha ľažmo na boku'],
+           ['Teplota','−224 °C — najchladnejšia planetárna atmosféra'],['Mesiace','28 známych — Titania, Oberon, Miranda…']],
+    desc:'Do Uránu kedysi dávno narazilo niečo obrovské a prevrátilo ho: jeho os leží do ôsmich stupňov od roviny dráhy, takže póly sa striedajú v mierení na Slnko počas 42-ročného dňa a 42-ročnej noci. Je to najchladnejšia planéta, chladnejšia než vzdialenejší Neptún — jeho vnútorné teplo záhadne chýba.\n\nPod pokojným metánovým oparom leží oceán horúcej stlačenej vody, amoniaku a metánu — „ľadový" obor v astronomickom zmysle slova. Jeho mesiace nesú, jedinečne, mená postáv zo Shakespeara a Popa.'
+  },
+  neptune: {
+    name:'Neptún',
+    tagline:'Najveternejší svet — tmavomodrý obor nájdený matematikou',
+    stats:[['Typ','Ľadový obor'],['Hmotnosť','17,1 M⊕'],['Priemer','49 244 km'],['Gravitácia','1,14 g (vrchol oblakov)'],
+           ['Obežná vzdialenosť','30,1 AU'],['Vetry','Až 2 100 km/h — najrýchlejšie známe'],['Rok','165 pozemských rokov'],
+           ['Mesiace','16 známych — Triton, Proteus, Nereida…']],
+    desc:'Neptún objavili perom a papierom: astronómovia vypočítali, kde musí ležať neviditeľná hmota vysvetľujúca chvenie Uránu, namierili ďalekohľad — a našli ho s presnosťou na stupeň. Odvtedy stihol sotva jeden obeh.\n\nNa svet prijímajúci tisícinu zemského slnečného svitu je ohromujúco násilný — nadzvukové vetry, metánové oblaky trhané na šmuhy a temné búrky veľkosti kontinentov, ktoré sa objavia a zmiznú v priebehu rokov. Jeho veľký mesiac Triton obieha odzadu: zajatý svet z Kuiperovho pásu, pomaly špirálujúci v ústrety skaze.'
+  },
+  pluto: {
+    name:'Pluto',
+    tagline:'Srdce Kuiperovho pásu — trpasličia planéta s ľadovcami z dusíka',
+    stats:[['Typ','Trpasličia planéta (Kuiperov pás)'],['Hmotnosť','0,0022 M⊕'],['Priemer','2 377 km — menší než Mesiac'],
+           ['Gravitácia','0,063 g'],['Obežná vzdialenosť','29,7–49,3 AU (križuje dráhu Neptúna)'],['Deň','6,4 pozemského dňa'],
+           ['Teplota','−229 °C'],['Mesiace','5 — Cháron, Styx, Nix, Kerberos, Hydra']],
+    desc:'Všetci čakali mŕtvu sivú skalu; New Horizons našiel hory z vodného ľadu plávajúce v tisíckilometrovom ľadovci zamrznutého dusíka — jasné srdce, Sputnik Planitia, sa prevaľuje dodnes. Pluto je geologicky živé pri −229 °C, s tenkou modro zahmlenou atmosférou, ktorá sneží späť na povrch, keď sa vzďaľuje od Slnka.\n\nJeho mesiac Cháron má polovicu jeho veľkosti; dvojica obieha bod v prázdnom priestore medzi nimi, tváre navždy zamknuté k sebe — menej planéta s mesiacom než dvojsvet na okraji klasickej Slnečnej sústavy.'
+  },
+  moon: {
+    name:'Mesiac',
+    tagline:'Spoločník Zeme — jediný ďalší svet, po ktorom kráčali ľudia',
+    stats:[['Hmotnosť','0,0123 M⊕'],['Priemer','3 474 km'],['Gravitácia','0,166 g'],
+           ['Vzdialenosť','384 400 km — a vzďaľuje sa 3,8 cm/rok'],['Obeh','27,3 dňa, slapovo viazaný'],
+           ['Návštevníci','12 ľudí, 1969–1972']],
+    desc:'Mesiac sa zrodil v násilí: do mladej Zeme narazil svet veľkosti Marsu a trosky sa zliali na obežnej dráhe. Na mesiac je obrovský — štvrtina priemeru Zeme — a jeho stabilizujúci ťah bráni sklonu Zeme, a teda aj jej klíme, v chaotickom blúdení.\n\nJeho tvár zaznamenáva štyri miliardy rokov bombardovania, ktoré zemské počasie z tej našej dávno zmazalo. Kráčalo po ňom dvanásť ľudí; ďalší sa chystajú.'
+  },
+  phobos: {
+    name:'Fobos',
+    tagline:'Odsúdený zemiak — pomaly špiráluje do Marsu',
+    stats:[['Priemer','~22 km (nepravidelný)'],['Vzdialenosť','9 376 km — bližšie než ktorýkoľvek iný mesiac'],
+           ['Obeh','7,7 hodiny — rýchlejšie, než sa Mars točí'],['Osud','O ~50 mil. rokov spadne alebo sa roztrhá na prstenec']],
+    desc:'Fobos obieha tak nízko a tak rýchlo, že z marťanského povrchu vychádza na západe, za štyri hodiny prekročí oblohu a zapadá na východe — dvakrát denne. Slapové sily ho každé storočie pritiahnu o dva metre bližšie; o nejakých päťdesiat miliónov rokov sa roztriešti na krátkotrvajúci prstenec okolo Marsu.'
+  },
+  deimos: {
+    name:'Deimos',
+    tagline:'Vonkajší kamienok — tichý zajatý asteroid',
+    stats:[['Priemer','~12 km (nepravidelný)'],['Vzdialenosť','23 463 km'],['Obeh','30,3 hodiny'],
+           ['Povrch','Hladký, prachom prikrytý regolit']],
+    desc:'Deimos je hrboľaté, prachom uhladené teleso s tuctom kilometrov v priemere — pravdepodobne asteroid, ktorý kedysi dávno skĺzol na obežnú dráhu Marsu. Z Marsu vyzerá ako jasná hviezda, ktorej trvá dva a pol dňa doplaviť sa od obzoru k obzoru.'
+  },
+  io: {
+    name:'Io',
+    tagline:'Sopečný mesiac — geologicky najnásilnejší známy svet',
+    stats:[['Hmotnosť','0,015 M⊕'],['Priemer','3 643 km'],['Vzdialenosť','421 700 km od Jupitera'],
+           ['Obeh','1,77 dňa'],['Sopky','~400 aktívnych — chocholy siahajú 500 km vysoko']],
+    desc:'Io, zovreté v slapovom preťahovaní medzi Jupiterom a ostatnými galileovskými mesiacmi, je miesené ako cesto a zohrievané zvnútra. Výsledkom je štyristo aktívnych sopiek, lávové jazerá široké stovky kilometrov a sírové snehy farbiace povrch do žlta, oranžova a červena — svet, ktorý sa každý milión rokov obráti naruby a nenosí jediný kráter.'
+  },
+  europa: {
+    name:'Európa',
+    tagline:'Oceán pod ľadom — najlepšia stávka na život mimo Zeme',
+    stats:[['Hmotnosť','0,008 M⊕'],['Priemer','3 122 km'],['Vzdialenosť','671 000 km od Jupitera'],
+           ['Obeh','3,55 dňa'],['Oceán','~100 km hlboký — dvojnásobok zemskej vody']],
+    desc:'Hladký ľadový pancier Európy je rozpukaný do celosvetovej siete červenkastých trhlín — povrch skrytého oceánu, ktorý drží dvakrát toľko kvapalnej vody ako všetky moria Zeme a ktorý štyri miliardy rokov zohrieva slapové hnetenie. Tam, kde voda, energia a čas koexistujú tak dlho, sa biológia stáva vážnou otázkou; sondy sú na ceste ju položiť.'
+  },
+  ganymede: {
+    name:'Ganymedes',
+    tagline:'Najväčší mesiac Slnečnej sústavy — väčší než Merkúr',
+    stats:[['Hmotnosť','0,025 M⊕'],['Priemer','5 268 km'],['Vzdialenosť','1 070 000 km od Jupitera'],
+           ['Obeh','7,15 dňa'],['Unikát','Jediný mesiac s vlastným magnetickým poľom']],
+    desc:'Kdekoľvek inde by bol Ganymedes planétou: väčší než Merkúr, vrstvený ako planéta — železné jadro, kamenný plášť, hlboký slaný oceán vložený do ľadu — a ako jediný mesiac si generuje vlastné magnetické pole. Jeho tvár sa delí na prastarý tmavý kráterovaný terén a mladšie bledé ryhy, strie z ranej epochy, keď sa pohla celá kôra.'
+  },
+  callisto: {
+    name:'Kallisto',
+    tagline:'Doráňaný svedok — najkráterovanejší svet sústavy',
+    stats:[['Hmotnosť','0,018 M⊕'],['Priemer','4 821 km'],['Vzdialenosť','1 883 000 km od Jupitera'],
+           ['Obeh','16,7 dňa'],['Povrch','~4 miliardy rokov starý, nasýtený krátermi']],
+    desc:'Kallisto jednoducho vydržala. Obieha za slapovými vojnami, ktoré zohrievajú vnútorné mesiace, a tak nemá sopky ani posúvajúcu sa kôru — len štyri miliardy rokov dopadov zapísaných na najstaršom, najkráterovanejšom známom povrchu. Dosť ďaleko od Jupiterových radiačných pásov na to, aby sa tam dalo prežiť, je obľúbeným kandidátom na budúcu ľudskú základňu.'
+  },
+  titan: {
+    name:'Titan',
+    tagline:'Ten druhý svet s dažďom — metánové moria pod oranžovým smogom',
+    stats:[['Hmotnosť','0,0225 M⊕'],['Priemer','5 150 km'],['Vzdialenosť','1 222 000 km od Saturna'],
+           ['Obeh','15,9 dňa'],['Atmosféra','1,45 atm dusíka — hustejšia než zemská'],['Jazerá','Kvapalný metán a etán']],
+    desc:'Titan je jediný mesiac s hustou atmosférou a jediný svet okrem Zeme so stojacou kvapalinou na povrchu: rieky, jazerá a moria metánu, napĺňané uhľovodíkovým dažďom pod oranžovým fotochemickým smogom. Chémia klesajúca z toho oparu je tá istá organická surovina, ktorá na Zemi predchádzala životu.\n\nV roku 2005 sa sonda Huygens zniesla padákom a pristála na záplavovej rovine z ľadových okruhliakov — najvzdialenejšie pristátie, aké sa kedy podarilo. V tridsiatych rokoch má jeho oblohu brázdiť jadrová helikoptéra Dragonfly.'
+  },
+  enceladus: {
+    name:'Enceladus',
+    tagline:'Gejzírový mesiac — chrlí skrytý oceán do vesmíru',
+    stats:[['Hmotnosť','0,000018 M⊕'],['Priemer','504 km'],['Vzdialenosť','238 000 km od Saturna'],
+           ['Obeh','1,37 dňa'],['Albedo','0,99 — najodrazivejšie známe teleso'],['Chocholy','Slaná voda, oxid kremičitý, vodík, organika']],
+    desc:'Enceladus má sotva päťsto kilometrov v priemere, a predsa z trhlín na južnom póle strieka obsah podpovrchového slaného oceánu priamo do vesmíru — chochol, ktorým sonda Cassini preletela a ochutnala ho. Našla soli, oxid kremičitý z horúcich prieduchov na dne a voľný vodík: chemickú energiu presne toho druhu, ktorý na dne zemských oceánov živí mikrobiálny život. Padajúci sneh farbí Enceladus na belšie než čerstvý papier a unikajúci ľad sýti Saturnov prstenec E — chvost, ktorý tu vidíte za ním.'
+  },
+  triton: {
+    name:'Triton',
+    tagline:'Zajatý tulák — svet z Kuiperovho pásu obiehajúci odzadu',
+    stats:[['Hmotnosť','0,0036 M⊕'],['Priemer','2 707 km'],['Vzdialenosť','354 800 km od Neptúna'],
+           ['Obeh','5,9 dňa — retrográdny, medzi veľkými mesiacmi jediný'],['Povrch','−235 °C, dusíkový mráz a gejzíry']],
+    desc:'Triton obieha Neptún odzadu — ako jediný veľký mesiac — pretože tam nikdy nevznikol: je to zajatá trpasličia planéta z Kuiperovho pásu, súrodenec Pluta. To zajatie ho pomaly zabíja; slapové sily ho vlečú dovnútra, k budúcemu roztrhaniu na prstenec.\n\nVoyager 2 odfotografoval gejzíry dusíkového plynu prerážajúce jeho ružový polárny mráz pri −235 °C — vďaka čomu je tento zamrznutý vyhnanec jedným z mála známych geologicky aktívnych svetov.'
+  },
+  charon: {
+    name:'Cháron',
+    tagline:'Druhá polovica Pluta — prievozník dvojsveta',
+    stats:[['Hmotnosť','0,00027 M⊕ (⅛ Pluta)'],['Priemer','1 212 km'],['Vzdialenosť','19 600 km od Pluta'],
+           ['Obeh','6,4 dňa, vzájomne viazaný'],['Útvar','Mordor Macula — tmavočervená polárna čiapka']],
+    desc:'Cháron má polovicu priemeru samotného Pluta — pomerovo najväčší mesiac Slnečnej sústavy, taký veľký, že dvojica obieha bod vo voľnom priestore medzi nimi a každý visí nehybne na oblohe toho druhého. Jeho severný pól je zafarbený hrdzavočerveno metánom, ktorý unikol z Pluta a zamrzol do Chárnovej zimnej tmy: jeden svet doslova maľuje druhý.'
+  },
   ra: {
     tagline:'Hviezda hlavnej postupnosti F8V — srdce sústavy',
     stats:[['Hmotnosť','1,139 M☉'],['Spektrálny typ','F8V'],['Teplota','~6050 K (5777 °C)'],
@@ -217,6 +380,19 @@ data: {
     desc:'Najvzdialenejší a najväčší mesiac Horusa — skutočný mini-Neptún z vodíka a hélia nad vodou, krúžiaci okolo svojho hnedotrpasličieho primára ďaleko od tepla Ra.'
   }
 },
+
+/* ---------- Slnečná sústava (alternatívny dataset, data-sol.js) ---------- */
+glossarySol: [
+  ["AU", "Astronomická jednotka — priemerná vzdialenosť Zem–Slnko, ~149,6 milióna km."],
+  ["Terestrická planéta", "Kamenný svet s pevným povrchom (Merkúr–Mars)."],
+  ["Plynný obor", "Planéta prevažne z vodíka a hélia (Jupiter, Saturn)."],
+  ["Ľadový obor", "Planéta prevažne z 'ľadov' vody, amoniaku a metánu (Urán, Neptún)."],
+  ["Trpasličia planéta", "Obieha Slnko, je guľatá, no nevyčistila si okolie svojej dráhy (Pluto)."],
+  ["Slapové viazanie", "Mesiac sa otočí presne raz za obeh — ukazuje stále tú istú tvár."],
+  ["Kuiperov pás", "Prstenec ľadových telies za Neptúnom; Pluto je jeho najslávnejším členom."],
+  ["Cassiniho delenie", "4 800 km široká medzera medzi dvoma najjasnejšími Saturnovými prstencami."],
+  ["g", "Zemská povrchová gravitácia. M⊕ = hmotnosti Zeme."]
+],
 
 glossary: [
   ['Oslnenie','Slnečný svit dopadajúci na planétu, v % toho, čo dostáva Zem.'],
