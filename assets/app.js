@@ -1054,7 +1054,7 @@ function impMassLostKg(rec){
     const U0=3*IMP_G*M0*M0/(5*R);
     const P=impMeltPhases(rec);
     let lost=0;
-    if(P.W>0.08){                                           // water worlds shed STEAM first:
+    if(P.W>0){                                              // water worlds shed STEAM first:
       const ov2=(rec.dmgJ||0)-P.E2;                         // once the oceans have boiled, ~35% of
       if(ov2>0) lost+=Math.min(0.8*P.W*M0, 0.35*ov2/eEsc);  // further energy lofts vapor to escape
     }
@@ -1179,10 +1179,13 @@ function impWaterFrac(rec){
   const c=rec.data.comp; if(c) return c.water||0;
   return {icemoon:0.4, iceworld:0.4, ocean:0.5}[rec.data.kind]||0;
 }
+// worlds whose water is already LIQUID at the surface (Earth-likes, ocean worlds):
+// they skip the thaw phase and boil directly, and their base texture already shows water
+function impLiquidSurface(rec){ const k=rec.data.kind; return k==='ocean'||k==='terran'; }
 function impMeltPhases(rec){
   const M=impBodyMassKg0(rec), W=impWaterFrac(rec);
   const E3=M*impMeltEJkg(rec);
-  let E1=(rec.data.kind==='ocean')?0:M*W*7e5;   // ocean worlds start already liquid
+  let E1=impLiquidSurface(rec)?0:M*W*7e5;        // liquid-surface worlds start already liquid (no thaw)
   let E2=E1+M*W*2.7e6;
   E2=Math.min(E2,E3*0.92); E1=Math.min(E1,E2*0.7);
   return {W,E1,E2,E3};
@@ -1309,7 +1312,7 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   const E=rec.dmgJ||0;
   const fU=E/impBindingJ(rec);
   const P=impMeltPhases(rec);
-  const watery=P.W>0.08;                     // enough water for distinct thaw/boil phases
+  const watery=P.W>0;                        // any water boils first (Earth's oceans are tiny in mass but real)
   // phase progress 0..1: thaw → boil → melt the rock
   const ph1 = watery&&P.E1>0 ? Math.min(1,E/P.E1) : 1;
   const ph2 = watery ? Math.max(0,Math.min(1,(E-P.E1)/(P.E2-P.E1))) : 1;
@@ -1320,10 +1323,12 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   const hot = Math.min(1, Math.max(ph3>1-1e-9?( E/P.E3-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
   // liquid water: appears as the ice thaws, drowned out as the rock melts,
   // and boiled AWAY as the steam phase completes
-  const wat = (watery && rec.data.kind!=='ocean')     // ocean worlds are already liquid
+  const wat = (watery && !impLiquidSurface(rec))      // liquid-surface worlds already show their water
     ? Math.min(1,Math.pow(ph1,0.7))*(1-ph2)*(1-m) : 0;
-  // steam shroud: builds while the oceans boil, thins once the world superheats
-  const stm = watery ? Math.min(1,Math.pow(ph2,0.8))*(1-0.85*hot) : 0;
+  // steam shroud: builds while the oceans boil, then thins away as the rock melts
+  // through it (magma coverage m) and as the world superheats — so the glowing
+  // surface shows instead of a permanent white ball
+  const stm = watery ? Math.min(1,Math.pow(ph2,0.8))*(1-0.85*hot)*Math.max(0,1-1.1*m) : 0;
   s.oceanM=m; s.oceanHot=hot; s.waterM=wat; s.steamM=stm; s.ph={ph1,ph2,ph3};
   // superheated crust boils off as rock vapor — the mass actually leaves (impMassLostKg);
   // a boiling water world sheds its steam the same way (impMassLostKg counts water first)
@@ -1367,10 +1372,10 @@ function impTierBase(rec){
   const ph3=(E-P.E2)/(P.E3-P.E2);
   if(ph3>0.3)  return T('tier-ocean').replace('{p}',Math.round(ph3*100));
   if(ph3>0.02) return T('tier-regional').replace('{p}',Math.round(ph3*100));
-  if(P.W>0.08){                              // water worlds: thaw → boil first
+  if(P.W>0){                                 // water worlds: (thaw →) boil first
     const ph2=(E-P.E1)/(P.E2-P.E1);
     if(ph2>0.02) return T('tier-steam').replace('{p}',Math.round(Math.min(1,ph2)*100));
-    if(rec.data.kind!=='ocean' && E>0.05*P.E1){ const ph1=E/P.E1;
+    if(!impLiquidSurface(rec) && E>0.05*P.E1){ const ph1=E/P.E1;
       return T('tier-thaw').replace('{p}',Math.round(Math.min(1,ph1)*100)); }
   }
   const mf=E/impMeltJ(rec);
