@@ -343,6 +343,8 @@ const UI_EN={
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
   'imp-melts-sea':' · melts a ~{km} km sea',
   'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered melt seas',
+  'tier-thaw':' · ice thawing — liquid seas ({p}% thawed)',
+  'tier-steam':' · oceans boiling — steam atmosphere ({p}%)',
   'tier-regional':' · surface: regional melting ({p}% molten)','tier-ocean':' · surface: global magma ocean ({p}% molten)',
   'tier-molten':' · surface: fully molten, superheated','tier-white':' · surface: white-hot — breakup imminent',
   'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
@@ -1038,9 +1040,18 @@ function impMassLostKg(rec){
   let over, eKg;
   if(rec.data.kind==='gasgiant'){                           // loss starts with the escaping-gas tail
     over=(rec.dmgJ||0)-0.05*(3*IMP_G*M0*M0/(5*R)); eKg=eEsc;
-  } else {                                                  // loss starts once superheated: fully molten,
-    const U0=3*IMP_G*M0*M0/(5*R);                           // or (small cold moons) nearing breakup
-    over=(rec.dmgJ||0)-Math.min(M0*impMeltEJkg(rec), 0.25*U0); eKg=impVapEJkg(rec)+eEsc;
+  } else {
+    const U0=3*IMP_G*M0*M0/(5*R);
+    const P=impMeltPhases(rec);
+    let lost=0;
+    if(P.W>0.08){                                           // water worlds shed STEAM first:
+      const ov2=(rec.dmgJ||0)-P.E2;                         // once the oceans have boiled, ~35% of
+      if(ov2>0) lost+=Math.min(0.8*P.W*M0, 0.35*ov2/eEsc);  // further energy lofts vapor to escape
+    }
+    // rock vapor only once superheated: fully molten, or (small cold moons) nearing breakup
+    over=(rec.dmgJ||0)-Math.min(P.E3, 0.25*U0); eKg=impVapEJkg(rec)+eEsc;
+    if(over>0) lost+=over/eKg;
+    return Math.min(0.5*M0, lost);                          // ≥ that and breakup wins anyway
   }
   if(over<=0) return 0;
   return Math.min(0.5*M0, over/eKg);                        // ≥ that and breakup wins anyway
@@ -1149,6 +1160,23 @@ function impMeltEJkg(rec){
   return IMP_MELT_EJKG[rec.data.kind]||1.7e6;
 }
 function impMeltJ(rec){ return impBodyMassKg(rec)*impMeltEJkg(rec); }   // melt the whole body
+/* ---- water-rich worlds melt in PHASES, each with its real energy cost:
+   thaw the ice (~0.7 MJ/kg: heat from ~100 K + latent heat of fusion) →
+   liquid oceans; keep pumping (~2.7 MJ/kg: heat to 373 K + vaporization) →
+   the oceans boil into a global steam atmosphere; only then does the rock
+   underneath melt (~1.7 MJ/kg) into the familiar magma ocean. ---- */
+function impWaterFrac(rec){
+  const c=rec.data.comp; if(c) return c.water||0;
+  return {icemoon:0.4, iceworld:0.4, ocean:0.5}[rec.data.kind]||0;
+}
+function impMeltPhases(rec){
+  const M=impBodyMassKg0(rec), W=impWaterFrac(rec);
+  const E3=M*impMeltEJkg(rec);
+  let E1=(rec.data.kind==='ocean')?0:M*W*7e5;   // ocean worlds start already liquid
+  let E2=E1+M*W*2.7e6;
+  E2=Math.min(E2,E3*0.92); E1=Math.min(E1,E2*0.7);
+  return {W,E1,E2,E3};
+}
 function impMeltPoolDeg(rec,E){              // angular radius of the lava sea one strike leaves
   const rho=impBodyRho(rec);
   const V=0.25*E/(rho*impMeltEJkg(rec));                        // m³ of melt
@@ -1175,6 +1203,63 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   rec.mesh.add(m);
   s.ocean=m;
   return m;
+}
+function getWaterOcean(rec){                 // thawed ice: a churning liquid-water shell
+  const s=getScars(rec);
+  if(s.wocean) return s.wocean;
+  const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
+  const genW=()=>texRocky({b:'#04121f', base:'#0a2c4a', a:'#1a5f92', c:'#4aa6d8'},
+    (seed^0x51f7)>>>0, {glow:'#8fd4ff', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
+  const cv=genW();
+  const t=new THREE.CanvasTexture(cv);
+  t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;
+  regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genW(),0,0); });
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.0068,MOBILE_UI?48:64,MOBILE_UI?32:48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  m.renderOrder=3;
+  rec.mesh.add(m);
+  s.wocean=m;
+  return m;
+}
+function getSteamShroud(rec){                // boiled-off oceans: a global white cloud deck
+  const s=getScars(rec);
+  if(s.steam) return s.steam;
+  const seed=((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)^0xbead)>>>0;
+  const SW2=MOBILE_UI?512:1024, SH2=MOBILE_UI?256:512;
+  const cv=newCanvas(SW2,SH2);
+  const paint=()=>{
+    const ctx=cv.getContext('2d');
+    const img=ctx.createImageData(SW2,SH2), d=img.data;
+    const fbm=makeNoise3(seed);
+    for(let y=0;y<SH2;y++){ const v=y/SH2;
+      for(let x=0;x<SW2;x++){ const u=x/SW2, ang=u*Math.PI*2;
+        const n =ring(fbm,ang,v,7,6,5,0)*0.5+0.5;
+        const n2=ring(fbm,ang,v,18,14,4,40)*0.5+0.5;
+        const a=Math.max(0,Math.min(1,(n*0.65+n2*0.35-0.22)*1.8));
+        const o=(y*SW2+x)*4;
+        d[o]=234; d[o+1]=239; d[o+2]=244; d[o+3]=a*255;
+      }
+    }
+    ctx.putImageData(img,0,0);
+  };
+  paint();
+  const t=new THREE.CanvasTexture(cv);
+  t.wrapS=THREE.RepeatWrapping;
+  regCanvasTex(t,paint);
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.012,MOBILE_UI?48:64,MOBILE_UI?32:48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  m.renderOrder=6;
+  rec.mesh.add(m);
+  s.steam=m;
+  return m;
+}
+function getSteamHalo(rec){                  // pale limb glow of a steam envelope
+  const s=getScars(rec);
+  if(s.steamHalo) return s.steamHalo;
+  s.steamHalo=makeAtmosphere(rec.radius*1.06, 0xdfe9f2, 0);
+  s.steamHalo.renderOrder=5;
+  rec.mesh.add(s.steamHalo);
+  return s.steamHalo;
 }
 function getMagmaHalo(rec){                  // molten-limb glow (fresnel rim, like the atmospheres)
   const s=getScars(rec);
@@ -1207,19 +1292,42 @@ function impBoostTail(rec,f){                               // escaping-material
   t.points.material.uniforms.uAlpha.value=Math.max(t._base.alpha, 0.3+1.1*f);
   rec._puffTail=t;
 }
-function impUpdateMelt(rec){                 // cumulative surface state from the melt budget
+function impUpdateMelt(rec){                 // cumulative surface state from the phase budgets
   if(!rec.scar || impImmune(rec)) return;
   if(rec.data.kind==='gasgiant'){ impUpdatePuff(rec); return; }
   const s=rec.scar;
-  const mf=(rec.dmgJ||0)/impMeltJ(rec);      // fraction of the whole-world melt budget delivered
-  const fU=(rec.dmgJ||0)/impBindingJ(rec);
-  // coverage: crust melting shows from a few % of the budget, complete at 100%
-  const m = mf<=0.02 ? 0 : Math.min(1, Math.pow((mf-0.02)/0.98, 0.6));
+  const E=rec.dmgJ||0;
+  const fU=E/impBindingJ(rec);
+  const P=impMeltPhases(rec);
+  const watery=P.W>0.08;                     // enough water for distinct thaw/boil phases
+  // phase progress 0..1: thaw → boil → melt the rock
+  const ph1 = watery&&P.E1>0 ? Math.min(1,E/P.E1) : 1;
+  const ph2 = watery ? Math.max(0,Math.min(1,(E-P.E1)/(P.E2-P.E1))) : 1;
+  const ph3 = Math.max(0,Math.min(1,(E-P.E2)/(P.E3-P.E2)));
+  // rock-melt coverage (same shaping as before, over the post-steam budget)
+  const m = ph3<=0.02 ? 0 : Math.min(1, Math.pow((ph3-0.02)/0.98, 0.6));
   // superheat: past the full budget — or nearing breakup — it runs white-hot
-  const hot = Math.min(1, Math.max(mf>1?(mf-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
-  s.oceanM=m; s.oceanHot=hot;
-  // superheated crust boils off as rock vapor — the mass actually leaves (impMassLostKg)
+  const hot = Math.min(1, Math.max(ph3>1-1e-9?( E/P.E3-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
+  // liquid water: appears as the ice thaws, drowned out as the rock melts,
+  // and boiled AWAY as the steam phase completes
+  const wat = (watery && rec.data.kind!=='ocean')     // ocean worlds are already liquid
+    ? Math.min(1,Math.pow(ph1,0.7))*(1-ph2)*(1-m) : 0;
+  // steam shroud: builds while the oceans boil, thins once the world superheats
+  const stm = watery ? Math.min(1,Math.pow(ph2,0.8))*(1-0.85*hot) : 0;
+  s.oceanM=m; s.oceanHot=hot; s.waterM=wat; s.steamM=stm; s.ph={ph1,ph2,ph3};
+  // superheated crust boils off as rock vapor — the mass actually leaves (impMassLostKg);
+  // a boiling water world sheds its steam the same way (impMassLostKg counts water first)
   if(hot>0.05) impBoostTail(rec, 0.4*hot);
+  else if(watery && ph2>0.15 && ph2<1) impBoostTail(rec, 0.25*ph2);
+  if(wat>0.01) getWaterOcean(rec).material.opacity=Math.min(1,wat);
+  else if(s.wocean) s.wocean.material.opacity=0;
+  if(stm>0.01){
+    getSteamShroud(rec).material.opacity=Math.min(1,stm*0.96);
+    getSteamHalo(rec).material.uniforms.p.value=1.2*stm*(1-hot);
+  } else {
+    if(s.steam) s.steam.material.opacity=0;
+    if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
+  }
   if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0;
     if(s.halo) s.halo.material.uniforms.p.value=0; return; }
   const o=getMagmaOcean(rec);
@@ -1243,11 +1351,19 @@ function impTierBase(rec){
     if(f>0.01) return T('tier-puff-1');
     return '';
   }
-  const mf=rec.dmgJ/impMeltJ(rec), fU=rec.dmgJ/impBindingJ(rec);
+  const E=rec.dmgJ, fU=E/impBindingJ(rec), P=impMeltPhases(rec);
   if(fU>0.5)  return T('tier-white');
-  if(mf>=1)   return T('tier-molten');
-  if(mf>0.3)  return T('tier-ocean').replace('{p}',Math.round(mf*100));
-  if(mf>0.02) return T('tier-regional').replace('{p}',Math.round(mf*100));
+  if(E>=P.E3) return T('tier-molten');
+  const ph3=(E-P.E2)/(P.E3-P.E2);
+  if(ph3>0.3)  return T('tier-ocean').replace('{p}',Math.round(ph3*100));
+  if(ph3>0.02) return T('tier-regional').replace('{p}',Math.round(ph3*100));
+  if(P.W>0.08){                              // water worlds: thaw → boil first
+    const ph2=(E-P.E1)/(P.E2-P.E1);
+    if(ph2>0.02) return T('tier-steam').replace('{p}',Math.round(Math.min(1,ph2)*100));
+    if(rec.data.kind!=='ocean' && E>0.05*P.E1){ const ph1=E/P.E1;
+      return T('tier-thaw').replace('{p}',Math.round(Math.min(1,ph1)*100)); }
+  }
+  const mf=E/impMeltJ(rec);
   if(mf>1e-4) return T('tier-seas');
   return T('tier-crater');
 }
@@ -1837,7 +1953,10 @@ function impHeal(){
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
     if(s.ocean){ s.ocean.material.opacity=0; s.ocean.material.color.setScalar(1); }
     if(s.halo) s.halo.material.uniforms.p.value=0;
-    s.oceanM=0; s.oceanHot=0;
+    if(s.wocean) s.wocean.material.opacity=0;
+    if(s.steam) s.steam.material.opacity=0;
+    if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
+    s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0;
     rec.dmgJ=0; rec.shattered=false;
     // deflate a puffed-up giant and calm its boosted/created escape tail
     rec.puffTarget=1; rec.puffK=1;
@@ -2211,6 +2330,10 @@ function updateImpacts(dt){
     }
     if(rec.shattered) continue;
     const s=rec.scar;
+    if(s.wocean && s.waterM>0)
+      s.wocean.material.map.offset.x=(s.wocean.material.map.offset.x+dt*0.006)%1;  // currents
+    if(s.steam && s.steamM>0)
+      s.steam.material.map.offset.x=(s.steam.material.map.offset.x+dt*0.010)%1;    // storm bands
     if(s.ocean && s.oceanM>0){
       s.ocean.material.map.offset.x=(s.ocean.material.map.offset.x+dt*0.0045)%1;  // magma churns
       s.emberT=(s.emberT||0)+dt;

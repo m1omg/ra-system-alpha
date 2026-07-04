@@ -42,6 +42,8 @@ ui: {
   'imp-strike':'úder','imp-beam':'lúč/s','imp-binding-over':'≥100 % väzbovej energie ☠','imp-binding-of':' % väzbovej energie',
   'imp-melts-sea':' · roztaví more široké ~{km} km',
   'tier-crater':' · povrch: posiaty krátermi','tier-seas':' · povrch: roztrúsené moria taveniny',
+  'tier-thaw':' · ľad sa topí — moria kvapalnej vody ({p} % roztopených)',
+  'tier-steam':' · oceány vrú — parná atmosféra ({p} %)',
   'tier-regional':' · povrch: regionálne tavenie ({p} % roztavených)','tier-ocean':' · povrch: globálny magmatický oceán ({p} % roztavených)',
   'tier-molten':' · povrch: úplne roztavený, prehriaty','tier-white':' · povrch: rozžeravený dobiela — hrozí rozpad',
   'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
