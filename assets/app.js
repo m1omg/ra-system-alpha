@@ -110,7 +110,11 @@ function ramp(stops,t){ // stops = array of rgb
 function clamp01(x){return x<0?0:x>1?1:x;}
 function smooth(e0,e1,x){ const t=clamp01((x-e0)/(e1-e0)); return t*t*(3-2*t); }
 
-const TXW=1024, TXH=512;
+// procedural body textures: on touch devices halve the resolution — this is the
+// biggest synchronous cost at load (multi-octave noise per body), and a real/baked
+// map swaps in over it anyway, so the placeholder can be lighter on phones/tablets
+const _COARSE = !!(typeof window!=='undefined' && window.matchMedia && matchMedia('(pointer: coarse)').matches);
+const TXW=_COARSE?512:1024, TXH=_COARSE?256:512;
 function newCanvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
 
 /* ---- gas giant / brown dwarf bands (seamless) ---- */
@@ -420,7 +424,7 @@ let selected=null;
 
 // Touch devices: tapping a world focuses it but does NOT auto-open the big info
 // sheet — the ⓘ button (top-right) toggles it. Desktop keeps click-to-read.
-const MOBILE_UI = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+const MOBILE_UI = _COARSE;   // touch device (see _COARSE near the texture-size constants)
 
 // --- impact lab state (💥 button; module lives before the Animation section) ---
 let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18, impInfoT=0;
@@ -652,7 +656,26 @@ function inclFor(key){ // small deterministic inclinations for a 3D look
 }
 function nodeFor(key){ let s=0; for(const ch of key) s+=ch.charCodeAt(0); return (s*53)%360; }
 
-function build(){
+/* Hide the loading overlay. The critical part (opacity 0 + no pointer capture)
+   is applied SYNCHRONOUSLY so it never waits on a setTimeout — mobile browsers
+   throttle timers hard when you switch apps mid-load, which used to leave the
+   loader stuck on screen even though the sim had finished building. */
+function hideLoader(){
+  const l=document.getElementById('loader'); if(!l) return;
+  l.style.opacity='0'; l.style.pointerEvents='none';      // immediate: page is usable now
+  const gone=()=>{ l.style.display='none'; };
+  l.addEventListener('transitionend', gone, {once:true});
+  setTimeout(gone, 1000);                                 // fallback cleanup (fade is 0.8s)
+}
+/* If build() ever throws, don't leave an eternal spinner — surface the error. */
+function showLoadError(err){
+  const l=document.getElementById('loader'); if(!l) return;
+  const p=document.getElementById('loader-sub');
+  if(p){ p.textContent='Load error — '+((err&&err.message)||err||'unknown'); p.style.color='#ff9d8a'; }
+  const sp=l.querySelector('.spin'); if(sp) sp.style.display='none';
+}
+function build(){ try{ buildInner(); } catch(err){ showLoadError(err); throw err; } }
+function buildInner(){
   scene=new THREE.Scene();
   scene.background=new THREE.Color(0x04060c);
 
@@ -739,9 +762,7 @@ function build(){
   applyScaleMode();   // sets star size, body sizes, orbit radii for the current mode
   frameSystem();      // place the camera for the current mode
 
-  // hide loader
-  setTimeout(()=>{ const l=document.getElementById('loader'); l.style.opacity=0;
-    setTimeout(()=>l.style.display='none',800); }, 150);
+  hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
 
   // optional deep-link: index.html#satis focuses a body on load
   const hk=(location.hash||'').replace('#','').toLowerCase();
