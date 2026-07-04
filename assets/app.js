@@ -1203,6 +1203,13 @@ function impWaterFrac(rec){
 // worlds whose water is already LIQUID at the surface (Earth-likes, ocean worlds):
 // they skip the thaw phase and boil directly, and their base texture already shows water
 function impLiquidSurface(rec){ const k=rec.data.kind; return k==='ocean'||k==='terran'; }
+// how THICK the boiled steam / thawed water should look: surface-ocean worlds
+// (Earth) get a full shroud; everything else scales by bulk water fraction, so a
+// world with only a trace of subsurface ice (Mars, 1%) gets a faint veil, not a flood.
+function impWaterVis(rec){
+  if(impLiquidSurface(rec)) return 1;
+  return Math.min(1, impWaterFrac(rec)/0.12);
+}
 function impMeltPhases(rec){
   const M=impBodyMassKg0(rec), W=impWaterFrac(rec);
   const E3=M*impMeltEJkg(rec);
@@ -1238,16 +1245,40 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   s.ocean=m;
   return m;
 }
-function getWaterOcean(rec){                 // thawed ice: a churning liquid-water shell
+function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
   const s=getScars(rec);
   if(s.wocean) return s.wocean;
-  const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
-  const genW=()=>texRocky({b:'#04121f', base:'#0a2c4a', a:'#1a5f92', c:'#4aa6d8'},
-    (seed^0x51f7)>>>0, {glow:'#8fd4ff', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
-  const cv=genW();
+  const seed=((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)^0x51f7)>>>0;
+  // coverage is BAKED per body: a water-rich world floods globally, a trace-water
+  // world (Mars, 1%) only pools in polar basins → polar lakes, not a global flood
+  const cov=impWaterVis(rec);
+  const SW2=MOBILE_UI?512:1024, SH2=MOBILE_UI?256:512;
+  const cv=newCanvas(SW2,SH2);
+  const paint=()=>{
+    const ctx=cv.getContext('2d');
+    const img=ctx.createImageData(SW2,SH2), d=img.data;
+    const fbm=makeNoise3(seed);
+    for(let y=0;y<SH2;y++){ const v=y/SH2, lat=Math.abs(v-0.5)*2;
+      const polar=smooth(0.5,0.92,lat);                    // cold traps: water collects at the poles
+      for(let x=0;x<SW2;x++){ const u=x/SW2, ang=u*Math.PI*2;
+        const basin=ring(fbm,ang,v,8,7,5,0)*0.5+0.5;       // 0..1, low = deep basin
+        const ripple=ring(fbm,ang,v,26,22,3,60)*0.5+0.5;
+        const aff=(1-basin)*0.5 + polar*0.8;               // affinity for water: basins + poles
+        const a=smooth((1-cov)-0.12,(1-cov)+0.12, aff);    // wet where affinity beats the fill level
+        const t2=Math.max(0,Math.min(1, ripple*0.7 + basin*0.3));
+        const o=(y*SW2+x)*4;
+        d[o]  = Math.round(10 + 60*t2);                    // deep navy → lighter blue highlights
+        d[o+1]= Math.round(50 + 100*t2);
+        d[o+2]= Math.round(110 + 100*t2);
+        d[o+3]= Math.round(a*255);
+      }
+    }
+    ctx.putImageData(img,0,0);
+  };
+  paint();
   const t=new THREE.CanvasTexture(cv);
   t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;
-  regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genW(),0,0); });
+  regCanvasTex(t,paint);
   const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.0068,MOBILE_UI?48:64,MOBILE_UI?32:48),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
@@ -1269,7 +1300,9 @@ function getSteamShroud(rec){                // boiled-off oceans: a global whit
       for(let x=0;x<SW2;x++){ const u=x/SW2, ang=u*Math.PI*2;
         const n =ring(fbm,ang,v,7,6,5,0)*0.5+0.5;
         const n2=ring(fbm,ang,v,18,14,4,40)*0.5+0.5;
-        const a=Math.max(0,Math.min(1,(n*0.65+n2*0.35-0.22)*1.8));
+        // denser than a thin cloud deck: a boiled-ocean world should read as
+        // solidly steam-shrouded (per-body opacity via wvis still thins Mars etc.)
+        const a=Math.max(0,Math.min(1,(n*0.6+n2*0.4-0.04)*1.85));
         const o=(y*SW2+x)*4;
         d[o]=234; d[o+1]=239; d[o+2]=244; d[o+3]=a*255;
       }
@@ -1342,23 +1375,28 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   const m = ph3<=0.02 ? 0 : Math.min(1, Math.pow((ph3-0.02)/0.98, 0.6));
   // superheat: past the full budget — or nearing breakup — it runs white-hot
   const hot = Math.min(1, Math.max(ph3>1-1e-9?( E/P.E3-1)/2:0, fU>0.25?(fU-0.25)/0.75:0));
+  // wvis scales how much water/steam actually SHOWS — a trace-water world (Mars)
+  // gets a faint veil, an ocean world a full shroud
+  const wvis = impWaterVis(rec);
   // liquid water: appears as the ice thaws, drowned out as the rock melts,
-  // and boiled AWAY as the steam phase completes
+  // and boiled AWAY as the steam phase completes. Spatial coverage (global ocean
+  // vs. polar lakes) is baked into the getWaterOcean texture per water abundance,
+  // so opacity here is just the thaw-phase fade — no wvis factor (would double-thin)
   const wat = (watery && !impLiquidSurface(rec))      // liquid-surface worlds already show their water
     ? Math.min(1,Math.pow(ph1,0.7))*(1-ph2)*(1-m) : 0;
   // steam shroud: builds while the oceans boil, then thins away as the rock melts
   // through it (magma coverage m) and as the world superheats — so the glowing
   // surface shows instead of a permanent white ball
-  const stm = watery ? Math.min(1,Math.pow(ph2,0.8))*(1-0.85*hot)*Math.max(0,1-1.1*m) : 0;
+  const stm = watery ? Math.min(1,Math.pow(ph2,0.8))*(1-0.85*hot)*Math.max(0,1-1.1*m)*wvis : 0;
   s.oceanM=m; s.oceanHot=hot; s.waterM=wat; s.steamM=stm; s.ph={ph1,ph2,ph3};
   // superheated crust boils off as rock vapor — the mass actually leaves (impMassLostKg);
   // a boiling water world sheds its steam the same way (impMassLostKg counts water first)
   if(hot>0.05) impBoostTail(rec, 0.4*hot);
-  else if(watery && ph2>0.15 && ph2<1) impBoostTail(rec, 0.25*ph2);
+  else if(watery && ph2>0.15 && ph2<1) impBoostTail(rec, 0.25*ph2*wvis);
   if(wat>0.01) getWaterOcean(rec).material.opacity=Math.min(1,wat);
   else if(s.wocean) s.wocean.material.opacity=0;
   if(stm>0.01){
-    getSteamShroud(rec).material.opacity=Math.min(1,stm*0.96);
+    getSteamShroud(rec).material.opacity=Math.min(1,stm*1.25);   // full steam = solidly covers the surface
     getSteamHalo(rec).material.uniforms.p.value=1.2*stm*(1-hot);
   } else {
     if(s.steam) s.steam.material.opacity=0;
