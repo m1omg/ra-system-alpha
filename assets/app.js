@@ -466,9 +466,11 @@ function makeBodyRings(rec){
   };
   paint();
   const t=new THREE.CanvasTexture(cv);
-  regCanvasTex(t,paint);
   const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:t,side:THREE.DoubleSide,
     transparent:true,depthWrite:false,opacity:0.95}));
+  // only repaint the procedural strip while it's still the live map (a real photo
+  // may swap in below) — mirrors buildBodyMesh's guarded canvas-wipe repaint
+  regCanvasTex(t, function(){ if(m.material.map!==t) return; paint(); });
   m.rotation.x=Math.PI/2;
   m.renderOrder=1;
   rec.mesh.add(m);
@@ -478,7 +480,7 @@ function makeBodyRings(rec){
   // to the procedural strip on any miss, just like the body maps.
   if(typeof window!=='undefined' && window.USE_AI_TEXTURES){
     new THREE.TextureLoader().load('assets/img/textures/'+rec.data.key+'_rings.webp',
-      function(rt){ rt.anisotropy=4; m.material.map=rt; m.material.opacity=1; m.material.needsUpdate=true; },
+      function(rt){ rt.anisotropy=4; m.material.map=rt; m.material.opacity=1; m.material.needsUpdate=true; t.dispose(); },
       undefined, function(){ /* keep procedural rings */ });
   }
   return m;
@@ -1923,7 +1925,7 @@ function removeDebrisField(rec){
     m.e=P.e; m.q=P.q; m.M=P.M; m.period=P.period;
     m.aDispReal=P.aDispReal; m.aDispCompressed=P.aDispCompressed;
     m.aDisp=realScale?P.aDispReal:P.aDispCompressed;
-    const le=labelEls[m.data.key]; if(le && m.data.parent!=='ra') le.classList.remove('major');
+    const le=labelEls[m.data.key]; if(le && m.data.parent!==DS.STAR.key) le.classList.remove('major');
     positionBody(m);
     m._preLib=null;
   }
@@ -2539,7 +2541,7 @@ function ensureLabels(){
   for(const rec of bodies){
     if(labelEls[rec.data.key]) continue;
     const el=document.createElement('div');
-    el.className='lbl '+(rec.data.parent==='ra'||rec.data.kind==='star'?'major':'');
+    el.className='lbl '+(rec.data.parent===DS.STAR.key||rec.data.kind==='star'?'major':'');
     if(rec.data.kind==='star') el.className='lbl star';
     el.textContent=locName(rec.data);
     el.style.color = '#'+new THREE.Color(rec.data.color||0xcfe0ff).getHexString();
@@ -2560,7 +2562,7 @@ function updateLabels(){
     c2.copy(wp).project(camera);
     const onscreen = c2.z<1 && c2.x>-1.1 && c2.x<1.1 && c2.y>-1.1 && c2.y<1.1;
     // declutter: hide minor moons when far (a liberated moon is a planet now — keep its label)
-    const minor = !(rec.data.parent==='ra'||rec.data.kind==='star'||rec.helio);
+    const minor = !(rec.data.parent===DS.STAR.key||rec.data.kind==='star'||rec.helio);
     let show = onscreen;
     if(minor && dist>(realScale?1100:620)) show=false;
     if(!show){ el.style.display='none'; continue; }
