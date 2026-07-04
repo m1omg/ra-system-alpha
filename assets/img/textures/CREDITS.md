@@ -39,11 +39,22 @@ U.S. Government works, no copyright. Downloaded from Wikimedia Commons.
 | `callisto.webp` | "Callisto USGS global"                          | Galileo/Voyager, USGS |
 | `titan.webp`    | "Map of Titan" (Cassini ISS)                    | Cassini, NASA/JPL/SSI |
 
+### Composited: real imaged hemisphere + procedural fill (public domain source)
+These worlds were only imaged over one hemisphere by their flyby spacecraft;
+the real cylindrical mosaic is used where data exists, and the un-imaged polar
+band is filled with a colour-matched, feathered procedural texture (see
+`tools/`-style value-noise). The real half is NASA public-domain imagery.
+
+| file | real source (imaged hemisphere) | mission |
+|------|---------------------------------|---------|
+| `pluto.webp`  | "Pluto color mapmosaic"        | New Horizons, NASA/JHUAPL/SwRI |
+| `charon.webp` | "Cpmap cyl PS717 HR 180"       | New Horizons, NASA/JHUAPL/SwRI |
+| `triton.webp` | "Triton map no grid" (Voyager 2)| Voyager 2, NASA/JPL |
+
 ### Kept procedural (no clean full-globe map available)
-Enceladus, Triton, Pluto, Charon, Phobos, Deimos — the readily-available real
-maps are either grid/label-annotated, cover only the spacecraft-imaged
-hemisphere (the rest is data-void black), or the body is a few-km irregular
-chunk. These use the engine's procedural texture generator instead.
+Enceladus (real maps are grid/label-annotated), Phobos and Deimos (few-km
+irregular chunks) — these use the engine's procedural texture generator.
 
 All real textures were downscaled and re-encoded to WebP for this project;
-originals are unmodified in content.
+originals are unmodified in content. The composited maps combine unmodified
+real imagery with generated fill only over the never-imaged regions.
