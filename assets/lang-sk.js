@@ -63,6 +63,8 @@ html: {
   'help-scale-h':'O mierke',
   'help-scale':'<b>Reálna mierka</b> (predvolená) kladie každú dráhu do skutočnej vzdialenosti v AU — Amunet sa tak túli k hviezde a Horus je ďaleko na 46 AU; Shu a Horus nájdete oddialením. <b>Stlačená</b> (prepínač v dolnej lište) stláča obrovský rozsah 0,05–46 AU tak, aby sa celá sústava zmestila na obrazovku naraz. Veľkosti telies sú v oboch režimoch zveličené (skutočné by boli neviditeľné). Reálne čísla sú v dátovom paneli každého sveta; obežné <b>rýchlosti</b> sa riadia Keplerovými zákonmi.',
   'gloss-h':'Slovník',
+  'credits-h':'Poďakovanie',
+  'credits':'Textúry Slnečnej sústavy: mapy planét a Mesiaca od <b>Solar System Scope</b> (solarsystemscope.com, CC BY 4.0); mapy Io, Európy, Ganymeda, Kallisto a Titanu od <b>NASA / JPL / USGS</b> (voľné dielo). Svety sústavy Ra používajú mapy generované AI. Postavené na Three.js.',
   'lbl-speed':'Rýchlosť','lbl-size':'Veľkosť',
   't-orbits':'◉ Dráhy','t-labels':'🏷 Menovky','t-tails':'☄ Chvosty','reset':'⟲ Obnoviť pohľad',
   't-fly':'🚀 Let','t-impact':'💥 Impakt',

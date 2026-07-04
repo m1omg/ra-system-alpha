@@ -473,6 +473,14 @@ function makeBodyRings(rec){
   m.renderOrder=1;
   rec.mesh.add(m);
   rec.ringsMesh=m;
+  // opt-in real ring photo (assets/img/textures/<key>_rings.webp: RGBA strip,
+  // inner edge at u=0 — the radial UVs above sample it by radius). Falls back
+  // to the procedural strip on any miss, just like the body maps.
+  if(typeof window!=='undefined' && window.USE_AI_TEXTURES){
+    new THREE.TextureLoader().load('assets/img/textures/'+rec.data.key+'_rings.webp',
+      function(rt){ rt.anisotropy=4; m.material.map=rt; m.material.opacity=1; m.material.needsUpdate=true; },
+      undefined, function(){ /* keep procedural rings */ });
+  }
   return m;
 }
 
