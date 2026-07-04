@@ -297,13 +297,17 @@ function glowCanvasTex(inner, outer){
    ============================================================ */
 const APP = {};
 
-/* ---- which system? Ra (default) or our real Solar System (data-sol.js) ---- */
-let SYS='ra';
-try{ if(localStorage.getItem('ra-system')==='sol' && typeof SOL_SYSTEM!=='undefined') SYS='sol'; }catch(_){}
-const DS = SYS==='sol'
-  ? {STAR:SOL_SYSTEM.STAR, PLANETS:SOL_SYSTEM.PLANETS, MOONS:SOL_SYSTEM.MOONS,
-     HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY}
-  : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY};
+/* ---- which system? Ra (fictional) or our real Solar System (data-sol.js).
+   Chosen on the first-visit selection screen; the choice persists in
+   localStorage['ra-system'] and is applied here before build() runs. ---- */
+let SYS='ra', DS=null;
+function applySystem(sys){
+  SYS = (sys==='sol' && typeof SOL_SYSTEM!=='undefined') ? 'sol' : 'ra';
+  DS = SYS==='sol'
+    ? {STAR:SOL_SYSTEM.STAR, PLANETS:SOL_SYSTEM.PLANETS, MOONS:SOL_SYSTEM.MOONS,
+       HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY}
+    : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY};
+}
 let scene,camera,renderer,controls,clock;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
 let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
@@ -326,7 +330,10 @@ const UI_EN={
   'nav-sol':'The Solar System',
   'title-sol-h1':'The <b>Solar</b> System',
   'doc-title-sol':'The Solar System — Interactive 3D Simulation',
-  'sys-to-sol':'⇄ 🌍 Solar System','sys-to-ra':'⇄ ✨ Ra System',
+  'sys-to-sol':'⇄ 🌍 Solar System','sys-to-ra':'⇄ ✨ Ra System','sys-change':'⇄ Change system',
+  'choose-title':'Choose a planetary system',
+  'choose-ra':'✨ The Ra System','choose-ra-sub':'A fictional world — “Satis v10”',
+  'choose-sol':'🌍 The Solar System','choose-sol-sub':'Our home — real planets &amp; moons',
   'life-title':'harbours life','life-intelligent':'intelligent','life-alien':'alien','life-seeded':'seeded','life-native':'native',
   'from-source':"From the source — author's text",
   'no-desc':'(No description in the source document yet — summary shown.)',
@@ -347,7 +354,8 @@ const UI_EN={
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
   'imp-melts-sea':' · melts a ~{km} km sea',
   'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered melt seas',
-  'tier-thaw':' · ice thawing — liquid seas ({p}% thawed)',
+  'tier-thaw':' · thawing — seas of liquid water ({p}%)',
+  'tier-thaw-polar':' · thawing — polar seas ({p}%)',
   'tier-steam':' · oceans boiling — steam atmosphere ({p}%)',
   'tier-regional':' · surface: regional melting ({p}% molten)','tier-ocean':' · surface: global magma ocean ({p}% molten)',
   'tier-molten':' · surface: fully molten, superheated','tier-white':' · surface: white-hot — breakup imminent',
@@ -412,7 +420,7 @@ function setLang(l){
   const tb=document.getElementById('t-text'); if(tb) tb.innerHTML=USE_VERBATIM?T('authors-text'):T('summary-source');
   const sp=document.getElementById('speed'); if(sp) setSpeed(+sp.value);
   const sysb=document.getElementById('t-system');
-  if(sysb) sysb.innerHTML = SYS==='sol'?T('sys-to-ra'):T('sys-to-sol');
+  if(sysb) sysb.innerHTML = T('sys-change');
   for(const r of bodies){ const el=labelEls[r.data.key];
     if(el) el.textContent=locName(r.data)+(r.destroyed?' ☠':''); }
   if(typeof updateImpactUI==='function') updateImpactUI();
@@ -1043,9 +1051,52 @@ let _impRockTex=null, _impRockReq=false, _astGlowTex=null;
 function impRockTex(){
   if(!_impRockReq){ _impRockReq=true;
     new THREE.TextureLoader().load('assets/img/textures/debris.webp',
-      function(t){ _impRockTex=t; }, undefined, function(){});
+      function(t){ _impRockTex=t; if(_astMat){ _astMat.map=t; _astMat.color.setHex(0xffffff); _astMat.needsUpdate=true; } },
+      undefined, function(){});
   }
   return _impRockTex;
+}
+/* ---- asteroid render pools: geometry/material/sprites are reused across strikes
+   instead of allocated + disposed per shot, which was causing GC/GPU hitches on
+   tablets. Identical visuals (6 shape variants + random tumble/scale). ---- */
+let _astRockGeos=null, _astMat=null, _astGlowMat=null;
+const _astRigPool=[], _flashPool=[], _shockPool=[];
+function astRockGeos(){
+  if(_astRockGeos) return _astRockGeos;
+  _astRockGeos=[]; for(let i=0;i<6;i++) _astRockGeos.push(makeRockGeo(11,8,(0x9e37+i*0x61c88647)>>>0));
+  return _astRockGeos;
+}
+function astMaterial(){
+  if(_astMat) return _astMat;
+  const t=impRockTex();
+  _astMat=new THREE.MeshStandardMaterial({map:t||null, color:t?0xffffff:0x8a7767, roughness:0.95, emissive:0x1c0e06});
+  return _astMat;
+}
+function astGlowMat(){
+  if(_astGlowMat) return _astGlowMat;
+  const glowMap=_astGlowTex||(_astGlowTex=glowCanvasTex('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
+  _astGlowMat=new THREE.SpriteMaterial({map:glowMap,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
+  return _astGlowMat;
+}
+function acquireAstRig(){
+  let rig=_astRigPool.pop();
+  if(!rig){ const mesh=new THREE.Mesh(astRockGeos()[0], astMaterial());
+    const sp=new THREE.Sprite(astGlowMat()); sp.scale.setScalar(5); mesh.add(sp);
+    rig={mesh}; scene.add(mesh); }
+  const geos=astRockGeos();
+  rig.mesh.geometry=geos[(Math.random()*geos.length)|0];   // random shape for variety
+  rig.mesh.rotation.set(Math.random()*6.28,Math.random()*6.28,Math.random()*6.28);
+  rig.mesh.visible=true;
+  return rig;
+}
+function releaseAstRig(rig){ rig.mesh.visible=false; _astRigPool.push(rig); }
+/* pooled one-shot fx sprite (flash/shock): grab an idle one, or make a new one */
+function acquireFxSprite(pool, tex){
+  let sp=pool.pop();
+  if(!sp){ sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(sp); }
+  sp.visible=true; sp.material.opacity=1;
+  return sp;
 }
 const impRC=new THREE.Raycaster();
 const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
@@ -1435,7 +1486,9 @@ function impTierBase(rec){
     const ph2=(E-P.E1)/(P.E2-P.E1);
     if(ph2>0.02) return T('tier-steam').replace('{p}',Math.round(Math.min(1,ph2)*100));
     if(!impLiquidSurface(rec) && E>0.05*P.E1){ const ph1=E/P.E1;
-      return T('tier-thaw').replace('{p}',Math.round(Math.min(1,ph1)*100)); }
+      // a trace-water world only pools POLAR lakes — say so, so a player knows where to look
+      const key=impWaterVis(rec)<0.5?'tier-thaw-polar':'tier-thaw';
+      return T(key).replace('{p}',Math.round(Math.min(1,ph1)*100)); }
   }
   const mf=E/impMeltJ(rec);
   if(mf>1e-4) return T('tier-seas');
@@ -1477,17 +1530,15 @@ function impRingTexture(){
 }
 function spawnFlash(wp, R, E){
   const sc=R*(0.9+0.6*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
-    blending:THREE.AdditiveBlending,depthWrite:false}));
-  sp.position.copy(wp); scene.add(sp);
-  impFx.push({o:sp,t:0,T:0.7,kind:'flash',sc});
+  const sp=acquireFxSprite(_flashPool, impFlashTexture());
+  sp.position.copy(wp);
+  impFx.push({o:sp,t:0,T:0.7,kind:'flash',sc,pool:_flashPool});
 }
 function spawnShock(wp, R, E){
   const sc=R*(1.1+0.5*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impRingTexture(),transparent:true,
-    blending:THREE.AdditiveBlending,depthWrite:false}));
-  sp.position.copy(wp); scene.add(sp);
-  impFx.push({o:sp,t:0,T:1.2,kind:'shock',sc});
+  const sp=acquireFxSprite(_shockPool, impRingTexture());
+  sp.position.copy(wp);
+  impFx.push({o:sp,t:0,T:1.2,kind:'shock',sc,pool:_shockPool});
 }
 
 /* ---- shared ejecta/spark pool: one Points draw, evap-tail-style shader ---- */
@@ -2206,19 +2257,10 @@ function launchAsteroid(rec, hit){
   const E=impKE();
   const tgtR=rec.radius*rec.mesh.scale.x;
   const size=Math.max(tgtR*0.05, Math.min(tgtR*0.45, tgtR*0.45*Math.cbrt(impDiaKm/1000)));
-  const geo=makeRockGeo(11,8, (Math.random()*1e9)>>>0);
-  const rockT=impRockTex();
-  const mesh=new THREE.Mesh(geo, rockT
-    ? new THREE.MeshStandardMaterial({map:rockT,roughness:0.95,emissive:0x1c0e06})
-    : new THREE.MeshStandardMaterial({color:0x8a7767,roughness:0.95,emissive:0x1c0e06}));
+  // pooled rig (shared geometry + material + glow sprite) — no per-shot alloc/dispose
+  const rig=acquireAstRig();
+  const mesh=rig.mesh;
   mesh.scale.setScalar(size);
-  // one shared glow texture for all asteroids — was generated + GPU-uploaded per shot
-  const glowMap=_astGlowTex||(_astGlowTex=glowCanvasTex('rgba(255,190,120,0.9)','rgba(255,110,40,0.32)'));
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowMap,transparent:true,
-    blending:THREE.AdditiveBlending,depthWrite:false}));
-  sp.scale.setScalar(5); mesh.add(sp);
-  const spMat=sp.material;
-  scene.add(mesh);
   // approach ~40° off the camera line so the run-in is visible
   const tgtW=uvToWorld(rec,u,v);
   const camDir=_impV1.copy(tgtW).sub(camera.position).normalize();
@@ -2229,7 +2271,7 @@ function launchAsteroid(rec, hit){
   const dist=Math.max(tgtR*10, camera.position.distanceTo(tgtW)*0.35);
   const start=tgtW.clone().addScaledVector(A,-dist);
   const T=Math.min(3.6, Math.max(1.4, 3.6-0.55*Math.log10(impSpdKms/11)));
-  impAsteroids.push({rec,u,v,mesh,glowMap,spMat,start,t:0,T,E,
+  impAsteroids.push({rec,u,v,rig,mesh,start,t:0,T,E,
     mKg:impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3), vKms:impSpdKms,   // for the momentum kick
     spin:new THREE.Vector3(Math.random()*4-2,Math.random()*4-2,Math.random()*4-2)});
   sfxWhoosh(T);
@@ -2282,8 +2324,7 @@ function updateImpacts(dt){
     const k=a.t/a.T;
     if(k>=1){
       applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
-      scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose();
-      a.spMat.dispose();                     // glow map is shared — never disposed
+      releaseAstRig(a.rig);                  // back to the pool — no dispose (reused next shot)
       impAsteroids.splice(i,1); continue;
     }
     const e=k*k*(3-2*k);
@@ -2349,7 +2390,7 @@ function updateImpacts(dt){
   for(let i=impFx.length-1;i>=0;i--){
     const f=impFx[i]; f.t+=dt;
     const k=f.t/f.T;
-    if(k>=1){ scene.remove(f.o); f.o.material.dispose(); impFx.splice(i,1); continue; }
+    if(k>=1){ f.o.visible=false; f.pool.push(f.o); impFx.splice(i,1); continue; }   // return to pool, no dispose
     if(f.kind==='flash'){ f.o.scale.setScalar(f.sc*(0.25+2.0*Math.sqrt(k))); f.o.material.opacity=Math.pow(1-k,1.6); }
     else { f.o.scale.setScalar(f.sc*(0.3+3.5*k)); f.o.material.opacity=0.55*(1-k); }
   }
@@ -2470,6 +2511,11 @@ function toggleImpact(){ impacting?exitImpact():enterImpact(); }
 function enterImpact(){
   if(flying) exitFly();
   impRockTex();                 // kick off the rock-texture load before anything fires
+  astRockGeos(); astMaterial(); astGlowMat();   // warm the asteroid pools (no first-shot hitch)
+  // warm the focused body's scar canvases now — the first strike on a body otherwise
+  // builds 3 canvases + 3 textures + 3 overlay spheres in one frame (a visible hitch)
+  const fr=bodies.find(b=>b.data.key===selected);
+  if(fr && !impImmune(fr) && !fr.destroyed) getScars(fr);
   impacting=true;
   document.getElementById('implab').classList.add('on');
   const b=document.getElementById('t-impact'); if(b) b.classList.add('on');
@@ -2697,9 +2743,8 @@ function setupInteraction(){
   const tls=document.getElementById('t-tails'); if(tls) tls.onclick=toggleTails;
   const sysb=document.getElementById('t-system');
   if(sysb){
-    sysb.innerHTML = SYS==='sol'?T('sys-to-ra'):T('sys-to-sol');
-    sysb.onclick=()=>{ try{ localStorage.setItem('ra-system', SYS==='sol'?'ra':'sol'); }catch(_){}
-      location.hash=''; location.reload(); };
+    sysb.innerHTML = T('sys-change');                 // reopens the selection screen
+    sysb.onclick=()=>showChooser();
   }
   const sx=document.getElementById('t-sfx');
   if(sx){ sx.onclick=toggleSfx;
@@ -3235,5 +3280,33 @@ function onResize(){
   renderer.setSize(innerWidth,innerHeight);
 }
 
+/* ---- entry: first-visit shows the system chooser; returning visitors load
+   straight into their saved system. The ⇄ toolbar button reopens the chooser. ---- */
+let _built=false;
+function initApp(){
+  let saved=null; try{ saved=localStorage.getItem('ra-system'); }catch(_){}
+  if(saved==='ra' || saved==='sol'){ applySystem(saved); build(); _built=true; }
+  else showChooser();
+}
+function showChooser(){
+  const ch=document.getElementById('chooser'); if(!ch){ applySystem('ra'); build(); _built=true; return; }
+  // localize the chooser to the saved language before it's shown
+  let lang='en'; try{ if(localStorage.getItem('ra-lang')==='sk') lang='sk'; }catch(_){}
+  const L=(lang==='sk' && typeof LANG_SK!=='undefined') ? LANG_SK.ui : UI_EN;
+  const setTxt=(id,k)=>{ const el=document.getElementById(id); if(el && L[k]!=null) el.innerHTML=L[k]; };
+  setTxt('chooser-title','choose-title'); setTxt('choose-ra-h','choose-ra'); setTxt('choose-ra-sub','choose-ra-sub');
+  setTxt('choose-sol-h','choose-sol'); setTxt('choose-sol-sub','choose-sol-sub');
+  ch.querySelector('[data-sys="ra"]').onclick=()=>pickSystem('ra');
+  ch.querySelector('[data-sys="sol"]').onclick=()=>pickSystem('sol');
+  ch.style.display='flex'; ch.style.opacity='1';
+}
+function pickSystem(sys){
+  try{ localStorage.setItem('ra-system', sys); }catch(_){}
+  if(_built){ location.hash=''; location.reload(); return; }   // mid-session change → clean rebuild
+  const ch=document.getElementById('chooser');
+  if(ch){ ch.style.opacity='0'; setTimeout(()=>{ ch.style.display='none'; },500); }
+  applySystem(sys); build(); _built=true;
+}
+
 /* go */
-window.addEventListener('DOMContentLoaded', build);
+window.addEventListener('DOMContentLoaded', initApp);

@@ -26,6 +26,22 @@
     border-top-color:var(--accent2);border-radius:50%;animation:rot 1s linear infinite}
   @keyframes rot{to{transform:rotate(360deg)}}
 
+  /* ---------- System selection (first visit) ---------- */
+  #chooser{position:fixed;inset:0;background:radial-gradient(circle at 50% 40%,#0b1426,#04060c 70%);
+    display:none;flex-direction:column;align-items:center;justify-content:center;gap:34px;z-index:100;
+    transition:opacity .5s;padding:24px;overflow:hidden}
+  #chooser h2{font-weight:300;letter-spacing:.18em;text-transform:uppercase;font-size:clamp(14px,3.4vw,20px);
+    color:var(--dim);text-align:center}
+  #chooser .choices{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;max-width:820px}
+  #chooser .choice{display:flex;flex-direction:column;gap:10px;align-items:flex-start;text-align:left;
+    background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:28px 30px;
+    width:340px;max-width:88vw;cursor:pointer;color:var(--txt);font-family:var(--font);
+    transition:transform .15s,border-color .15s,background .15s;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  #chooser .choice:hover{transform:translateY(-3px);border-color:var(--accent2);background:var(--panel2)}
+  #chooser .choice-h{font-size:22px;font-weight:400;letter-spacing:.02em;color:var(--accent2)}
+  #chooser .choice-sub{font-size:13px;color:var(--dim);line-height:1.4}
+  @media(max-width:560px){ #chooser .choices{gap:14px} #chooser .choice{padding:20px 22px} }
+
   /* ---------- Generic panel ---------- */
   .panel{position:absolute;background:var(--panel);backdrop-filter:blur(10px);
     border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
@@ -222,6 +238,20 @@
 <body>
 <div id="app"></div>
 <div id="labels"></div>
+
+<div id="chooser">
+  <h2 id="chooser-title">Choose a planetary system</h2>
+  <div class="choices">
+    <button class="choice" data-sys="ra">
+      <span class="choice-h" id="choose-ra-h">✨ The Ra System</span>
+      <span class="choice-sub" id="choose-ra-sub">A fictional world — “Satis v10”</span>
+    </button>
+    <button class="choice" data-sys="sol">
+      <span class="choice-h" id="choose-sol-h">🌍 The Solar System</span>
+      <span class="choice-sub" id="choose-sol-sub">Our home — real planets &amp; moons</span>
+    </button>
+  </div>
+</div>
 
 <div id="loader">
   <h1>RA</h1>
