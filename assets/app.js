@@ -330,7 +330,7 @@ const UI_EN={
   'e-yr':'yr','e-day':'days','e-hr':'hr','e-min':'min','e-s':'s',
   'real-scale':'📏 Real scale','compressed':'📐 Compressed',
   'authors-text':"📖 Author's text",'summary-source':'📖 Summary + source',
-  'type-star':'Star','type-bd':'Brown dwarf','type-moon':'Moon','type-planet':'Planet',
+  'type-star':'Star','type-bd':'Brown dwarf','type-moon':'Moon','type-planet':'Planet','type-remnant':'Planetary remnant',
   'nav-ra':'Ra System','nav-horus':'Horus subsystem',
   'nav-sol':'The Solar System',
   'title-sol-h1':'The <b>Solar</b> System',
@@ -452,6 +452,50 @@ const flyKeys={};
 
 const labelLayer=document.getElementById('labels');
 
+// file:// + WebGL texture uploads are fragile in Chromium-family browsers. Local runs
+// load small per-texture data-url scripts asynchronously; HTTP(S) uses normal WebP URLs.
+const localTextureWait={};
+function bakedTextureKey(url){
+  const m=/(?:^|\/)([^\/]+)\.webp$/.exec(url);
+  return m&&m[1];
+}
+function loadTextureURL(url, onLoad, onProgress, onError, fileNoCors){
+  const loader=new THREE.TextureLoader();
+  if(fileNoCors) loader.setCrossOrigin(undefined);
+  return loader.load(url, onLoad, onProgress, onError);
+}
+function loadBakedTexture(url, onLoad, onProgress, onError){
+  if(typeof location!=='undefined' && location.protocol==='file:'){
+    const key=bakedTextureKey(url);
+    if(key){
+      window.RA_LOCAL_TEXTURES=window.RA_LOCAL_TEXTURES||{};
+      if(window.RA_LOCAL_TEXTURES[key]) return loadTextureURL(window.RA_LOCAL_TEXTURES[key], onLoad, onProgress, onError, false);
+      if(!localTextureWait[key]){
+        localTextureWait[key]=[];
+        const s=document.createElement('script');
+        s.async=true;
+        s.src='assets/img/textures/local-data/'+key+'.js';
+        s.onload=function(){
+          const q=localTextureWait[key]||[]; delete localTextureWait[key];
+          const data=window.RA_LOCAL_TEXTURES&&window.RA_LOCAL_TEXTURES[key];
+          q.forEach(fn=>fn(data));
+        };
+        s.onerror=function(){
+          const q=localTextureWait[key]||[]; delete localTextureWait[key];
+          q.forEach(fn=>fn(null));
+        };
+        document.head.appendChild(s);
+      }
+      localTextureWait[key].push(function(data){
+        loadTextureURL(data||url, onLoad, onProgress, onError, !data);
+      });
+      return null;
+    }
+    return loadTextureURL(url, onLoad, onProgress, onError, true);
+  }
+  return loadTextureURL(url, onLoad, onProgress, onError, false);
+}
+
 /* flat banded annulus in the planet's equator plane (Saturn). The band
    strip is a seeded 1D canvas (registered for Android canvas-wipe replay);
    UVs are remapped radially so the strip reads as concentric rings. */
@@ -496,7 +540,7 @@ function makeBodyRings(rec){
   // inner edge at u=0 — the radial UVs above sample it by radius). Falls back
   // to the procedural strip on any miss, just like the body maps.
   if(typeof window!=='undefined' && window.USE_AI_TEXTURES){
-    new THREE.TextureLoader().load('assets/img/textures/'+rec.data.key+'_rings.webp',
+    loadBakedTexture('assets/img/textures/'+rec.data.key+'_rings.webp',
       function(rt){ rt.anisotropy=4; m.material.map=rt; m.material.opacity=1; m.material.needsUpdate=true; t.dispose(); },
       undefined, function(){ /* keep procedural rings */ });
   }
@@ -564,7 +608,7 @@ function buildBodyMesh(data, radius){
   // The procedural map above shows instantly; if a baked image exists we swap it in,
   // and on any miss/error we silently keep the procedural texture.
   if(typeof window!=='undefined' && window.USE_AI_TEXTURES){
-    new THREE.TextureLoader().load(
+    loadBakedTexture(
       'assets/img/textures/'+data.key+'.webp',
       function(t){
         t.anisotropy=4; t.wrapS=map.wrapS; t.wrapT=map.wrapT;
@@ -979,7 +1023,7 @@ function updateEvapTails(simDt){   // simDt = sim-years advanced this frame (0 w
     }
     if(simDt>0){
       const life=EVAP_LIFE_ORB*rec.period;
-      const dispR=rec.radius*rec.mesh.scale.x;             // current on-screen radius
+      const dispR=impRenderRadius(rec);                    // current on-screen radius
       // moons: tail spans ~1.5× their orbit so it sweeps across the parent (per the source doc)
       const tailLen=(realScale ? (rec.helio?EVAP_LEN_FRAC:1.5)*rec.aDisp
                                : EVAP_LEN_RADII*dispR)*t.len;
@@ -1055,7 +1099,7 @@ let _impFlashTex=null, _impRingTex=null;
 let _impRockTex=null, _impRockReq=false, _astGlowTex=null;
 function impRockTex(){
   if(!_impRockReq){ _impRockReq=true;
-    new THREE.TextureLoader().load('assets/img/textures/debris.webp',
+    loadBakedTexture('assets/img/textures/debris.webp',
       function(t){ _impRockTex=t; if(_astMat){ _astMat.map=t; _astMat.color.setHex(0xffffff); _astMat.needsUpdate=true; } },
       undefined, function(){});
   }
@@ -1163,7 +1207,9 @@ function impGasFrac(rec){
 }
 function impBindingJ(rec){ const R=(rec.data.radiusKm||1000)*1000, M=impBodyMassKg(rec);
   return 3*IMP_G*M*M/(5*R); }
-function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'||rec.external; }
+function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'||(rec.external&&!rec._generated); }
+function impLocalRadius(rec){ return rec._impactLocalRadius||rec.radius; }
+function impRenderRadius(rec){ return impLocalRadius(rec)*rec.mesh.scale.x; }
 function impKE(){ return 0.5*impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3)*Math.pow(impSpdKms*1000,2); }
 
 /* Lumpy-rock geometry: displace a sphere by smooth 3D noise of each vertex's
@@ -1187,7 +1233,7 @@ function makeRockGeo(wSeg,hSeg,seed){
    lets us convert a raycast uv to the exact point on the (spinning) mesh. */
 function uvToLocal(rec, u, v, out){
   const phi=u*Math.PI*2, theta=(1-v)*Math.PI, st=Math.sin(theta);
-  return out.set(-Math.cos(phi)*st, Math.cos(theta), Math.sin(phi)*st).multiplyScalar(rec.radius);
+  return out.set(-Math.cos(phi)*st, Math.cos(theta), Math.sin(phi)*st).multiplyScalar(impLocalRadius(rec));
 }
 function uvToWorld(rec, u, v){ return rec.mesh.localToWorld(uvToLocal(rec,u,v,new THREE.Vector3())); }
 
@@ -1199,10 +1245,11 @@ function getScars(rec){
   if(rec.scar) return rec.scar;
   // texture uploads are the mobile bottleneck: every needsUpdate re-sends the
   // whole canvas to the GPU. Half resolution on touch devices = 4× cheaper.
-  const SW=MOBILE_UI?512:1024, SH=SW/2;
+  const generated=!!rec._generated;
+  const SW=(MOBILE_UI||generated)?512:1024, SH=SW/2;
   // overlay spheres are HIGH-poly (≥ the body's 64×48) so the high-contrast lava
   // texture doesn't warp across coarse triangles → that was the "mesh screen" grid
-  const SEG=MOBILE_UI?96:128, SEGH=MOBILE_UI?64:96;
+  const SEG=generated?64:(MOBILE_UI?96:128), SEGH=generated?48:(MOBILE_UI?64:96);
   // char (dark scars) + lava now SHARE one canvas — fewer stacked translucent overlay
   // passes → less mobile moiré. char is painted 'destination-over' so lava stays on top.
   const glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
@@ -1211,8 +1258,9 @@ function getScars(rec){
   for(const t of [glowT,meltT]){ t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter; }
   const overlayMat=(map,extra)=>new THREE.MeshBasicMaterial(Object.assign(
     {map,transparent:true,depthWrite:false}, extra||{}));
-  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,SEG,SEGH), overlayMat(meltT));
-  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,SEG,SEGH),
+  const lr=impLocalRadius(rec);
+  const mM=new THREE.Mesh(new THREE.SphereGeometry(lr*1.008,SEG,SEGH), overlayMat(meltT));
+  const mG=new THREE.Mesh(new THREE.SphereGeometry(lr*1.016,SEG,SEGH),
     overlayMat(glowT,{blending:THREE.AdditiveBlending}));
   mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mM); rec.mesh.add(mG);
@@ -1306,7 +1354,7 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;  // no moiré
   t.wrapS=THREE.RepeatWrapping;                                 // wraps → the magma can churn
   regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genO(),0,0); });  // Android canvas wipe
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,MOBILE_UI?96:128,MOBILE_UI?64:96),
+  const m=new THREE.Mesh(new THREE.SphereGeometry(impLocalRadius(rec)*1.016,MOBILE_UI?96:128,MOBILE_UI?64:96),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
   rec.mesh.add(m);
@@ -1348,7 +1396,7 @@ function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
   t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
   t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,MOBILE_UI?96:128,MOBILE_UI?64:96),
+  const m=new THREE.Mesh(new THREE.SphereGeometry(impLocalRadius(rec)*1.006,MOBILE_UI?96:128,MOBILE_UI?64:96),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
   rec.mesh.add(m);
@@ -1383,7 +1431,7 @@ function getSteamShroud(rec){                // boiled-off oceans: a global whit
   t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
   t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.026,MOBILE_UI?96:128,MOBILE_UI?64:96),
+  const m=new THREE.Mesh(new THREE.SphereGeometry(impLocalRadius(rec)*1.026,MOBILE_UI?96:128,MOBILE_UI?64:96),
     new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=6;
   rec.mesh.add(m);
@@ -1397,7 +1445,7 @@ const _MAGMA_HALO=new THREE.Color(0xff6a22), _STEAM_HALO=new THREE.Color(0xdfe9f
 function getMeltHalo(rec){
   const s=getScars(rec);
   if(s.halo) return s.halo;
-  s.halo=makeAtmosphere(rec.radius*1.055, 0xff6a22, 0);
+  s.halo=makeAtmosphere(impLocalRadius(rec)*1.055, 0xff6a22, 0);
   s.halo.renderOrder=5;
   rec.mesh.add(s.halo);
   return s.halo;
@@ -1427,6 +1475,7 @@ function impBoostTail(rec,f){                               // escaping-material
 }
 function impUpdateMelt(rec){                 // cumulative surface state from the phase budgets
   if(!rec.scar || impImmune(rec)) return;
+  if(rec._generated) return;                 // remnants are already molten; avoid extra full-body overlays.
   if(rec.data.kind==='gasgiant'){ impUpdatePuff(rec); return; }
   const s=rec.scar;
   const E=rec.dmgJ||0;
@@ -1616,7 +1665,7 @@ function impConeDir(normal, spread){
    imp (optional, asteroids): {mKg, vKms, dir} — the momentum kick that nudges the orbit ---- */
 function applyStrike(rec, u, v, E, imp){
   const wp=uvToWorld(rec,u,v);
-  const R=rec.radius*rec.mesh.scale.x;
+  const R=impRenderRadius(rec);
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
   const fxP=wp.clone().addScaledVector(normal,R*0.04);
   const thM=impMeltPoolDeg(rec,E);           // lava sea, at its physical size on this world
@@ -1663,7 +1712,7 @@ function applyStrike(rec, u, v, E, imp){
 /* crust shattered: the world actually comes apart. The planet mesh is hidden
    and replaced (in place, still on its orbit) by a debris field — the fragments
    then evolve under the dead world's own SELF-GRAVITY: pieces launched below
-   escape speed decelerate, fall back and re-accrete into a battered rubble-pile
+   escape speed decelerate, fall back and re-accrete into a battered planetary
    remnant, while faster pieces disperse outward into the orbit. A barely-fatal
    blow reforms a lumpy dwarf; a massive overkill scatters almost everything.
    The info panel switches to "A debris field." until 🧽 Heal resurrects it. */
@@ -1674,14 +1723,117 @@ const debrisFields=[];
 // falls off smoothly as the strike gets more violent (see debris-field tuning).
 const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DEB_ESCAPE_R=8;
 // once enough mass has re-accreted, part of it coalesces into moonlet(s) that
-// orbit the remnant on a real (softened-Kepler) orbit instead of joining the pile:
+// orbit the remnant on a real (softened-Kepler) orbit instead of falling into it:
 // the first at DEB_MOON_T1 of the mass re-accreted, another every DEB_MOON_STEP.
-const DEB_MOON_T1=0.35, DEB_MOON_STEP=0.22, DEB_MOON_MAX=2;
+// Thresholds kept a touch low so moonlets form readily: reliably near the binding
+// energy (often two there), still possible a few x past it, none once a strike is a
+// big enough overkill to scatter almost everything.
+const DEB_RUMP_T1=0.08, DEB_MOON_T1=0.30, DEB_MOON_STEP=0.20, DEB_MOON_MAX=2;
 let _debRemnantGeo=null;
-function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,16,12)); }
+function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,64,48)); }
 const _ROMAN=['I','II','III','IV'];
+const DEB_ORIGIN=new THREE.Vector3();
+function hotRemnantMat(rec, salt){
+  const skin=impScorchedSkin(rec, salt||0);
+  skin.map.wrapS=skin.emap.wrapS=THREE.RepeatWrapping;
+  skin.map.anisotropy=4; skin.emap.anisotropy=4;
+  const mat=new THREE.MeshStandardMaterial({map:skin.map, color:0xffc2a0, roughness:0.9,
+    emissive:0xff5a22, emissiveMap:skin.emap, emissiveIntensity:2.8});
+  mat.userData.emberBase=2.8;
+  return mat;
+}
+function disposeHotRemnantMat(mat){
+  if(!mat) return;
+  if(mat.map){ unregCanvasTex(mat.map); mat.map.dispose(); }
+  if(mat.emissiveMap) mat.emissiveMap.dispose();
+  mat.dispose();
+}
+function finishReaccretionStep(D){
+  if(!D.allowRemnant) return;
+  if(D.rumpRec && D.rumpRec.destroyed) return;
+  if(D.capMw/D.totMw>=DEB_RUMP_T1) ensureRump(D);
+  const cf=D.capMw/D.totMw;
+  if(cf>=DEB_MOON_T1){
+    const want=Math.min(DEB_MOON_MAX, 1+Math.floor((cf-DEB_MOON_T1)/DEB_MOON_STEP));
+    while(D.moonlets.length<want) spawnMoonlet(D);
+  }
+}
+function dissolveChunk(D, c, center, radius, addsMass){
+  if(c.cap) return;
+  c.cap=true; c.dissT0=0.65+0.55*Math.random(); c.dissT=c.dissT0;
+  c.baseScale=c.m.scale.x||1;
+  if(addsMass){
+    D.capMw+=c.mw;
+    D.rCore=D.Rloc*(DEB_RCORE0+(DEB_RCORE_MAX-DEB_RCORE0)*Math.min(1,D.capMw/D.totMw));
+    finishReaccretionStep(D);
+  }
+  const n=c.m.position.clone().sub(center);
+  if(n.lengthSq()<1e-8) n.set(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1);
+  n.normalize();
+  const side=new THREE.Vector3().crossVectors(n, new THREE.Vector3(0.27,0.91,0.33));
+  if(side.lengthSq()<1e-8) side.crossVectors(n, new THREE.Vector3(1,0,0));
+  side.normalize();
+  c.m.position.copy(center).addScaledVector(n, radius+(c.rad||D.Rloc*0.03)*(0.5+0.7*Math.random()));
+  c.vel.copy(n).multiplyScalar(D.Rloc*(0.025+0.035*Math.random()))
+    .addScaledVector(side, D.Rloc*(0.015+0.035*Math.random()));
+}
+function refreshNav(){
+  const nav=document.getElementById('nav'); if(!nav) return;
+  nav.innerHTML=''; buildNav(); setActiveNav(selected);
+  for(const r of bodies) if(r.destroyed) updateNavStatus(r);
+}
+function updateRumpData(D){
+  if(!D.rumpRec) return;
+  const prec=D.rec, pName=locName(prec.data), sk=(LANG==='sk');
+  const cf=Math.max(0, Math.min(1, D.capMw/D.totMw));
+  const radiusKm=Math.max(50, Math.round((prec.data.radiusKm||1000)*(D.rCore/D.Rloc)));
+  D.rumpRec.radius=D.rCore;
+  D.rumpRec.data.radiusKm=radiusKm;
+  const cfPct=Math.round(cf*100), dataKey=LANG+'|'+radiusKm+'|'+cfPct;
+  if(D.rumpDataKey===dataKey) return;
+  D.rumpDataKey=dataKey;
+  D.rumpRec.data.desc = sk
+    ? pName+' Rump je horúci, znovu zlepený zvyšok sveta '+pName+'. Pôvodná planéta bola roztrhaná impaktnou energiou, ale pomalšie trosky sa gravitačne vrátili, stlačili do guľového planetárneho telesa a stále žiaria červeno od tepla zničenia a akrécie.'
+    : pName+' Rump is the red-hot reformed remnant of '+pName+'. The original planet was torn apart by impact energy, but the slower debris fell back under its own gravity, compacted into a spherical planetary body, and still glows from the heat of destruction and re-accretion.';
+  D.rumpRec.data.stats = [
+    [sk?'Stav':'Status', sk?'Znovu sformovaný planetárny zvyšok':'Re-formed planetary remnant'],
+    [sk?'Polomer':'Radius', '≈ '+radiusKm.toLocaleString()+' km'],
+    [sk?'Znovu nabalená hmota':'Re-accreted mass', cfPct+' % '+(sk?'sledovaných trosiek':'of tracked debris')],
+    [sk?'Pôvod':'Origin', sk?'Gravitačne zlepené trosky zničenej planéty '+pName:'Gravitationally compacted debris from destroyed '+pName],
+    [sk?'Teplota':'Thermal state', sk?'červenožeravý po rozpade a akrécii':'red-hot after breakup and accretion']
+  ];
+}
+function ensureRump(D){
+  if(D.rumpRec){ updateRumpData(D); return D.rumpRec; }
+  const prec=D.rec, pName=locName(prec.data), sk=(LANG==='sk');
+  const key=prec.data.key+'~rump';
+  if(!D.rumpMat){
+    D.rumpMat=hotRemnantMat(prec, 0x72756d70);
+    (D.rumpMats||(D.rumpMats=[])).push(D.rumpMat);
+  }
+  const mesh=new THREE.Mesh(debRemnantGeo(), D.rumpMat);
+  mesh.scale.setScalar(D.rCore);
+  mesh.userData.bodyKey=key;
+  D.group.add(mesh);
+  D.remnant=mesh;
+  pickables.push(mesh);
+  const data={ key, name:pName+' Rump', color:0xff5a2a, parent:prec.data.parent||DS.STAR.key,
+    kind:'planetremnant', radiusKm:prec.data.radiusKm||1000, navTag:sk?'zvyšok':'remnant',
+    desc:'', stats:[] };
+  const rec2={ data, holder:mesh, mesh, orbitLine:null, radius:D.rCore,
+    aDisp:0, e:0, q:new THREE.Quaternion(), M:0, period:1, spin:0.18,
+    parentHolder:prec.parentHolder, helio:prec.helio, isMoon:false, external:true,
+    _parentMesh:prec.mesh, _generated:true, _originKey:prec.data.key, _navSub:true,
+    _impactLocalRadius:1,
+    _newUntil: performance.now()+2600 };
+  D.rumpRec=rec2;
+  bodies.push(rec2);
+  updateRumpData(D);
+  refreshNav();
+  return rec2;
+}
 /* spin a moonlet off the re-accreting remnant: a round body on a near-circular
-   orbit just outside the rubble pile, placed at the circular speed of the field's
+   orbit just outside the hot remnant, placed at the circular speed of the field's
    softened central potential (so it neither escapes nor plunges), with a slight
    ellipticity for life. Integrated each frame by the same self-gravity as the
    chunks; lives in the debris group, so 🧽 Heal tears it down with everything else.
@@ -1690,7 +1842,8 @@ const _ROMAN=['I','II','III','IV'];
    labelled and openable in the info panel, exactly like a real moon. */
 function spawnMoonlet(D){
   const prec=D.rec, R=D.Rloc, soft2=D.soft*D.soft, sk=(LANG==='sk');
-  const aM=D.rCore*(1.7+0.5*Math.random())+D.soft*1.2;              // orbit radius, clear of the pile
+  const rump=ensureRump(D);
+  const aM=D.rCore*(1.7+0.5*Math.random())+D.soft*1.2;              // orbit radius, clear of the remnant
   const rM=Math.max(R*0.05, D.rCore*(0.22+0.12*Math.random()));    // moonlet radius
   const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
   const tan=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1));
@@ -1698,36 +1851,42 @@ function spawnMoonlet(D){
   tan.normalize();
   const aGrav=D.GM*aM/Math.pow(aM*aM+soft2,1.5);                    // softened accel at aM
   const vc=Math.sqrt(aGrav*aM)*(0.92+0.1*Math.random());           // ~circular, mild eccentricity
-  const mesh=new THREE.Mesh(debRemnantGeo(), D.chunkMat);
+  const idx=D.moonlets.length, pName=locName(prec.data);
+  const moonMat=hotRemnantMat(prec, 0x6d6f6f6e+idx*1319);
+  (D.rumpMats||(D.rumpMats=[])).push(moonMat);
+  const mesh=new THREE.Mesh(debRemnantGeo(), moonMat);
   mesh.scale.setScalar(rM); mesh.position.copy(dir).multiplyScalar(aM);
   // --- first-class body record ---
-  const idx=D.moonlets.length, pName=locName(prec.data);
   const key=prec.data.key+'~moon'+idx;
   const radiusKm=Math.max(20, Math.round((prec.data.radiusKm||1000)*(rM/R)));
-  const data={ key, name:pName+' '+(_ROMAN[idx]||(idx+1)), color:prec.data.color||0x9a8877,
-    parent:prec.data.key, kind:'moon', radiusKm,
-    desc: sk ? 'Mesiačik — gravitačne nabalený zhluk trosiek planéty '+pName+', ktorý teraz obieha okolo pozostatku rozbitého sveta.'
-             : 'A moonlet — a gravitationally re-accreted clump of '+pName+"'s shattered debris, now orbiting the rubble-pile remnant.",
+  const data={ key, name:pName+' '+(_ROMAN[idx]||(idx+1)), color:0xff6a2a,
+    parent:rump.data.key, kind:'moon', radiusKm, navTag:sk?'mesiačik':'moonlet',
+    desc: sk ? 'Červenožeravý mesiačik z trosiek planéty '+pName+', vyvrhnutý pri opätovnom naberaní hmoty. Teraz obieha okolo znovu sformovaného telesa '+rump.data.name+' a stále žiari teplom akrécie.'
+             : 'A red-hot moonlet made from '+pName+"'s shattered debris. It spun off during re-accretion and now orbits "+rump.data.name+', still glowing with the heat of impact and assembly.',
     stats:[ [sk?'Polomer':'Radius', '≈ '+radiusKm.toLocaleString()+' km'],
-            [sk?'Materská planéta':'Parent', pName],
-            [sk?'Pôvod':'Origin', sk?'Nabalené trosky':'Re-accreted debris'] ] };
+            [sk?'Obieha okolo':'Orbits', rump.data.name],
+            [sk?'Pôvod':'Origin', sk?'Horúce trosky zničenej planéty '+pName:'Hot debris from destroyed '+pName],
+            [sk?'Teplota':'Thermal state', sk?'červenožeravý po akrécii':'red-hot after accretion'] ] };
   mesh.userData.bodyKey=key;
   pickables.push(mesh);
   const rec2={ data, holder:mesh, mesh, orbitLine:null, radius:rM,
     aDisp:0, e:0, q:new THREE.Quaternion(), M:0, period:1, spin:0,
     parentHolder:prec.holder, helio:false, isMoon:true, external:true, _parentMesh:prec.mesh,
+    _generated:true, _originKey:prec.data.key, _navSub:true,
+    _impactLocalRadius:1,
     _newUntil: performance.now()+2600 };   // its label pulses + ignores declutter for ~2.6 s
   bodies.push(rec2);
   D.group.add(mesh);
+  refreshNav();
   // a little "moonlet formed" flash right where it coalesces
   spawnFlash(worldPosOf(rec2), rM*prec.mesh.scale.x*2.6, IMP_CHICXULUB_J);
-  D.moonlets.push({m:mesh, rec:rec2, vel:tan.multiplyScalar(vc),
+  D.moonlets.push({m:mesh, rec:rec2, vel:tan.multiplyScalar(vc), mat:moonMat,
     spin:new THREE.Vector3((Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2)});
 }
 function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
   sfxShatter(rec);
-  const wp=worldPosOf(rec), R=rec.radius*rec.mesh.scale.x;
+  const wp=worldPosOf(rec), R=impRenderRadius(rec);
   spawnFlash(wp,R*2.6,impBindingJ(rec));
   spawnShock(wp,R*2.0,impBindingJ(rec));
   emitBurst(wp, 800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
@@ -1736,8 +1895,10 @@ function shatterBody(rec){
   for(const ch of rec.mesh.children) ch.visible=false;
   rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
   makeDebrisField(rec);
-  makeDebrisRing(rec);                  // Kepler shear smears it into a ring along the old orbit
-  liberateMoons(rec);                   // its moons sail on around Ra on their own new orbits
+  if(!rec._generated){
+    makeDebrisRing(rec);                // Kepler shear smears it into a ring along the old orbit
+    liberateMoons(rec);                 // its moons sail on around Ra on their own new orbits
+  }
   updateNavStatus(rec);                 // sidebar: red ☠ destroyed badge
   const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data)+' ☠';
   if(APP.currentData && APP.currentData.key===rec.data.key &&
@@ -1805,10 +1966,10 @@ function makeShardGeo(dir, angR, k, depth, R){
    energy into it melts and bakes everything. The shard skin is the planet's
    own map charred nearly black, with molten cracks glowing through it —
    no surviving oceans or forests. */
-function impScorchedSkin(rec){
+function impScorchedSkin(rec, salt){
   // 512×256 — shards are small; full res cost a visible hitch on tablets
   const W=512,H=256, c=newCanvas(W,H), ec=newCanvas(W,H);
-  const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
+  const seed=(((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0) ^ (salt||0))>>>0;
   const paint=function(){
     const ctx=c.getContext('2d');
     let drew=false;
@@ -1835,7 +1996,7 @@ function impScorchedSkin(rec){
 function makeDebrisField(rec){
   const group=new THREE.Object3D();
   rec.mesh.add(group);                  // inherits spin + the per-frame dot-floor scaling
-  const R=rec.radius;                   // mesh-local units
+  const R=impLocalRadius(rec);          // mesh-local units
   // composition: 0 = bare rock, 1 = almost all gas — the H/He envelope plus
   // water flashed to steam, from the .ubox depots (Amunet 0.48, Wadjet 0.27)
   const gas=impGasFrac(rec);
@@ -1896,7 +2057,7 @@ function makeDebrisField(rec){
       m.position.copy(sh.center);
       const vel=velOf(dir);
       const spin=vel.length()/R;
-      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin),mw:1.7,cap:false});
+      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin),mw:1.7,rad:R*angR*0.55,cap:false});
       group.add(m);
     }
   }
@@ -1907,10 +2068,11 @@ function makeDebrisField(rec){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
     const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
     m.position.copy(dir).multiplyScalar(R*(0.35+0.6*Math.random()));
-    m.scale.setScalar(R*(0.04+0.09*Math.random())*szF);
+    const sc=R*(0.04+0.09*Math.random())*szF;
+    m.scale.setScalar(sc);
     m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
     const vel=velOf(dir).multiplyScalar(1.35);
-    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1),mw:0.5,cap:false});
+    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1),mw:0.5,rad:sc*1.2,cap:false});
     group.add(m);
   }
   // gas/dust haze: additive glow points that expand outward and dissipate.
@@ -1945,7 +2107,8 @@ function makeDebrisField(rec){
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
     gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas),
     GM:0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
-    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, moonlets:[]});
+    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, rumpMats:[], moonlets:[],
+    allowRemnant:!rec._generated});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -2128,11 +2291,12 @@ function removeDebrisField(rec){
   }
   for(let i=debrisFields.length-1;i>=0;i--){
     const D=debrisFields[i]; if(D.rec!==rec) continue;
-    // retire any first-class moonlet bodies this field spun off
-    for(const ml of (D.moonlets||[])){
-      const r2=ml.rec; if(!r2) continue;
+    const retireGenerated=function(r2){
+      if(!r2) return;
+      if(r2.destroyed) removeDebrisField(r2);
+      const si=impScarred.indexOf(r2); if(si>=0) impScarred.splice(si,1);
       const bi=bodies.indexOf(r2); if(bi>=0) bodies.splice(bi,1);
-      const pi=pickables.indexOf(ml.m); if(pi>=0) pickables.splice(pi,1);
+      const pi=pickables.indexOf(r2.mesh); if(pi>=0) pickables.splice(pi,1);
       const le=labelEls[r2.data.key]; if(le){ le.remove(); delete labelEls[r2.data.key]; }
       if(selected===r2.data.key) selected=null;
       if(follow===r2) follow=null;
@@ -2140,12 +2304,17 @@ function removeDebrisField(rec){
       if(APP.currentData && APP.currentData.key===r2.data.key){
         document.getElementById('info').classList.remove('open'); syncInfoBtn(); APP.currentData=null;
       }
-    }
+    };
+    retireGenerated(D.rumpRec);
+    // retire any first-class moonlet bodies this field spun off
+    for(const ml of (D.moonlets||[])) retireGenerated(ml.rec);
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
     for(const g of (D.shardGeos||[])) g.dispose();
     if(D.outerMat){ if(D.outerMat.map){ unregCanvasTex(D.outerMat.map); D.outerMat.map.dispose(); }
       if(D.outerMat.emissiveMap) D.outerMat.emissiveMap.dispose(); D.outerMat.dispose(); }
+    if(D.rumpMats) for(const mat of D.rumpMats) disposeHotRemnantMat(mat);
+    else if(D.rumpMat) disposeHotRemnantMat(D.rumpMat);
     D.chunkMat.dispose();
     if(D.haze){ D.haze.geometry.dispose(); unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
     debrisFields.splice(i,1);
@@ -2161,6 +2330,7 @@ function removeDebrisField(rec){
   rec.destroyed=false;
   updateNavStatus(rec);
   const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data);
+  refreshNav();
 }
 
 function impHeal(){
@@ -2244,7 +2414,7 @@ function sfxNoiseSrc(){
   const s=sfxAC.createBufferSource(); s.buffer=sfxNoiseBuf; s.loop=true; return s;
 }
 function sfxDistGain(rec){                                    // closer to the fireworks = louder
-  const R=rec.radius*rec.mesh.scale.x||1;
+      const R=impRenderRadius(rec)||1;
   const d=camera.position.distanceTo(worldPosOf(rec));
   return Math.max(0.12, Math.min(1, Math.sqrt(8*R/Math.max(d,8*R))));
 }
@@ -2348,7 +2518,7 @@ function toggleSfx(){
 function launchAsteroid(rec, hit){
   const u=hit.uv?hit.uv.x:0.5, v=hit.uv?hit.uv.y:0.5;
   const E=impKE();
-  const tgtR=rec.radius*rec.mesh.scale.x;
+  const tgtR=impRenderRadius(rec);
   const size=Math.max(tgtR*0.05, Math.min(tgtR*0.45, tgtR*0.45*Math.cbrt(impDiaKm/1000)));
   // pooled rig (shared geometry + material + glow sprite) — no per-shot alloc/dispose
   const rig=acquireAstRig();
@@ -2437,7 +2607,7 @@ function updateImpacts(dt){
       impBeam.missT=0;
       const EJ=impPowW*dt;
       impBeam.firedJ+=EJ;
-      const rec=impBeam.rec, R=rec.radius*rec.mesh.scale.x;
+      const rec=impBeam.rec, R=impRenderRadius(rec);
       if(!impImmune(rec) && !rec.destroyed){
         const s=getScars(rec);
         const th=Math.min(20, Math.max(0.5, 1.2*Math.cbrt(impPowW/1e18)));
@@ -2504,7 +2674,7 @@ function updateImpacts(dt){
     P.m.uniforms.uScaleH.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
   }
   // debris fields: fragments evolve under the dead world's self-gravity — slow
-  // pieces fall back and re-accrete into a rubble pile, fast ones disperse — and
+  // pieces fall back and re-accrete into a hot remnant, fast ones disperse — and
   // the dust haze expands and fades. This aftermath now runs on SIM time, like the
   // debris ring, so the speed slider fast-forwards re-accretion (and pausing freezes
   // it); the gravity step is sub-stepped so the integrator stays stable at high warp.
@@ -2515,29 +2685,40 @@ function updateImpacts(dt){
     const GM=D.GM, soft2=D.soft*D.soft, esc2=(DEB_ESCAPE_R*D.Rloc)*(DEB_ESCAPE_R*D.Rloc);
     for(let s=0;s<nSub;s++){
       for(const c of D.chunks){
-        if(c.cap) continue;                              // compacted into the pile — frozen
+        if(c.cap){
+          if(c.dissT>0){
+            c.dissT-=hSub;
+            c.m.position.addScaledVector(c.vel,hSub);
+            c.m.rotation.x+=c.rot.x*hSub; c.m.rotation.y+=c.rot.y*hSub; c.m.rotation.z+=c.rot.z*hSub;
+            const k=Math.max(0,c.dissT/c.dissT0);
+            c.m.scale.setScalar((c.baseScale||1)*k);
+            if(c.dissT<=0){ c.m.visible=false; c.m.scale.setScalar(0.0001); }
+          }
+          continue;
+        }
         const p=c.m.position, r2=p.lengthSq();
         if(r2<esc2){                                     // still bound: softened central gravity
           c.vel.addScaledVector(p, -GM/Math.pow(r2+soft2,1.5)*hSub);
         }
         p.addScaledVector(c.vel,hSub);
         c.m.rotation.x+=c.rot.x*hSub; c.m.rotation.y+=c.rot.y*hSub; c.m.rotation.z+=c.rot.z*hSub;
-        // re-accretion: a piece that falls back inside the growing pile, moving
-        // inward, is captured — embedded in the remnant and its mass added to it
-        if(p.lengthSq()<D.rCore*D.rCore && c.vel.dot(p)<=0){
-          c.cap=true; D.capMw+=c.mw;
-          D.rCore=D.Rloc*(DEB_RCORE0+(DEB_RCORE_MAX-DEB_RCORE0)*Math.min(1,D.capMw/D.totMw));
-          p.setLength(D.rCore*(0.55+0.4*Math.random()));   // settle onto/into the pile
-          if(!D.remnant){                                  // reveal a growing rubble-pile core
-            D.remnant=new THREE.Mesh(debRemnantGeo(), D.chunkMat); D.group.add(D.remnant);
-          }
-          // a large enough re-accreted clump spins off orbiting moonlet(s)
-          const cf=D.capMw/D.totMw;
-          if(cf>=DEB_MOON_T1){
-            const want=Math.min(DEB_MOON_MAX, 1+Math.floor((cf-DEB_MOON_T1)/DEB_MOON_STEP));
-            while(D.moonlets.length<want) spawnMoonlet(D);
+        // Re-accretion adds mass to the spherical remnant; the visible rock clears
+        // away instead of freezing inside the new planet.
+        const cr=(c.rad||D.Rloc*0.04), coreClear=D.rCore+cr*0.45;
+        if(D.allowRemnant && (!D.rumpRec || !D.rumpRec.destroyed) && p.lengthSq()<coreClear*coreClear){
+          dissolveChunk(D,c,DEB_ORIGIN,D.rCore,true);
+          continue;
+        }
+        let cleared=false;
+        for(const ml of D.moonlets){
+          if(ml.rec.destroyed) continue;
+          const mr=ml.rec.radius+cr*0.75;
+          if(p.distanceToSquared(ml.m.position)<mr*mr){
+            dissolveChunk(D,c,ml.m.position,ml.rec.radius*1.08,false);
+            cleared=true; break;
           }
         }
+        if(cleared) continue;
       }
       // moonlets orbit the remnant under the same softened self-gravity
       for(const ml of D.moonlets){
@@ -2550,6 +2731,8 @@ function updateImpacts(dt){
     if(D.remnant) D.remnant.scale.setScalar(D.rCore);
     // world-shattering fragments stay incandescent for a long time
     const cool=0.10+0.90*Math.exp(-D.t/75);
+    if(D.rumpRec) updateRumpData(D);
+    if(D.rumpMats) for(const mat of D.rumpMats) mat.emissiveIntensity=(mat.userData.emberBase||2.8)*(0.82+0.18*cool);
     D.chunkMat.emissiveIntensity=(D.chunkMat.userData.emberBase||0.6)*cool;
     if(D.outerMat) D.outerMat.emissiveIntensity=(D.outerMat.userData.emberBase||2.2)*cool;
     if(D.haze){
@@ -2586,7 +2769,7 @@ function updateImpacts(dt){
       s.emberT=(s.emberT||0)+dt;
       // shed incandescent spray — but only when the surface is actually resolved:
       // a dot-floor-inflated far view would spray planet-sized blobs
-      const R=rec.radius*rec.mesh.scale.x;
+      const R=impRenderRadius(rec);
       if(s.emberT>0.13 && (s.oceanM>0.5 || s.oceanHot>0) &&
          camera.position.distanceTo(worldPosOf(rec))<R*70){
         s.emberT=0;
@@ -3270,9 +3453,13 @@ function navItem(data, sub){
   el.dataset.key=data.key;
   const col='#'+new THREE.Color(data.color||0xcccccc).getHexString();
   el.innerHTML=`<span class="dot" style="color:${col}"></span><span>${locName(data)}</span>`+
-    (data.life?`<span class="tag" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'');
+    (data.life?`<span class="tag" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'')+
+    (data.navTag?`<span class="tag">${data.navTag}</span>`:'');
   el.onclick=()=>focusBody(data.key,true);
   return el;
+}
+function generatedFor(key){
+  return bodies.filter(b=>b._generated && b._originKey===key);
 }
 function buildNav(){
   const nav=document.getElementById('nav');
@@ -3280,12 +3467,20 @@ function buildNav(){
   nav.appendChild(navItem(DS.STAR));
   for(const p of DS.PLANETS){
     nav.appendChild(navItem(p));
-    for(const m of DS.MOONS.filter(x=>x.parent===p.key)) nav.appendChild(navItem(m,true));
+    for(const g of generatedFor(p.key)) nav.appendChild(navItem(g.data, true));
+    for(const m of DS.MOONS.filter(x=>x.parent===p.key)){
+      nav.appendChild(navItem(m,true));
+      for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
+    }
   }
   if(DS.HORUS){
     const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
     nav.appendChild(navItem(DS.HORUS));
-    for(const m of DS.HORUS_MOONS) nav.appendChild(navItem(m,true));
+    for(const g of generatedFor(DS.HORUS.key)) nav.appendChild(navItem(g.data, true));
+    for(const m of DS.HORUS_MOONS){
+      nav.appendChild(navItem(m,true));
+      for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
+    }
   }
 }
 function setActiveNav(key){
@@ -3309,6 +3504,7 @@ function updateNavStatus(rec){
 function typeLabelFor(d){
   if(d.kind==='star') return T('type-star');
   if(d.kind==='browndwarf') return T('type-bd');
+  if(d.kind==='planetremnant') return T('type-remnant');
   if(d.parent && d.parent!==DS.STAR.key) return T('type-moon');
   return T('type-planet');
 }
@@ -3386,6 +3582,7 @@ function syncInfoBtn(){ const ib=document.getElementById('infobtn');
 /* info panel for a world destroyed in the impact lab */
 function openInfoDestroyed(rec){
   const d=rec.data;
+  const field=debrisFields.find(x=>x.rec===rec);
   document.getElementById('i-type').textContent=T('debris-type');
   document.getElementById('i-name').innerHTML=locName(d)+'<span>'+T('debris-name-span')+'</span>';
   const tagEl=document.getElementById('i-tag');
@@ -3403,6 +3600,11 @@ function openInfoDestroyed(rec){
   const p=document.createElement('p');
   p.textContent=T('debris-epitaph').replace(/\{name\}/g,locName(d));
   ds.appendChild(p);
+  if(field && field.rumpRec){
+    const p2=document.createElement('p');
+    p2.textContent=locName(d)+' has begun to re-form: enough bound debris has fallen back to make '+field.rumpRec.data.name+', a red-hot spherical planetary remnant. Any moonlets listed beneath it are also accreted from the same incandescent rubble.';
+    ds.appendChild(p2);
+  }
   const hint=document.createElement('p');
   hint.style.cssText='font-style:italic;color:#8ea2c0;font-size:12px';
   hint.textContent=T('heal-hint');

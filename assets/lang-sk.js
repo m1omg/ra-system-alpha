@@ -16,7 +16,7 @@ ui: {
   'e-yr':'r','e-day':'dní','e-hr':'h','e-min':'min','e-s':'s',
   'real-scale':'📏 Reálna mierka','compressed':'📐 Stlačená',
   'authors-text':'📖 Autorov text','summary-source':'📖 Zhrnutie + zdroj',
-  'type-star':'Hviezda','type-bd':'Hnedý trpaslík','type-moon':'Mesiac','type-planet':'Planéta',
+  'type-star':'Hviezda','type-bd':'Hnedý trpaslík','type-moon':'Mesiac','type-planet':'Planéta','type-remnant':'Planetárny zvyšok',
   'nav-ra':'Sústava Ra','nav-horus':'Podsústava Horus',
   'nav-sol':'Slnečná sústava',
   'title-sol-h1':'<b>Slnečná</b> sústava',

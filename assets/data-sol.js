@@ -5,8 +5,8 @@
    All figures are real: distances in AU (moons too), periods in
    years (moons use their true periods), radii in km, masses in kg.
    comp fractions are approximate bulk composition for the impact lab.
-   No baked textures exist for these keys — the procedural
-   generators paint every body from the palettes below.
+   Baked WebP maps in assets/img/textures/ cover the major real bodies;
+   the procedural generators remain first paint and fallback for every key.
    ============================================================ */
 
 const SOL_SYSTEM = {

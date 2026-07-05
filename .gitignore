@@ -11,6 +11,9 @@ desktop.ini
 # Logs
 *.log
 
+# Local browser test profiles
+ffprof-reg/
+
 # Local Claude Code config
 .claude/
 
