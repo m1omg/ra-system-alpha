@@ -1661,10 +1661,20 @@ function applyStrike(rec, u, v, E, imp){
 }
 
 /* crust shattered: the world actually comes apart. The planet mesh is hidden
-   and replaced (in place, still on its orbit) by a debris field — tumbling
-   rock chunks drifting apart plus a hot dust haze that expands and fades.
+   and replaced (in place, still on its orbit) by a debris field — the fragments
+   then evolve under the dead world's own SELF-GRAVITY: pieces launched below
+   escape speed decelerate, fall back and re-accrete into a battered rubble-pile
+   remnant, while faster pieces disperse outward into the orbit. A barely-fatal
+   blow reforms a lumpy dwarf; a massive overkill scatters almost everything.
    The info panel switches to "A debris field." until 🧽 Heal resurrects it. */
 const debrisFields=[];
+// self-gravity of the debris cloud, worked in the mesh-local frame (R = radius).
+// escape speed at r=R is DEB_VESC_K*R, so GM = ½·(DEB_VESC_K·R)²·R. Fragment
+// launch speeds scale with the overkill factor, so the fraction that re-accretes
+// falls off smoothly as the strike gets more violent (see debris-field tuning).
+const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DEB_ESCAPE_R=8;
+let _debRemnantGeo=null;
+function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,16,12)); }
 function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
   sfxShatter(rec);
@@ -1837,7 +1847,7 @@ function makeDebrisField(rec){
       m.position.copy(sh.center);
       const vel=velOf(dir);
       const spin=vel.length()/R;
-      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin)});
+      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin),mw:1.7,cap:false});
       group.add(m);
     }
   }
@@ -1851,7 +1861,7 @@ function makeDebrisField(rec){
     m.scale.setScalar(R*(0.04+0.09*Math.random())*szF);
     m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
     const vel=velOf(dir).multiplyScalar(1.35);
-    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)});
+    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1),mw:0.5,cap:false});
     group.add(m);
   }
   // gas/dust haze: additive glow points that expand outward and dissipate.
@@ -1881,8 +1891,12 @@ function makeDebrisField(rec){
     blending:THREE.AdditiveBlending, depthWrite:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   group.add(haze);
+  // self-gravity params, in the mesh-local frame (R units)
+  const totMw=chunks.reduce((s,c)=>s+c.mw,0);
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
-    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas)});
+    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas),
+    GM:0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
+    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -2427,13 +2441,32 @@ function updateImpacts(dt){
     P.g.attributes.aSize.needsUpdate=true;
     P.m.uniforms.uScaleH.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
   }
-  // debris fields: chunks drift apart and tumble; the dust haze expands and fades
+  // debris fields: fragments evolve under the dead world's self-gravity — slow
+  // pieces fall back and re-accrete into a rubble pile, fast ones disperse — and
+  // the dust haze expands and fades
   for(const D of debrisFields){
     D.t+=dt;
+    const GM=D.GM, soft2=D.soft*D.soft, esc2=(DEB_ESCAPE_R*D.Rloc)*(DEB_ESCAPE_R*D.Rloc);
     for(const c of D.chunks){
-      c.m.position.addScaledVector(c.vel,dt);
+      if(c.cap) continue;                              // compacted into the pile — frozen
+      const p=c.m.position, r2=p.lengthSq();
+      if(r2<esc2){                                     // still bound: apply softened central gravity
+        c.vel.addScaledVector(p, -GM/Math.pow(r2+soft2,1.5)*dt);
+      }
+      p.addScaledVector(c.vel,dt);
       c.m.rotation.x+=c.rot.x*dt; c.m.rotation.y+=c.rot.y*dt; c.m.rotation.z+=c.rot.z*dt;
+      // re-accretion: a piece that falls back inside the growing pile, moving
+      // inward, is captured — embedded in the remnant and its mass added to it
+      if(p.lengthSq()<D.rCore*D.rCore && c.vel.dot(p)<=0){
+        c.cap=true; D.capMw+=c.mw;
+        D.rCore=D.Rloc*(DEB_RCORE0+(DEB_RCORE_MAX-DEB_RCORE0)*Math.min(1,D.capMw/D.totMw));
+        p.setLength(D.rCore*(0.55+0.4*Math.random()));   // settle onto/into the pile
+        if(!D.remnant){                                  // reveal a growing rubble-pile core
+          D.remnant=new THREE.Mesh(debRemnantGeo(), D.chunkMat); D.group.add(D.remnant);
+        }
+      }
     }
+    if(D.remnant) D.remnant.scale.setScalar(D.rCore);
     // world-shattering fragments stay incandescent for a long time
     const cool=0.10+0.90*Math.exp(-D.t/75);
     D.chunkMat.emissiveIntensity=(D.chunkMat.userData.emberBase||0.6)*cool;

@@ -62,10 +62,14 @@ It is a genuine little physics sandbox, not just an effect:
   global magma ocean; water worlds boil their oceans away before the rock melts;
   gas giants inflate rather than crater.
 - **Worlds actually come apart.** Pour in more than a world's **gravitational binding
-  energy** and it *shatters* — the planet is replaced in place by a tumbling debris
-  field, and **Kepler shear** smears that cloud along the dead world's orbit into a
-  glittering ring over (sim) time. A shattered planet **liberates its moons**, which
-  sail on around Ra on their own newly-computed orbits.
+  energy** and it *shatters* — the planet is replaced in place by a debris field whose
+  fragments then evolve under the dead world's own **self-gravity**: pieces flung below
+  escape speed decelerate, fall back and **re-accrete into a battered rubble-pile
+  remnant**, while faster pieces disperse outward. A barely-fatal blow reforms a lumpy
+  dwarf; a massive overkill scatters almost everything. **Kepler shear** smears the
+  escaping cloud along the dead world's orbit into a glittering ring over (sim) time,
+  and a shattered planet **liberates its moons**, which sail on around Ra on their own
+  newly-computed orbits.
 - **Momentum is conserved.** A massive, fast strike **kicks the target's orbit** — the
   new ellipse is recomputed exactly from the perturbed state vector and redrawn.
 - **Superheated worlds lose mass**, and the data panel tracks the live figure.
