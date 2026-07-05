@@ -26,8 +26,9 @@ summary in the default mode, and a short note in author's-text mode.)
 
 - **Every body from the document**, placed on Keplerian elliptical orbits with
   physically-scaled *relative* orbital speeds (inner worlds race, outer worlds crawl).
-- **Procedurally textured worlds** generated in the browser: banded gas giants, the
-  blue-marble ocean of Uat-Ur, Satis's violet-forested continents, the rusty deserts
+- **Photoreal surface maps** for every world (with a fast **procedural** texture baked
+  into the browser as an instant first paint and automatic fallback): banded gas giants,
+  the blue-marble ocean of Uat-Ur, Satis's violet-forested continents, the rusty deserts
   of Set, molten Sekhmet, the brown-dwarf glow of Horus, and more.
 - **Click any world** (or use the list on the left, or click its label) to fly the
   camera to it and open a data panel with its real figures, a description, and the
@@ -141,28 +142,32 @@ To update a world's numbers or summary text, edit `assets/data.js` (Ra) or
 `assets/data-sol.js` (Solar System); to update the verbatim text, edit
 `assets/descriptions-verbatim.js`; to update the Slovak strings, edit `assets/lang-sk.js`.
 
-## Experimental: AI-generated textures (`index-ai.html`)
+## Surface textures
 
-`index.html` always uses the fast, offline, deterministic **procedural** textures. The
-separate **`index-ai.html`** is an experiment that swaps in higher-res, photoreal surface
-maps generated with OpenAI **gpt-image-2**, while keeping everything else identical. If a
-world has no AI texture yet (or the file fails to load) it silently falls back to its
-procedural texture, so the page always works.
+By default every world loads a **baked surface map** (`assets/img/textures/<key>.webp`):
+AI-generated equirectangular maps for the fictional Ra worlds, and real public-domain /
+CC-BY photography for the Solar System bodies (see
+[`assets/img/textures/CREDITS.md`](assets/img/textures/CREDITS.md) for attribution). Each
+world *also* has a fast, deterministic **procedural** texture generated in the browser as an
+instant first paint and automatic fallback — if a baked map is missing or fails to load, the
+world silently keeps its procedural texture, so the page always works and stays fully offline.
 
-The textures are **baked once, offline** and committed as plain image files — the page
-itself makes no API calls, so it stays openable offline with no key. To (re)generate:
+The Ra maps are **baked once, offline** and committed as plain image files — the page itself
+makes no API calls, so it stays openable offline with no key. To (re)generate them:
 
 ```
-node tools/gen-refs.mjs          # 1. render procedural refs + build per-body prompts
-                                 #    -> tools/_raw/ref/<key>.png, tools/prompts.json
-# 2. generate the raw AI renders (via Codex / gpt-image-2) into tools/_raw/ai/<key>.png
-python3 tools/post.py            # 3. seam-blend + downscale -> assets/img/textures/<key>.jpg
+node tools/gen-refs.mjs    # render procedural refs + build per-body prompts → tools/_raw/ref/, tools/prompts.json
+tools/gen-ai.sh            # drive Codex's built-in gpt-image-2 (uses Codex auth, no API key) → tools/_raw/ai/
+python3 tools/post.py      # seam-blend + downscale → assets/img/textures/<key>.webp
 ```
 
 `tools/texture-core.mjs` is a headless duplicate of the procedural generators from
 `assets/app.js` (kept in sync by hand) used only to produce the reference images.
 `tools/_raw/` (references + full-res originals) is git-ignored; only the final
-`assets/img/textures/*.jpg` are committed.
+`assets/img/textures/*.webp` are committed.
+
+(`index-ai.html` and `index-verbatim.html` are legacy **redirects** to `index.html` — the
+old separate editions were merged into one page with the 📖 and texture toggles above.)
 
 ---
 *Planetary classification follows the ArcBuilder PCL. Built from “Satis v10”.*
