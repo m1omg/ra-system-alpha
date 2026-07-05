@@ -65,8 +65,10 @@ It is a genuine little physics sandbox, not just an effect:
   energy** and it *shatters* — the planet is replaced in place by a debris field whose
   fragments then evolve under the dead world's own **self-gravity**: pieces flung below
   escape speed decelerate, fall back and **re-accrete into a battered rubble-pile
-  remnant**, while faster pieces disperse outward. A barely-fatal blow reforms a lumpy
-  dwarf; a massive overkill scatters almost everything. **Kepler shear** smears the
+  remnant** — and if enough mass gathers, part of it **coalesces into moonlet(s) that
+  orbit the remnant** on their own real orbits. Faster pieces disperse outward. A
+  barely-fatal blow reforms a lumpy dwarf (sometimes with a little moon); a massive
+  overkill scatters almost everything. **Kepler shear** smears the
   escaping cloud along the dead world's orbit into a glittering ring over (sim) time,
   and a shattered planet **liberates its moons**, which sail on around Ra on their own
   newly-computed orbits.

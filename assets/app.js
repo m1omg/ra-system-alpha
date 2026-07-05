@@ -1673,8 +1673,33 @@ const debrisFields=[];
 // launch speeds scale with the overkill factor, so the fraction that re-accretes
 // falls off smoothly as the strike gets more violent (see debris-field tuning).
 const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DEB_ESCAPE_R=8;
+// once enough mass has re-accreted, part of it coalesces into moonlet(s) that
+// orbit the remnant on a real (softened-Kepler) orbit instead of joining the pile:
+// the first at DEB_MOON_T1 of the mass re-accreted, another every DEB_MOON_STEP.
+const DEB_MOON_T1=0.35, DEB_MOON_STEP=0.22, DEB_MOON_MAX=2;
 let _debRemnantGeo=null;
 function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,16,12)); }
+/* spin a moonlet off the re-accreting remnant: a round body on a near-circular
+   orbit just outside the rubble pile, placed at the circular speed of the field's
+   softened central potential (so it neither escapes nor plunges), with a slight
+   ellipticity for life. Integrated each frame by the same self-gravity as the
+   chunks; lives in the debris group, so 🧽 Heal tears it down with everything else. */
+function spawnMoonlet(D){
+  const R=D.Rloc, soft2=D.soft*D.soft;
+  const aM=D.rCore*(1.7+0.5*Math.random())+D.soft*1.2;              // orbit radius, clear of the pile
+  const rM=Math.max(R*0.05, D.rCore*(0.22+0.12*Math.random()));    // moonlet radius
+  const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
+  const tan=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1));
+  if(tan.lengthSq()<1e-6) tan.crossVectors(dir,new THREE.Vector3(0,1,0));
+  tan.normalize();
+  const aGrav=D.GM*aM/Math.pow(aM*aM+soft2,1.5);                    // softened accel at aM
+  const vc=Math.sqrt(aGrav*aM)*(0.92+0.1*Math.random());           // ~circular, mild eccentricity
+  const mesh=new THREE.Mesh(debRemnantGeo(), D.chunkMat);
+  mesh.scale.setScalar(rM); mesh.position.copy(dir).multiplyScalar(aM);
+  D.group.add(mesh);
+  D.moonlets.push({m:mesh, vel:tan.multiplyScalar(vc),
+    spin:new THREE.Vector3((Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2)});
+}
 function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
   sfxShatter(rec);
@@ -1896,7 +1921,7 @@ function makeDebrisField(rec){
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
     gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas),
     GM:0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
-    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null});
+    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, moonlets:[]});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -2464,7 +2489,20 @@ function updateImpacts(dt){
         if(!D.remnant){                                  // reveal a growing rubble-pile core
           D.remnant=new THREE.Mesh(debRemnantGeo(), D.chunkMat); D.group.add(D.remnant);
         }
+        // a large enough re-accreted clump spins off orbiting moonlet(s)
+        const cf=D.capMw/D.totMw;
+        if(cf>=DEB_MOON_T1){
+          const want=Math.min(DEB_MOON_MAX, 1+Math.floor((cf-DEB_MOON_T1)/DEB_MOON_STEP));
+          while(D.moonlets.length<want) spawnMoonlet(D);
+        }
       }
+    }
+    // moonlets orbit the remnant under the same softened self-gravity
+    for(const ml of D.moonlets){
+      const mp=ml.m.position;
+      ml.vel.addScaledVector(mp, -GM/Math.pow(mp.lengthSq()+soft2,1.5)*dt);
+      mp.addScaledVector(ml.vel,dt);
+      ml.m.rotation.x+=ml.spin.x*dt; ml.m.rotation.y+=ml.spin.y*dt; ml.m.rotation.z+=ml.spin.z*dt;
     }
     if(D.remnant) D.remnant.scale.setScalar(D.rCore);
     // world-shattering fragments stay incandescent for a long time
