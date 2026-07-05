@@ -32,6 +32,49 @@ summary in the default mode, and a short note in author's-text mode.)
 - **Click any world** (or use the list on the left, or click its label) to fly the
   camera to it and open a data panel with its real figures, a description, and the
   AI-rendered concept art from the document.
+- **Two systems in one page** — flip between the fictional **Ra** system and **our
+  real Solar System** (⇄ button) with real photo textures for 15 bodies and real
+  Saturn rings.
+- **Two languages** — an in-page **English ↔ Slovenčina** toggle (🌐 button).
+
+## Fly mode (🚀)
+
+A free-roam flight mode (real scale) lets you pilot a camera through the system:
+throttle up, thrust, strafe, roll, and **⤳ Go&nbsp;to** any world. **⛓ Follow** locks
+onto a body and co-moves as it orbits; **⚡ Auto** scales your speed to nearby bodies
+(click for uncapped manual speed). Keyboard: `W/S` or `↑↓` fly, `A/D` or `←→` strafe,
+`PgUp/PgDn` or `R` up/down, drag to look, `Q/E` roll, wheel = speed, `F` = follow,
+`Esc` = exit.
+
+## Impact lab (💥) — destruction sandbox
+
+Open the Impact lab and strike any world to watch real impact physics play out.
+It is a genuine little physics sandbox, not just an effect:
+
+- **Two weapons.** A customizable **☄ asteroid** (set its **diameter**, **speed**, and
+  **material** — rock / iron / ice / comet — the panel shows the resulting mass and
+  kinetic energy, quoted in joules, tons of TNT, and multiples of Chicxulub), or a
+  continuous **laser** (set its **power** in watts and hold to pour energy in).
+- **A real energy budget.** Every strike's kinetic energy is spent against each
+  world's own composition: heating and melting rock, boiling oceans to steam,
+  flashing ice to vapour. Damage is **cumulative** and **persists** as scars.
+- **Composition-aware melting.** Watch craters grow into lava seas and finally a
+  global magma ocean; water worlds boil their oceans away before the rock melts;
+  gas giants inflate rather than crater.
+- **Worlds actually come apart.** Pour in more than a world's **gravitational binding
+  energy** and it *shatters* — the planet is replaced in place by a tumbling debris
+  field, and **Kepler shear** smears that cloud along the dead world's orbit into a
+  glittering ring over (sim) time. A shattered planet **liberates its moons**, which
+  sail on around Ra on their own newly-computed orbits.
+- **Momentum is conserved.** A massive, fast strike **kicks the target's orbit** — the
+  new ellipse is recomputed exactly from the perturbed state vector and redrawn.
+- **Superheated worlds lose mass**, and the data panel tracks the live figure.
+- **🧽 Heal** removes every scar, re-forms shattered worlds, and re-captures their moons.
+
+## Sound (🔊)
+
+Optional procedural **sound effects** (whoosh, impact, shatter, heal chime). Space is
+silent in reality — this is rule-of-cool only — so it's a toggle you can switch off.
 
 ## Controls
 
@@ -45,9 +88,14 @@ summary in the default mode, and a short note in author's-text mode.)
 | Play / pause | Bottom bar |
 | Time speed | "Speed" slider (0.05× – 40×, logarithmic) |
 | Exaggerate sizes | "Size" slider |
-| Real ↔ Compressed orbits | "Scale" button, bottom bar |
+| Real ↔ Compressed orbits | "📏" button, bottom bar |
 | Author's text ↔ Summary | "📖" button, bottom bar |
-| Toggle orbits / labels | Bottom bar |
+| Toggle orbits / labels / tails | Bottom bar |
+| Fly mode (free-roam) | "🚀 Fly" button, bottom bar |
+| Impact lab (strike a world) | "💥 Impact" button, bottom bar |
+| Sound effects on/off | "🔊 SFX" button, bottom bar |
+| Ra ↔ real Solar System | "⇄" button, bottom bar |
+| English ↔ Slovenčina | "🌐" button, bottom bar |
 | Reset view | Bottom bar |
 | Help & glossary | **?** button, top-right |
 | Deep-link a world | open `index.html#satis` (any body key) |
@@ -71,15 +119,18 @@ physically correct (Kepler's third law).
 
 ```
 index.html                       — the page (shell + UI; 📖 toggles summary/author's text)
-assets/app.js                    — 3D engine (Three.js scene, textures, orbits, interaction)
-assets/data.js                   — body data, stats, summary descriptions
+assets/app.js                    — 3D engine (Three.js scene, textures, orbits, impacts, flight)
+assets/data.js                   — Ra-system body data, stats, summary descriptions
+assets/data-sol.js               — our real Solar System body data (⇄ toggle)
 assets/descriptions-verbatim.js  — the author's word-for-word descriptions
-assets/img/                      — concept art extracted from the Satis document
+assets/lang-sk.js                — Slovak (Slovenčina) translation strings (🌐 toggle)
+assets/img/                      — concept art + real photo textures
 assets/lib/                      — Three.js r132 + OrbitControls (bundled for offline use)
 ```
 
-To update a world's numbers or summary text, edit `assets/data.js`; to update the
-verbatim text, edit `assets/descriptions-verbatim.js`.
+To update a world's numbers or summary text, edit `assets/data.js` (Ra) or
+`assets/data-sol.js` (Solar System); to update the verbatim text, edit
+`assets/descriptions-verbatim.js`; to update the Slovak strings, edit `assets/lang-sk.js`.
 
 ## Experimental: AI-generated textures (`index-ai.html`)
 
