@@ -1203,33 +1203,33 @@ function getScars(rec){
   // overlay spheres are HIGH-poly (≥ the body's 64×48) so the high-contrast lava
   // texture doesn't warp across coarse triangles → that was the "mesh screen" grid
   const SEG=MOBILE_UI?96:128, SEGH=MOBILE_UI?64:96;
-  const charC=newCanvas(SW,SH), glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
-  const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
-  // plain linear filtering, NO mipmaps — mipmapping a sparse high-contrast overlay
-  // canvas produced the moiré on mobile GPUs
-  for(const t of [charT,glowT,meltT]){ t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter; }
+  // char (dark scars) + lava now SHARE one canvas — fewer stacked translucent overlay
+  // passes → less mobile moiré. char is painted 'destination-over' so lava stays on top.
+  const glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
+  const glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
+  // plain linear filtering, NO mipmaps — mipmapping a sparse high-contrast overlay moirés on mobile
+  for(const t of [glowT,meltT]){ t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter; }
   const overlayMat=(map,extra)=>new THREE.MeshBasicMaterial(Object.assign(
     {map,transparent:true,depthWrite:false}, extra||{}));
-  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,SEG,SEGH), overlayMat(charT));
-  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.012,SEG,SEGH), overlayMat(meltT));
-  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.02,SEG,SEGH),
+  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,SEG,SEGH), overlayMat(meltT));
+  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,SEG,SEGH),
     overlayMat(glowT,{blending:THREE.AdditiveBlending}));
-  mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
-  rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
-  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0};
+  mM.renderOrder=2; mG.renderOrder=4;
+  rec.mesh.add(mM); rec.mesh.add(mG);
+  rec.scar={glowC,meltC,glowT,meltT,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
-  // Android canvas wipe: replay the permanent marks (char + melt) from the log
-  regCanvasTex(charT, function(){
-    const s=rec.scar;
-    s.charC.getContext('2d').clearRect(0,0,s.charC.width,s.charC.height);
-    s.meltC.getContext('2d').clearRect(0,0,s.meltC.width,s.meltC.height);
+  // Android canvas wipe: replay the permanent char + lava marks onto the one canvas
+  regCanvasTex(meltT, function(){
+    const s=rec.scar, mc=s.meltC.getContext('2d');
+    mc.clearRect(0,0,s.meltC.width,s.meltC.height);
     s.glowC.getContext('2d').clearRect(0,0,s.glowC.width,s.glowC.height);   // transient heat: just cleared
     for(const L of s.log){
-      const ctx=(L.l==='m'?s.meltC:s.charC).getContext('2d');
-      if(L.a!=null){ ctx.save(); ctx.globalAlpha=L.a; impSplat(ctx,L.u,L.v,L.r,L.s); ctx.restore(); }
-      else impSplat(ctx,L.u,L.v,L.r,L.s);
+      mc.globalCompositeOperation = L.l==='c' ? 'destination-over' : 'source-over';  // char behind lava
+      if(L.a!=null){ mc.save(); mc.globalAlpha=L.a; impSplat(mc,L.u,L.v,L.r,L.s); mc.restore(); }
+      else impSplat(mc,L.u,L.v,L.r,L.s);
     }
+    mc.globalCompositeOperation='source-over';
     s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
   });
   return rec.scar;
@@ -1390,18 +1390,14 @@ function getSteamShroud(rec){                // boiled-off oceans: a global whit
   s.steam=m;
   return m;
 }
-function getSteamHalo(rec){                  // pale limb glow of a steam envelope
-  const s=getScars(rec);
-  if(s.steamHalo) return s.steamHalo;
-  s.steamHalo=makeAtmosphere(rec.radius*1.06, 0xdfe9f2, 0);
-  s.steamHalo.renderOrder=5;
-  rec.mesh.add(s.steamHalo);
-  return s.steamHalo;
-}
-function getMagmaHalo(rec){                  // molten-limb glow (fresnel rim, like the atmospheres)
+/* ONE adaptive limb-glow (fresnel rim) that recolours per state — orange when the
+   surface is molten, pale blue-white when steaming — instead of two stacked shells
+   (one fewer translucent overlay pass → less mobile moiré). */
+const _MAGMA_HALO=new THREE.Color(0xff6a22), _STEAM_HALO=new THREE.Color(0xdfe9f2);
+function getMeltHalo(rec){
   const s=getScars(rec);
   if(s.halo) return s.halo;
-  s.halo=makeAtmosphere(rec.radius*1.05, 0xff6a22, 0);
+  s.halo=makeAtmosphere(rec.radius*1.055, 0xff6a22, 0);
   s.halo.renderOrder=5;
   rec.mesh.add(s.halo);
   return s.halo;
@@ -1465,21 +1461,21 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   else if(watery && ph2>0.15 && ph2<1) impBoostTail(rec, 0.25*ph2*wvis);
   if(wat>0.01) getWaterOcean(rec).material.opacity=Math.min(1,wat);
   else if(s.wocean) s.wocean.material.opacity=0;
-  if(stm>0.01){
-    getSteamShroud(rec).material.opacity=Math.min(1,stm*1.25);   // full steam = solidly covers the surface
-    getSteamHalo(rec).material.uniforms.p.value=1.2*stm*(1-hot);
-  } else {
-    if(s.steam) s.steam.material.opacity=0;
-    if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
-  }
-  if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0;
-    if(s.halo) s.halo.material.uniforms.p.value=0; return; }
+  if(stm>0.01) getSteamShroud(rec).material.opacity=Math.min(1,stm*1.25);   // full steam = solidly covers
+  else if(s.steam) s.steam.material.opacity=0;
+  // ONE limb-halo, tinted by whichever effect dominates: molten glow (orange) vs steam (pale)
+  const magmaHalo=1.6*(0.5*m+0.7*hot), steamHalo=1.2*stm*(1-hot);
+  if(magmaHalo>0.001 || steamHalo>0.001){
+    const h=getMeltHalo(rec).material.uniforms;
+    if(magmaHalo>=steamHalo){ h.c.value.copy(_MAGMA_HALO); h.p.value=magmaHalo; }
+    else { h.c.value.copy(_STEAM_HALO); h.p.value=steamHalo; }
+  } else if(s.halo) s.halo.material.uniforms.p.value=0;
+  if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0; return; }
   const o=getMagmaOcean(rec);
   o.material.opacity=Math.min(1, m*(1.1+0.2*hot));
   // stays vivid orange while molten (driven by melt fraction m), only extra white-hot
   // when freshly struck (hot) — so it no longer dims to brown as the transient glow cools
   o.material.color.setScalar(1.5+0.5*m+1.8*hot);
-  getMagmaHalo(rec).material.uniforms.p.value=1.6*(0.5*m+0.7*hot);
 }
 function impTierTxt(rec){                    // hover readout of the surface state (+ mass boiled off)
   const base=impTierBase(rec);
@@ -1635,17 +1631,18 @@ function applyStrike(rec, u, v, E, imp){
     const th=Math.max(0.8, impCraterDeg(rec,E), thM*1.15);      // char rim just beyond the melt
     const rPx=th/180*512;
     const gasy=(rec.data.kind==='gasgiant');
-    if(!gasy){ impSplat(s.charC.getContext('2d'), u, 1-v, rPx, IMP_CHAR);
+    const mc=s.meltC.getContext('2d');       // char + lava share this canvas now
+    if(!gasy){ mc.globalCompositeOperation='destination-over';   // char goes BEHIND the lava
+      impSplat(mc, u, 1-v, rPx, IMP_CHAR); mc.globalCompositeOperation='source-over';
       scarLog(s,'c',u,1-v,rPx,IMP_CHAR,null); }
     if(!gasy && thM>0.25){                   // big hits leave a permanent lava sea, not just char
-      const mc=s.meltC.getContext('2d');
       mc.save(); mc.globalAlpha=0.45+0.55*meltish;
       impSplat(mc, u, 1-v, thM/180*512, IMP_LAVA);
       mc.restore(); s.meltT.needsUpdate=true;
       scarLog(s,'m',u,1-v,thM/180*512,IMP_LAVA,0.45+0.55*meltish);
     }
     impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15+0.9*meltish), IMP_GLOW);
-    s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
+    s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
     s.hot=Math.max(s.hot, 7+45*meltish);     // molten regions stay incandescent much longer
     rec.dmgJ=(rec.dmgJ||0)+E;
     rec._lastHit={u,v};                      // the killing blow shapes how the world breaks apart
@@ -2093,16 +2090,14 @@ function removeDebrisField(rec){
 function impHeal(){
   for(const rec of impScarred){
     const s=rec.scar;
-    s.charC.getContext('2d').clearRect(0,0,s.charC.width,s.charC.height);
     s.glowC.getContext('2d').clearRect(0,0,s.glowC.width,s.glowC.height);
-    s.meltC.getContext('2d').clearRect(0,0,s.meltC.width,s.meltC.height);
+    s.meltC.getContext('2d').clearRect(0,0,s.meltC.width,s.meltC.height);   // char + lava share this
     s.log.length=0; s.dirty=false;
-    s.charT.needsUpdate=true; s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
+    s.glowT.needsUpdate=true; s.meltT.needsUpdate=true;
     if(s.ocean){ s.ocean.material.opacity=0; s.ocean.material.color.setScalar(1); }
     if(s.halo) s.halo.material.uniforms.p.value=0;
     if(s.wocean) s.wocean.material.opacity=0;
     if(s.steam) s.steam.material.opacity=0;
-    if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
     s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0;
     rec.dmgJ=0; rec.shattered=false;
     // deflate a puffed-up giant and calm its boosted/created escape tail
@@ -2373,9 +2368,10 @@ function updateImpacts(dt){
         const rPx=th/180*512;
         const gasy=(rec.data.kind==='gasgiant');
         if(hit.uv){
-          if(!gasy){                          // dark scorch rim + a VIVID molten lava line that persists
-            impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.62, IMP_CHAR_SOFT);
-            impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.36, IMP_LAVA);   // bright orange, not soft
+          if(!gasy){                          // dark scorch rim + a VIVID molten lava line, one canvas
+            const mc=s.meltC.getContext('2d');
+            mc.globalCompositeOperation='destination-over'; impSplat(mc, hit.uv.x, 1-hit.uv.y, rPx*0.62, IMP_CHAR_SOFT); mc.globalCompositeOperation='source-over';
+            impSplat(mc, hit.uv.x, 1-hit.uv.y, rPx*0.36, IMP_LAVA);   // bright orange, on top of the char
             scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.62,IMP_CHAR_SOFT,null);
             scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.36,IMP_LAVA,null);   // logged → replays after an Android canvas wipe
           }
@@ -2493,7 +2489,7 @@ function updateImpacts(dt){
     // laser burns mark dirty and we flush at ~10 Hz instead of every frame
     if(s.dirty){
       s.upT+=dt;
-      if(s.upT>0.09){ s.charT.needsUpdate=true; s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
+      if(s.upT>0.09){ s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
         s.dirty=false; s.upT=0; }
     }
     if(s.hot<=0) continue;
