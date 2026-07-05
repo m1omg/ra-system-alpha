@@ -1210,7 +1210,8 @@ function getScars(rec){
     new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
-  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0,meltArea:0};
+  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0,
+            meltCov:0,meltHot:0,covT:0};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
   // Android canvas wipe: replay the permanent marks (char + melt) from the log
@@ -1232,12 +1233,24 @@ function scarLog(s, l, u, v, r, style, a){
   s.log.push({l,u,v,r,s:style,a});
   if(s.log.length>2600) s.log.splice(0,600);            // cap: long laser burns
 }
-/* accumulate how much of the surface has been painted molten (laser + big
-   impacts), so the hover tier can say "melting" rather than "cratered" when a
-   world's whole-body melt budget is astronomically large but the beam has
-   visibly melted the surface. degR = molten splat radius in degrees;
-   normalized so a 60° cap ≈ a hemisphere ≈ weight 1. */
-function addMeltArea(s, degR){ if(s){ const w=degR/60; s.meltArea=Math.min(1.5,(s.meltArea||0)+w*w); } }
+/* True molten coverage: how much of the surface is actually painted lava. A
+   world's whole-body melt budget is astronomical, so the energy-based global
+   melt fraction stays ~0 even when the beam has visibly melted a patch — this
+   measures the real painted fraction so the tier says e.g. "regional melting
+   16%" (not "global magma ocean 100%") for a spot, and only "global" when the
+   whole surface is genuinely molten. Downsampled + area-weighted (equirect
+   stretches the poles), throttled in updateImpacts — not per hover. */
+let _covCv=null, _covCtx=null;
+function measureMeltCov(s){
+  if(!_covCv){ _covCv=newCanvas(64,32); _covCtx=_covCv.getContext('2d',{willReadFrequently:true}); }
+  _covCtx.clearRect(0,0,64,32);
+  _covCtx.drawImage(s.meltC,0,0,64,32);
+  const d=_covCtx.getImageData(0,0,64,32).data;
+  let wsum=0, msum=0;
+  for(let y=0;y<32;y++){ const w=Math.sin((y+0.5)/32*Math.PI);   // cell area weight (sin latitude)
+    for(let x=0;x<64;x++){ wsum+=w; if(d[(y*64+x)*4+3]>40) msum+=w; } }
+  return wsum>0 ? msum/wsum : 0;
+}
 
 /* ---- melting tiers, from the real energy budget. Heating rock to ~1700 K
    plus the latent heat of fusion costs ~1.7 MJ/kg (ice much less), so melting
@@ -1488,17 +1501,18 @@ function impTierBase(rec){
     return '';
   }
   const E=rec.dmgJ, fU=E/impBindingJ(rec), P=impMeltPhases(rec);
-  // a big icy/rocky world's whole-body melt budget is astronomical, so the global
-  // melt fraction stays ~0 even when the beam has visibly melted the surface —
-  // fold in locally-painted molten coverage so the label tracks what's rendered
-  const mcov = rec.scar ? Math.min(1, rec.scar.meltArea||0) : 0;
   if(fU>0.5)  return T('tier-white');
   if(E>=P.E3) return T('tier-molten');
-  const ph3=Math.max(0,(E-P.E2)/(P.E3-P.E2));
-  const surf=Math.max(ph3, mcov);            // global magma progress OR locally-melted surface
-  if(surf>0.3)  return T('tier-ocean').replace('{p}',Math.round(surf*100));
-  if(surf>0.03) return T('tier-regional').replace('{p}',Math.round(surf*100));
-  if(P.W>0 && ph3<=0.02){                     // water worlds: (thaw →) boil, unless already melting
+  const ph3=Math.max(0,(E-P.E2)/(P.E3-P.E2));   // GLOBAL magma progress (energy-based)
+  // locally-painted molten coverage (laser/impact scars): the TRUE fraction of
+  // surface that's molten right now, easing to 0 as the glow cools (meltHot)
+  const cov = rec.scar ? (rec.scar.meltCov||0)*(rec.scar.meltHot||0) : 0;
+  // global magma ocean only for genuine global melt, OR the whole surface molten —
+  // a local hot patch must NOT claim "global" (that was the Europa 100% bug)
+  if(ph3>0.3 || cov>0.8) return T('tier-ocean').replace('{p}',Math.round(Math.max(ph3,cov)*100));
+  // water worlds show their thaw/boil phases before any local melt scar (don't
+  // skip the oceans), until the rock underneath actually starts melting (ph3)
+  if(P.W>0 && ph3<=0.02){
     const ph2=(E-P.E1)/(P.E2-P.E1);
     if(ph2>0.02) return T('tier-steam').replace('{p}',Math.round(Math.min(1,ph2)*100));
     if(!impLiquidSurface(rec) && E>0.05*P.E1){ const ph1=E/P.E1;
@@ -1506,6 +1520,8 @@ function impTierBase(rec){
       const key=impWaterVis(rec)<0.5?'tier-thaw-polar':'tier-thaw';
       return T(key).replace('{p}',Math.round(Math.min(1,ph1)*100)); }
   }
+  const surf=Math.max(ph3, cov);             // regional melt: real energy OR local hot lava
+  if(surf>0.03) return T('tier-regional').replace('{p}',Math.round(surf*100));
   const mf=E/impMeltJ(rec);
   if(surf>0.004 || mf>1e-4) return T('tier-seas');
   return T('tier-crater');
@@ -1637,7 +1653,7 @@ function applyStrike(rec, u, v, E, imp){
       impSplat(mc, u, 1-v, thM/180*512, IMP_LAVA);
       mc.restore(); s.meltT.needsUpdate=true;
       scarLog(s,'m',u,1-v,thM/180*512,IMP_LAVA,0.45+0.55*meltish);
-      addMeltArea(s, thM);                    // this hit melted ~thM° of surface
+      s.meltHot=1;                            // fresh molten surface (coverage measured from the canvas)
     }
     impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15+0.9*meltish), IMP_GLOW);
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
@@ -2098,7 +2114,7 @@ function impHeal(){
     if(s.wocean) s.wocean.material.opacity=0;
     if(s.steam) s.steam.material.opacity=0;
     if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
-    s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0; s.meltArea=0;
+    s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0; s.meltCov=0; s.meltHot=0;
     rec.dmgJ=0; rec.shattered=false;
     // deflate a puffed-up giant and calm its boosted/created escape tail
     rec.puffTarget=1; rec.puffK=1;
@@ -2373,7 +2389,7 @@ function updateImpacts(dt){
             impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.30, IMP_LAVA_SOFT);  // the burn line stays molten
             scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.55,IMP_CHAR_SOFT,null);
             scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.30,IMP_LAVA_SOFT,null);
-            addMeltArea(s, th*0.30);          // the beam is melting the surface it burns
+            s.meltHot=1;                      // the beam keeps the surface it burns freshly molten
           }
           impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
           s.dirty=true; s.hot=7;     // GPU upload batched in the scar loop (~10 Hz, not per frame)
@@ -2491,6 +2507,13 @@ function updateImpacts(dt){
       s.upT+=dt;
       if(s.upT>0.09){ s.charT.needsUpdate=true; s.meltT.needsUpdate=true; s.glowT.needsUpdate=true;
         s.dirty=false; s.upT=0; }
+    }
+    // molten surface: measure true painted coverage (throttled), and let the
+    // "freshly molten" heat decay so the tier eases back toward cratered as it cools
+    if(s.meltHot>0){
+      s.covT=(s.covT||0)+dt;
+      if(s.covT>0.35){ s.meltCov=measureMeltCov(s); s.covT=0; }   // ~3 Hz, only while hot
+      s.meltHot=Math.max(0, s.meltHot-dt/16);                     // cools over ~16 s once lasering stops
     }
     if(s.hot<=0) continue;
     s.coolT+=dt; s.hot-=dt;
