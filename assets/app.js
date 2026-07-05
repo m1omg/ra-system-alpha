@@ -1163,7 +1163,7 @@ function impGasFrac(rec){
 }
 function impBindingJ(rec){ const R=(rec.data.radiusKm||1000)*1000, M=impBodyMassKg(rec);
   return 3*IMP_G*M*M/(5*R); }
-function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'||rec.external; }
+function impImmune(rec){ return rec.data.kind==='star'||rec.data.kind==='browndwarf'; }
 function impKE(){ return 0.5*impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3)*Math.pow(impSpdKms*1000,2); }
 
 /* Lumpy-rock geometry: displace a sphere by smooth 3D noise of each vertex's
@@ -1661,72 +1661,10 @@ function applyStrike(rec, u, v, E, imp){
 }
 
 /* crust shattered: the world actually comes apart. The planet mesh is hidden
-   and replaced (in place, still on its orbit) by a debris field — the fragments
-   then evolve under the dead world's own SELF-GRAVITY: pieces launched below
-   escape speed decelerate, fall back and re-accrete into a battered rubble-pile
-   remnant, while faster pieces disperse outward into the orbit. A barely-fatal
-   blow reforms a lumpy dwarf; a massive overkill scatters almost everything.
+   and replaced (in place, still on its orbit) by a debris field — tumbling
+   rock chunks drifting apart plus a hot dust haze that expands and fades.
    The info panel switches to "A debris field." until 🧽 Heal resurrects it. */
 const debrisFields=[];
-// self-gravity of the debris cloud, worked in the mesh-local frame (R = radius).
-// escape speed at r=R is DEB_VESC_K*R, so GM = ½·(DEB_VESC_K·R)²·R. Fragment
-// launch speeds scale with the overkill factor, so the fraction that re-accretes
-// falls off smoothly as the strike gets more violent (see debris-field tuning).
-const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DEB_ESCAPE_R=8;
-// once enough mass has re-accreted, part of it coalesces into moonlet(s) that
-// orbit the remnant on a real (softened-Kepler) orbit instead of joining the pile:
-// the first at DEB_MOON_T1 of the mass re-accreted, another every DEB_MOON_STEP.
-// Thresholds kept a touch low so moonlets form readily: reliably near the binding
-// energy (often two there), still possible a few x past it, none once a strike is a
-// big enough overkill to scatter almost everything.
-const DEB_MOON_T1=0.30, DEB_MOON_STEP=0.20, DEB_MOON_MAX=2;
-let _debRemnantGeo=null;
-function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,16,12)); }
-const _ROMAN=['I','II','III','IV'];
-/* spin a moonlet off the re-accreting remnant: a round body on a near-circular
-   orbit just outside the rubble pile, placed at the circular speed of the field's
-   softened central potential (so it neither escapes nor plunges), with a slight
-   ellipticity for life. Integrated each frame by the same self-gravity as the
-   chunks; lives in the debris group, so 🧽 Heal tears it down with everything else.
-   It is ALSO a first-class body: a synthetic bodies[] record (external=true, so the
-   Kepler/size loops leave its self-gravity motion alone) makes it clickable, named,
-   labelled and openable in the info panel, exactly like a real moon. */
-function spawnMoonlet(D){
-  const prec=D.rec, R=D.Rloc, soft2=D.soft*D.soft, sk=(LANG==='sk');
-  const aM=D.rCore*(1.7+0.5*Math.random())+D.soft*1.2;              // orbit radius, clear of the pile
-  const rM=Math.max(R*0.05, D.rCore*(0.22+0.12*Math.random()));    // moonlet radius
-  const dir=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
-  const tan=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1));
-  if(tan.lengthSq()<1e-6) tan.crossVectors(dir,new THREE.Vector3(0,1,0));
-  tan.normalize();
-  const aGrav=D.GM*aM/Math.pow(aM*aM+soft2,1.5);                    // softened accel at aM
-  const vc=Math.sqrt(aGrav*aM)*(0.92+0.1*Math.random());           // ~circular, mild eccentricity
-  const mesh=new THREE.Mesh(debRemnantGeo(), D.chunkMat);
-  mesh.scale.setScalar(rM); mesh.position.copy(dir).multiplyScalar(aM);
-  // --- first-class body record ---
-  const idx=D.moonlets.length, pName=locName(prec.data);
-  const key=prec.data.key+'~moon'+idx;
-  const radiusKm=Math.max(20, Math.round((prec.data.radiusKm||1000)*(rM/R)));
-  const data={ key, name:pName+' '+(_ROMAN[idx]||(idx+1)), color:prec.data.color||0x9a8877,
-    parent:prec.data.key, kind:'moon', radiusKm,
-    desc: sk ? 'Mesiačik — gravitačne nabalený zhluk trosiek planéty '+pName+', ktorý teraz obieha okolo pozostatku rozbitého sveta.'
-             : 'A moonlet — a gravitationally re-accreted clump of '+pName+"'s shattered debris, now orbiting the rubble-pile remnant.",
-    stats:[ [sk?'Polomer':'Radius', '≈ '+radiusKm.toLocaleString()+' km'],
-            [sk?'Materská planéta':'Parent', pName],
-            [sk?'Pôvod':'Origin', sk?'Nabalené trosky':'Re-accreted debris'] ] };
-  mesh.userData.bodyKey=key;
-  pickables.push(mesh);
-  const rec2={ data, holder:mesh, mesh, orbitLine:null, radius:rM,
-    aDisp:0, e:0, q:new THREE.Quaternion(), M:0, period:1, spin:0,
-    parentHolder:prec.holder, helio:false, isMoon:true, external:true, _parentMesh:prec.mesh,
-    _newUntil: performance.now()+2600 };   // its label pulses + ignores declutter for ~2.6 s
-  bodies.push(rec2);
-  D.group.add(mesh);
-  // a little "moonlet formed" flash right where it coalesces
-  spawnFlash(worldPosOf(rec2), rM*prec.mesh.scale.x*2.6, IMP_CHICXULUB_J);
-  D.moonlets.push({m:mesh, rec:rec2, vel:tan.multiplyScalar(vc),
-    spin:new THREE.Vector3((Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2)});
-}
 function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
   sfxShatter(rec);
@@ -1899,7 +1837,7 @@ function makeDebrisField(rec){
       m.position.copy(sh.center);
       const vel=velOf(dir);
       const spin=vel.length()/R;
-      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin),mw:1.7,cap:false});
+      chunks.push({m,vel,rot:new THREE.Vector3((Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin,(Math.random()-0.5)*2.4*spin)});
       group.add(m);
     }
   }
@@ -1913,7 +1851,7 @@ function makeDebrisField(rec){
     m.scale.setScalar(R*(0.04+0.09*Math.random())*szF);
     m.rotation.set(Math.random()*6,Math.random()*6,Math.random()*6);
     const vel=velOf(dir).multiplyScalar(1.35);
-    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1),mw:0.5,cap:false});
+    chunks.push({m,vel,rot:new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1)});
     group.add(m);
   }
   // gas/dust haze: additive glow points that expand outward and dissipate.
@@ -1943,12 +1881,8 @@ function makeDebrisField(rec){
     blending:THREE.AdditiveBlending, depthWrite:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   group.add(haze);
-  // self-gravity params, in the mesh-local frame (R units)
-  const totMw=chunks.reduce((s,c)=>s+c.mw,0);
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
-    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas),
-    GM:0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
-    rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, moonlets:[]});
+    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas)});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -2131,19 +2065,6 @@ function removeDebrisField(rec){
   }
   for(let i=debrisFields.length-1;i>=0;i--){
     const D=debrisFields[i]; if(D.rec!==rec) continue;
-    // retire any first-class moonlet bodies this field spun off
-    for(const ml of (D.moonlets||[])){
-      const r2=ml.rec; if(!r2) continue;
-      const bi=bodies.indexOf(r2); if(bi>=0) bodies.splice(bi,1);
-      const pi=pickables.indexOf(ml.m); if(pi>=0) pickables.splice(pi,1);
-      const le=labelEls[r2.data.key]; if(le){ le.remove(); delete labelEls[r2.data.key]; }
-      if(selected===r2.data.key) selected=null;
-      if(follow===r2) follow=null;
-      if(tween.body===r2) tween.active=false;
-      if(APP.currentData && APP.currentData.key===r2.data.key){
-        document.getElementById('info').classList.remove('open'); syncInfoBtn(); APP.currentData=null;
-      }
-    }
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
     for(const g of (D.shardGeos||[])) g.dispose();
@@ -2506,51 +2427,13 @@ function updateImpacts(dt){
     P.g.attributes.aSize.needsUpdate=true;
     P.m.uniforms.uScaleH.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
   }
-  // debris fields: fragments evolve under the dead world's self-gravity — slow
-  // pieces fall back and re-accrete into a rubble pile, fast ones disperse — and
-  // the dust haze expands and fades. This aftermath now runs on SIM time, like the
-  // debris ring, so the speed slider fast-forwards re-accretion (and pausing freezes
-  // it); the gravity step is sub-stepped so the integrator stays stable at high warp.
-  const debWarp=playing?timeScale:0, ddt=dt*debWarp;
-  const nSub=Math.max(1, Math.min(64, Math.ceil(ddt/0.05))), hSub=ddt/nSub;
+  // debris fields: chunks drift apart and tumble; the dust haze expands and fades
   for(const D of debrisFields){
-    D.t+=ddt;
-    const GM=D.GM, soft2=D.soft*D.soft, esc2=(DEB_ESCAPE_R*D.Rloc)*(DEB_ESCAPE_R*D.Rloc);
-    for(let s=0;s<nSub;s++){
-      for(const c of D.chunks){
-        if(c.cap) continue;                              // compacted into the pile — frozen
-        const p=c.m.position, r2=p.lengthSq();
-        if(r2<esc2){                                     // still bound: softened central gravity
-          c.vel.addScaledVector(p, -GM/Math.pow(r2+soft2,1.5)*hSub);
-        }
-        p.addScaledVector(c.vel,hSub);
-        c.m.rotation.x+=c.rot.x*hSub; c.m.rotation.y+=c.rot.y*hSub; c.m.rotation.z+=c.rot.z*hSub;
-        // re-accretion: a piece that falls back inside the growing pile, moving
-        // inward, is captured — embedded in the remnant and its mass added to it
-        if(p.lengthSq()<D.rCore*D.rCore && c.vel.dot(p)<=0){
-          c.cap=true; D.capMw+=c.mw;
-          D.rCore=D.Rloc*(DEB_RCORE0+(DEB_RCORE_MAX-DEB_RCORE0)*Math.min(1,D.capMw/D.totMw));
-          p.setLength(D.rCore*(0.55+0.4*Math.random()));   // settle onto/into the pile
-          if(!D.remnant){                                  // reveal a growing rubble-pile core
-            D.remnant=new THREE.Mesh(debRemnantGeo(), D.chunkMat); D.group.add(D.remnant);
-          }
-          // a large enough re-accreted clump spins off orbiting moonlet(s)
-          const cf=D.capMw/D.totMw;
-          if(cf>=DEB_MOON_T1){
-            const want=Math.min(DEB_MOON_MAX, 1+Math.floor((cf-DEB_MOON_T1)/DEB_MOON_STEP));
-            while(D.moonlets.length<want) spawnMoonlet(D);
-          }
-        }
-      }
-      // moonlets orbit the remnant under the same softened self-gravity
-      for(const ml of D.moonlets){
-        const mp=ml.m.position;
-        ml.vel.addScaledVector(mp, -GM/Math.pow(mp.lengthSq()+soft2,1.5)*hSub);
-        mp.addScaledVector(ml.vel,hSub);
-        ml.m.rotation.x+=ml.spin.x*hSub; ml.m.rotation.y+=ml.spin.y*hSub; ml.m.rotation.z+=ml.spin.z*hSub;
-      }
+    D.t+=dt;
+    for(const c of D.chunks){
+      c.m.position.addScaledVector(c.vel,dt);
+      c.m.rotation.x+=c.rot.x*dt; c.m.rotation.y+=c.rot.y*dt; c.m.rotation.z+=c.rot.z*dt;
     }
-    if(D.remnant) D.remnant.scale.setScalar(D.rCore);
     // world-shattering fragments stay incandescent for a long time
     const cool=0.10+0.90*Math.exp(-D.t/75);
     D.chunkMat.emissiveIntensity=(D.chunkMat.userData.emberBase||0.6)*cool;
@@ -2562,7 +2445,7 @@ function updateImpacts(dt){
       else{
         D.hazeMat.opacity=D.op0*fade;
         D.hazeMat.size=D.hazeSize*D.rec.mesh.scale.x;   // track the dot-floor scaling
-        const hp=D.haze.geometry.attributes.position, k=1+ddt*0.05;   // slow expansion
+        const hp=D.haze.geometry.attributes.position, k=1+dt*0.05;   // slow expansion
         for(let i=0;i<hp.count;i++) hp.setXYZ(i, hp.getX(i)*k, hp.getY(i)*k, hp.getZ(i)*k);
         hp.needsUpdate=true;
       }
@@ -2767,7 +2650,6 @@ const _szPos=new THREE.Vector3();
 function updateBodySizes(){
   const f = Math.tan(camera.fov*Math.PI/360) * 2*MIN_PIXELS / (renderer.domElement.clientHeight||innerHeight);
   for(const rec of bodies){
-    if(rec.external) continue;               // debris moonlets are sized in the scaled debris frame
     rec.mesh.getWorldPosition(_szPos);
     const d = camera.position.distanceTo(_szPos);
     const target = Math.max(realRadiusScene(rec.data.radiusKm)*sizeMult, d*f);   // max(real, dot-floor)
@@ -2809,17 +2691,13 @@ function updateLabels(){
     const onscreen = c2.z<1 && c2.x>-1.1 && c2.x<1.1 && c2.y>-1.1 && c2.y<1.1;
     // declutter: hide minor moons when far (a liberated moon is a planet now — keep its label)
     const minor = !(rec.data.parent===DS.STAR.key||rec.data.kind==='star'||rec.helio);
-    // a just-formed moonlet pulses and ignores declutter for a moment so you see it born
-    const isNew = rec._newUntil && performance.now()<rec._newUntil;
-    if(rec._newUntil && !isNew){ el.classList.remove('moonlet-new'); rec._newUntil=0; }
     let show = onscreen;
-    if(minor && dist>(realScale?1100:620) && !isNew) show=false;
+    if(minor && dist>(realScale?1100:620)) show=false;
     if(!show){ el.style.display='none'; continue; }
-    if(isNew) el.classList.add('moonlet-new');
     el.style.display='block';
     const x=(c2.x*0.5+0.5)*innerWidth, y=(-c2.y*0.5+0.5)*innerHeight;
     el.style.left=x+'px'; el.style.top=y+'px';
-    el.style.opacity = isNew ? 1 : (minor ? Math.max(0.25, 1-(dist-120)/600) : 0.95);
+    el.style.opacity = minor ? Math.max(0.25, 1-(dist-120)/600) : 0.95;
   }
 }
 
@@ -3058,13 +2936,6 @@ function focusBody(key, openPanel){
   const bp=worldPosOf(rec);
   tween.active=true; tween.t=0; tween.body=rec;
   tween.fromCam.copy(camera.position); tween.fromTarget.copy(controls.target);
-  if(rec.external){                          // debris moonlet: frame its true WORLD size
-    const ws=rec.radius*(rec._parentMesh?rec._parentMesh.scale.x:1);
-    tween.dist=Math.max(ws*6, controls.minDistance*1.5);
-    selected=key; setActiveNav(key);
-    if(openPanel==='force' || (openPanel!==false && !MOBILE_UI)) openInfo(rec.data);
-    return;
-  }
   if(realScale){
     // frame the body's TRUE size (fly close enough that real geometry shows, not the dot-floor)
     const er = realRadiusScene(rec.data.radiusKm)*Math.max(sizeMult,1);

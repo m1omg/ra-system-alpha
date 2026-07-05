@@ -26,65 +26,12 @@ summary in the default mode, and a short note in author's-text mode.)
 
 - **Every body from the document**, placed on Keplerian elliptical orbits with
   physically-scaled *relative* orbital speeds (inner worlds race, outer worlds crawl).
-- **Photoreal surface maps** for every world (with a fast **procedural** texture baked
-  into the browser as an instant first paint and automatic fallback): banded gas giants,
-  the blue-marble ocean of Uat-Ur, Satis's violet-forested continents, the rusty deserts
+- **Procedurally textured worlds** generated in the browser: banded gas giants, the
+  blue-marble ocean of Uat-Ur, Satis's violet-forested continents, the rusty deserts
   of Set, molten Sekhmet, the brown-dwarf glow of Horus, and more.
 - **Click any world** (or use the list on the left, or click its label) to fly the
   camera to it and open a data panel with its real figures, a description, and the
   AI-rendered concept art from the document.
-- **Two systems in one page** — flip between the fictional **Ra** system and **our
-  real Solar System** (⇄ button) with real photo textures for 15 bodies and real
-  Saturn rings.
-- **Two languages** — an in-page **English ↔ Slovenčina** toggle (🌐 button).
-
-## Fly mode (🚀)
-
-A free-roam flight mode (real scale) lets you pilot a camera through the system:
-throttle up, thrust, strafe, roll, and **⤳ Go&nbsp;to** any world. **⛓ Follow** locks
-onto a body and co-moves as it orbits; **⚡ Auto** scales your speed to nearby bodies
-(click for uncapped manual speed). Keyboard: `W/S` or `↑↓` fly, `A/D` or `←→` strafe,
-`PgUp/PgDn` or `R` up/down, drag to look, `Q/E` roll, wheel = speed, `F` = follow,
-`Esc` = exit.
-
-## Impact lab (💥) — destruction sandbox
-
-Open the Impact lab and strike any world to watch real impact physics play out.
-It is a genuine little physics sandbox, not just an effect:
-
-- **Two weapons.** A customizable **☄ asteroid** (set its **diameter**, **speed**, and
-  **material** — rock / iron / ice / comet — the panel shows the resulting mass and
-  kinetic energy, quoted in joules, tons of TNT, and multiples of Chicxulub), or a
-  continuous **laser** (set its **power** in watts and hold to pour energy in).
-- **A real energy budget.** Every strike's kinetic energy is spent against each
-  world's own composition: heating and melting rock, boiling oceans to steam,
-  flashing ice to vapour. Damage is **cumulative** and **persists** as scars.
-- **Composition-aware melting.** Watch craters grow into lava seas and finally a
-  global magma ocean; water worlds boil their oceans away before the rock melts;
-  gas giants inflate rather than crater.
-- **Worlds actually come apart.** Pour in more than a world's **gravitational binding
-  energy** and it *shatters* — the planet is replaced in place by a debris field whose
-  fragments then evolve under the dead world's own **self-gravity**: pieces flung below
-  escape speed decelerate, fall back and **re-accrete into a battered rubble-pile
-  remnant** — and if enough mass gathers, part of it **coalesces into moonlet(s) that
-  orbit the remnant** on their own real orbits (its label pulses when it forms). Each
-  moonlet is a first-class body: click it to fly there, it's named and labelled, and it
-  opens its own data panel. Re-accretion runs on sim-time, so the **speed slider
-  fast-forwards it** (and pausing freezes it). Faster pieces disperse outward. A
-  barely-fatal blow reforms a lumpy dwarf (sometimes with a little moon); a massive
-  overkill scatters almost everything. **Kepler shear** smears the
-  escaping cloud along the dead world's orbit into a glittering ring over (sim) time,
-  and a shattered planet **liberates its moons**, which sail on around Ra on their own
-  newly-computed orbits.
-- **Momentum is conserved.** A massive, fast strike **kicks the target's orbit** — the
-  new ellipse is recomputed exactly from the perturbed state vector and redrawn.
-- **Superheated worlds lose mass**, and the data panel tracks the live figure.
-- **🧽 Heal** removes every scar, re-forms shattered worlds, and re-captures their moons.
-
-## Sound (🔊)
-
-Optional procedural **sound effects** (whoosh, impact, shatter, heal chime). Space is
-silent in reality — this is rule-of-cool only — so it's a toggle you can switch off.
 
 ## Controls
 
@@ -98,14 +45,9 @@ silent in reality — this is rule-of-cool only — so it's a toggle you can swi
 | Play / pause | Bottom bar |
 | Time speed | "Speed" slider (0.05× – 40×, logarithmic) |
 | Exaggerate sizes | "Size" slider |
-| Real ↔ Compressed orbits | "📏" button, bottom bar |
+| Real ↔ Compressed orbits | "Scale" button, bottom bar |
 | Author's text ↔ Summary | "📖" button, bottom bar |
-| Toggle orbits / labels / tails | Bottom bar |
-| Fly mode (free-roam) | "🚀 Fly" button, bottom bar |
-| Impact lab (strike a world) | "💥 Impact" button, bottom bar |
-| Sound effects on/off | "🔊 SFX" button, bottom bar |
-| Ra ↔ real Solar System | "⇄" button, bottom bar |
-| English ↔ Slovenčina | "🌐" button, bottom bar |
+| Toggle orbits / labels | Bottom bar |
 | Reset view | Bottom bar |
 | Help & glossary | **?** button, top-right |
 | Deep-link a world | open `index.html#satis` (any body key) |
@@ -129,45 +71,38 @@ physically correct (Kepler's third law).
 
 ```
 index.html                       — the page (shell + UI; 📖 toggles summary/author's text)
-assets/app.js                    — 3D engine (Three.js scene, textures, orbits, impacts, flight)
-assets/data.js                   — Ra-system body data, stats, summary descriptions
-assets/data-sol.js               — our real Solar System body data (⇄ toggle)
+assets/app.js                    — 3D engine (Three.js scene, textures, orbits, interaction)
+assets/data.js                   — body data, stats, summary descriptions
 assets/descriptions-verbatim.js  — the author's word-for-word descriptions
-assets/lang-sk.js                — Slovak (Slovenčina) translation strings (🌐 toggle)
-assets/img/                      — concept art + real photo textures
+assets/img/                      — concept art extracted from the Satis document
 assets/lib/                      — Three.js r132 + OrbitControls (bundled for offline use)
 ```
 
-To update a world's numbers or summary text, edit `assets/data.js` (Ra) or
-`assets/data-sol.js` (Solar System); to update the verbatim text, edit
-`assets/descriptions-verbatim.js`; to update the Slovak strings, edit `assets/lang-sk.js`.
+To update a world's numbers or summary text, edit `assets/data.js`; to update the
+verbatim text, edit `assets/descriptions-verbatim.js`.
 
-## Surface textures
+## Experimental: AI-generated textures (`index-ai.html`)
 
-By default every world loads a **baked surface map** (`assets/img/textures/<key>.webp`):
-AI-generated equirectangular maps for the fictional Ra worlds, and real public-domain /
-CC-BY photography for the Solar System bodies (see
-[`assets/img/textures/CREDITS.md`](assets/img/textures/CREDITS.md) for attribution). Each
-world *also* has a fast, deterministic **procedural** texture generated in the browser as an
-instant first paint and automatic fallback — if a baked map is missing or fails to load, the
-world silently keeps its procedural texture, so the page always works and stays fully offline.
+`index.html` always uses the fast, offline, deterministic **procedural** textures. The
+separate **`index-ai.html`** is an experiment that swaps in higher-res, photoreal surface
+maps generated with OpenAI **gpt-image-2**, while keeping everything else identical. If a
+world has no AI texture yet (or the file fails to load) it silently falls back to its
+procedural texture, so the page always works.
 
-The Ra maps are **baked once, offline** and committed as plain image files — the page itself
-makes no API calls, so it stays openable offline with no key. To (re)generate them:
+The textures are **baked once, offline** and committed as plain image files — the page
+itself makes no API calls, so it stays openable offline with no key. To (re)generate:
 
 ```
-node tools/gen-refs.mjs    # render procedural refs + build per-body prompts → tools/_raw/ref/, tools/prompts.json
-tools/gen-ai.sh            # drive Codex's built-in gpt-image-2 (uses Codex auth, no API key) → tools/_raw/ai/
-python3 tools/post.py      # seam-blend + downscale → assets/img/textures/<key>.webp
+node tools/gen-refs.mjs          # 1. render procedural refs + build per-body prompts
+                                 #    -> tools/_raw/ref/<key>.png, tools/prompts.json
+# 2. generate the raw AI renders (via Codex / gpt-image-2) into tools/_raw/ai/<key>.png
+python3 tools/post.py            # 3. seam-blend + downscale -> assets/img/textures/<key>.jpg
 ```
 
 `tools/texture-core.mjs` is a headless duplicate of the procedural generators from
 `assets/app.js` (kept in sync by hand) used only to produce the reference images.
 `tools/_raw/` (references + full-res originals) is git-ignored; only the final
-`assets/img/textures/*.webp` are committed.
-
-(`index-ai.html` and `index-verbatim.html` are legacy **redirects** to `index.html` — the
-old separate editions were merged into one page with the 📖 and texture toggles above.)
+`assets/img/textures/*.jpg` are committed.
 
 ---
 *Planetary classification follows the ArcBuilder PCL. Built from “Satis v10”.*
