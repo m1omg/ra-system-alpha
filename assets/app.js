@@ -284,7 +284,12 @@ function cvCheckRestore(){
   cvArmSentinel();
   for(const r of _cvRepaint){ try{ r.fn(); r.tex.needsUpdate=true; }catch(_){ } }
 }
-document.addEventListener('visibilitychange',function(){ if(!document.hidden) setTimeout(cvCheckRestore,60); });
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){ if(typeof impBeam!=='undefined' && impBeam) stopBeam(); }  // don't let a held laser survive a tab-switch
+  else setTimeout(cvCheckRestore,60);
+});
+// a lost pointerup (clicking away from the window mid-hold) would otherwise leave the beam stuck on
+window.addEventListener('blur',function(){ if(typeof impBeam!=='undefined' && impBeam) stopBeam(); });
 /* glow-sprite texture that repaints itself after a canvas wipe */
 function glowCanvasTex(inner, outer){
   const c=texGlow(inner,outer), t=new THREE.CanvasTexture(c);
@@ -352,7 +357,7 @@ const UI_EN={
   'tier-puff-3':' · envelope: streaming away — breakup imminent',
   'imp-immune':' · immune to your weapons','imp-destroyed':' · ☠ destroyed — a debris field',
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
-  'imp-melts-sea':' · melts a ~{km} km sea',
+  'imp-melts-sea':' · melts a ~{km} km lava sea',
   'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered melt seas',
   'tier-thaw':' · thawing — seas of liquid water ({p}%)',
   'tier-thaw-polar':' · thawing — polar seas ({p}%)',
@@ -1205,7 +1210,7 @@ function getScars(rec){
     new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
-  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0};
+  rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0,meltArea:0};
   rec.dmgJ=rec.dmgJ||0;
   impScarred.push(rec);
   // Android canvas wipe: replay the permanent marks (char + melt) from the log
@@ -1227,6 +1232,12 @@ function scarLog(s, l, u, v, r, style, a){
   s.log.push({l,u,v,r,s:style,a});
   if(s.log.length>2600) s.log.splice(0,600);            // cap: long laser burns
 }
+/* accumulate how much of the surface has been painted molten (laser + big
+   impacts), so the hover tier can say "melting" rather than "cratered" when a
+   world's whole-body melt budget is astronomically large but the beam has
+   visibly melted the surface. degR = molten splat radius in degrees;
+   normalized so a 60° cap ≈ a hemisphere ≈ weight 1. */
+function addMeltArea(s, degR){ if(s){ const w=degR/60; s.meltArea=Math.min(1.5,(s.meltArea||0)+w*w); } }
 
 /* ---- melting tiers, from the real energy budget. Heating rock to ~1700 K
    plus the latent heat of fusion costs ~1.7 MJ/kg (ice much less), so melting
@@ -1477,12 +1488,17 @@ function impTierBase(rec){
     return '';
   }
   const E=rec.dmgJ, fU=E/impBindingJ(rec), P=impMeltPhases(rec);
+  // a big icy/rocky world's whole-body melt budget is astronomical, so the global
+  // melt fraction stays ~0 even when the beam has visibly melted the surface —
+  // fold in locally-painted molten coverage so the label tracks what's rendered
+  const mcov = rec.scar ? Math.min(1, rec.scar.meltArea||0) : 0;
   if(fU>0.5)  return T('tier-white');
   if(E>=P.E3) return T('tier-molten');
-  const ph3=(E-P.E2)/(P.E3-P.E2);
-  if(ph3>0.3)  return T('tier-ocean').replace('{p}',Math.round(ph3*100));
-  if(ph3>0.02) return T('tier-regional').replace('{p}',Math.round(ph3*100));
-  if(P.W>0){                                 // water worlds: (thaw →) boil first
+  const ph3=Math.max(0,(E-P.E2)/(P.E3-P.E2));
+  const surf=Math.max(ph3, mcov);            // global magma progress OR locally-melted surface
+  if(surf>0.3)  return T('tier-ocean').replace('{p}',Math.round(surf*100));
+  if(surf>0.03) return T('tier-regional').replace('{p}',Math.round(surf*100));
+  if(P.W>0 && ph3<=0.02){                     // water worlds: (thaw →) boil, unless already melting
     const ph2=(E-P.E1)/(P.E2-P.E1);
     if(ph2>0.02) return T('tier-steam').replace('{p}',Math.round(Math.min(1,ph2)*100));
     if(!impLiquidSurface(rec) && E>0.05*P.E1){ const ph1=E/P.E1;
@@ -1491,7 +1507,7 @@ function impTierBase(rec){
       return T(key).replace('{p}',Math.round(Math.min(1,ph1)*100)); }
   }
   const mf=E/impMeltJ(rec);
-  if(mf>1e-4) return T('tier-seas');
+  if(surf>0.004 || mf>1e-4) return T('tier-seas');
   return T('tier-crater');
 }
 const IMP_CHAR=[[0,'rgba(10,6,5,0.88)'],[0.5,'rgba(14,9,7,0.60)'],[0.8,'rgba(22,13,9,0.28)'],[1,'rgba(22,13,9,0)']];
@@ -1621,6 +1637,7 @@ function applyStrike(rec, u, v, E, imp){
       impSplat(mc, u, 1-v, thM/180*512, IMP_LAVA);
       mc.restore(); s.meltT.needsUpdate=true;
       scarLog(s,'m',u,1-v,thM/180*512,IMP_LAVA,0.45+0.55*meltish);
+      addMeltArea(s, thM);                    // this hit melted ~thM° of surface
     }
     impSplat(s.glowC.getContext('2d'), u, 1-v, rPx*(gasy?1.7:1.15+0.9*meltish), IMP_GLOW);
     s.charT.needsUpdate=true; s.glowT.needsUpdate=true;
@@ -2081,7 +2098,7 @@ function impHeal(){
     if(s.wocean) s.wocean.material.opacity=0;
     if(s.steam) s.steam.material.opacity=0;
     if(s.steamHalo) s.steamHalo.material.uniforms.p.value=0;
-    s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0;
+    s.oceanM=0; s.oceanHot=0; s.waterM=0; s.steamM=0; s.meltArea=0;
     rec.dmgJ=0; rec.shattered=false;
     // deflate a puffed-up giant and calm its boosted/created escape tail
     rec.puffTarget=1; rec.puffK=1;
@@ -2356,6 +2373,7 @@ function updateImpacts(dt){
             impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.30, IMP_LAVA_SOFT);  // the burn line stays molten
             scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.55,IMP_CHAR_SOFT,null);
             scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.30,IMP_LAVA_SOFT,null);
+            addMeltArea(s, th*0.30);          // the beam is melting the surface it burns
           }
           impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);
           s.dirty=true; s.hot=7;     // GPU upload batched in the scar loop (~10 Hz, not per frame)

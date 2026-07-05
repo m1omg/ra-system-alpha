@@ -43,7 +43,7 @@ ui: {
   'tier-puff-3':' · obal: prúdi preč — hrozí rozpad',
   'imp-immune':' · voči tvojim zbraniam imúnny','imp-destroyed':' · ☠ zničený — pole trosiek',
   'imp-strike':'úder','imp-beam':'lúč/s','imp-binding-over':'≥100 % väzbovej energie ☠','imp-binding-of':' % väzbovej energie',
-  'imp-melts-sea':' · roztaví more široké ~{km} km',
+  'imp-melts-sea':' · roztaví lávové more široké ~{km} km',
   'tier-crater':' · povrch: posiaty krátermi','tier-seas':' · povrch: roztrúsené moria taveniny',
   'tier-thaw':' · topí sa — moria kvapalnej vody ({p} %)',
   'tier-thaw-polar':' · topí sa — polárne moria ({p} %)',
