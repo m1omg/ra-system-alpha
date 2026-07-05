@@ -11,10 +11,11 @@
     --txt:#dfe8f5; --dim:#8ea2c0; --accent:#7fb2ff; --accent2:#ffcf7a; --hot:#ff8a5a;
     --font:'Segoe UI',Roboto,system-ui,-apple-system,sans-serif;
   }
-  *{box-sizing:border-box;margin:0;padding:0}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}  /* kill Android's blue tap flash */
   html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:var(--font)}
   #app{position:fixed;inset:0}
-  canvas{display:block}
+  canvas{display:block;touch-action:none}                                              /* no tap-highlight / gesture flash on the 3D view */
+  button,.btn,.navitem,.choice{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 
   /* ---------- Loading ---------- */
   #loader{position:fixed;inset:0;background:radial-gradient(circle at 50% 40%,#0b1426,#04060c 70%);

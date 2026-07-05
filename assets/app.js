@@ -358,7 +358,7 @@ const UI_EN={
   'imp-immune':' · immune to your weapons','imp-destroyed':' · ☠ destroyed — a debris field',
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
   'imp-melts-sea':' · melts a ~{km} km lava sea',
-  'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered melt seas',
+  'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered lava pools',
   'tier-thaw':' · thawing — seas of liquid water ({p}%)',
   'tier-thaw-polar':' · thawing — polar seas ({p}%)',
   'tier-steam':' · oceans boiling — steam atmosphere ({p}%)',
@@ -1202,12 +1202,16 @@ function getScars(rec){
   const SW=MOBILE_UI?512:1024, SH=SW/2, SEG=MOBILE_UI?48:64, SEGH=MOBILE_UI?32:48;
   const charC=newCanvas(SW,SH), glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
   const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
-  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,SEG,SEGH),
-    new THREE.MeshBasicMaterial({map:charT,transparent:true,depthWrite:false}));
-  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,SEG,SEGH),
-    new THREE.MeshBasicMaterial({map:meltT,transparent:true,depthWrite:false}));
-  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.008,SEG,SEGH),
-    new THREE.MeshBasicMaterial({map:glowT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+  const aniso=Math.min(8, (renderer&&renderer.capabilities)?renderer.capabilities.getMaxAnisotropy():1);
+  for(const t of [charT,glowT,meltT]) t.anisotropy=aniso;   // smooth at grazing angles (kills the moiré grid)
+  // polygonOffset pulls each overlay slightly forward in depth so they don't z-fight
+  // with the body / each other on low-precision mobile depth buffers (the "mesh screen" grid)
+  const overlayMat=(map,extra)=>new THREE.MeshBasicMaterial(Object.assign(
+    {map,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4}, extra||{}));
+  const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,SEG,SEGH), overlayMat(charT));
+  const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.012,SEG,SEGH), overlayMat(meltT));
+  const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.02,SEG,SEGH),
+    overlayMat(glowT,{blending:THREE.AdditiveBlending}));
   mC.renderOrder=1; mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mC); rec.mesh.add(mM); rec.mesh.add(mG);
   rec.scar={charC,glowC,meltC,charT,glowT,meltT,mC,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0};
@@ -1287,14 +1291,17 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
   const s=getScars(rec);
   if(s.ocean) return s.ocean;
   const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
-  const genO=()=>texRocky({b:'#1c0803', base:'#4a1206', a:'#8a2408', c:'#d4501a'},
-    (seed^0x9e37)>>>0, {glow:'#ffc24e', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
+  // vivid orange lava — brighter than the old dark-brown palette so molten reads hot
+  const genO=()=>texRocky({b:'#5a1204', base:'#b83c0a', a:'#ff7a1e', c:'#ffd24a'},
+    (seed^0x9e37)>>>0, {glow:'#fff0b0', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
   const cv=genO();
   const t=new THREE.CanvasTexture(cv);
-  t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;                 // wraps → the magma can churn
+  t.anisotropy=Math.min(8,(renderer&&renderer.capabilities)?renderer.capabilities.getMaxAnisotropy():4);
+  t.wrapS=THREE.RepeatWrapping;                                 // wraps → the magma can churn
   regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genO(),0,0); });  // Android canvas wipe
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.007,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,MOBILE_UI?48:64,MOBILE_UI?32:48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
+      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
   m.renderOrder=3;
   rec.mesh.add(m);
   s.ocean=m;
@@ -1334,8 +1341,9 @@ function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
   const t=new THREE.CanvasTexture(cv);
   t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.0068,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,MOBILE_UI?48:64,MOBILE_UI?32:48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
+      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
   m.renderOrder=3;
   rec.mesh.add(m);
   s.wocean=m;
@@ -1368,8 +1376,9 @@ function getSteamShroud(rec){                // boiled-off oceans: a global whit
   const t=new THREE.CanvasTexture(cv);
   t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.012,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.026,MOBILE_UI?48:64,MOBILE_UI?32:48),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
+      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
   m.renderOrder=6;
   rec.mesh.add(m);
   s.steam=m;
@@ -1460,9 +1469,11 @@ function impUpdateMelt(rec){                 // cumulative surface state from th
   if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0;
     if(s.halo) s.halo.material.uniforms.p.value=0; return; }
   const o=getMagmaOcean(rec);
-  o.material.opacity=Math.min(1, m*(1+0.3*hot));
-  o.material.color.setScalar(1+0.25*m+2.6*hot);                 // overdriven = white-hot under ACES
-  getMagmaHalo(rec).material.uniforms.p.value=1.6*(0.35*m+0.9*hot);
+  o.material.opacity=Math.min(1, m*(1.1+0.2*hot));
+  // stays vivid orange while molten (driven by melt fraction m), only extra white-hot
+  // when freshly struck (hot) — so it no longer dims to brown as the transient glow cools
+  o.material.color.setScalar(1.5+0.5*m+1.8*hot);
+  getMagmaHalo(rec).material.uniforms.p.value=1.6*(0.5*m+0.7*hot);
 }
 function impTierTxt(rec){                    // hover readout of the surface state (+ mass boiled off)
   const base=impTierBase(rec);
@@ -2356,12 +2367,14 @@ function updateImpacts(dt){
         const rPx=th/180*512;
         const gasy=(rec.data.kind==='gasgiant');
         if(hit.uv){
-          if(!gasy){                          // a dark scorch at the beam spot; the MELTING itself is
-            impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.55, IMP_CHAR_SOFT);   // driven by
-            scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.55,IMP_CHAR_SOFT,null);                       // the energy
-          }                                                                                       // phases below
-          impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW_SOFT);   // immediate hot glow at the hit
-          s.dirty=true; s.hot=7;     // GPU upload batched in the scar loop (~10 Hz, not per frame)
+          if(!gasy){                          // dark scorch rim + a VIVID molten lava line that persists
+            impSplat(s.charC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.62, IMP_CHAR_SOFT);
+            impSplat(s.meltC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx*0.36, IMP_LAVA);   // bright orange, not soft
+            scarLog(s,'c',hit.uv.x,1-hit.uv.y,rPx*0.62,IMP_CHAR_SOFT,null);
+            scarLog(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.36,IMP_LAVA,null);   // logged → replays after an Android canvas wipe
+          }
+          impSplat(s.glowC.getContext('2d'), hit.uv.x, 1-hit.uv.y, rPx, IMP_GLOW);   // immediate hot glow at the hit
+          s.dirty=true; s.hot=Math.max(s.hot, 30);   // stays incandescent much longer (was cooling too fast)
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
         if(hit.uv) rec._lastHit={u:hit.uv.x, v:hit.uv.y};
