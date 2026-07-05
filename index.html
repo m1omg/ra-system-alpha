@@ -177,6 +177,13 @@
     transform:translateY(-50%);background:currentColor;opacity:.7}
   .lbl.major{font-size:12.5px;color:#eaf1ff}
   .lbl.star{color:var(--accent2);font-size:14px}
+  /* a freshly re-accreted moonlet pulses its label so you can't miss it forming */
+  .lbl.moonlet-new{z-index:6;color:#ffd98a;animation:moonletPop .62s ease-out 4}
+  @keyframes moonletPop{
+    0%,100%{transform:translate(-50%,-50%) scale(1);text-shadow:0 0 6px #000,0 0 3px #000}
+    45%{transform:translate(-50%,-50%) scale(1.28);
+      text-shadow:0 0 10px rgba(255,215,140,.95),0 0 20px rgba(255,175,80,.7),0 0 3px #000}
+  }
 
   .scrollthin::-webkit-scrollbar{width:8px}
   .scrollthin::-webkit-scrollbar-thumb{background:rgba(120,170,255,.25);border-radius:8px}

@@ -66,9 +66,10 @@ It is a genuine little physics sandbox, not just an effect:
   fragments then evolve under the dead world's own **self-gravity**: pieces flung below
   escape speed decelerate, fall back and **re-accrete into a battered rubble-pile
   remnant** — and if enough mass gathers, part of it **coalesces into moonlet(s) that
-  orbit the remnant** on their own real orbits. Each moonlet is a first-class body:
-  click it to fly there, it's named and labelled, and it opens its own data panel.
-  Faster pieces disperse outward. A
+  orbit the remnant** on their own real orbits (its label pulses when it forms). Each
+  moonlet is a first-class body: click it to fly there, it's named and labelled, and it
+  opens its own data panel. Re-accretion runs on sim-time, so the **speed slider
+  fast-forwards it** (and pausing freezes it). Faster pieces disperse outward. A
   barely-fatal blow reforms a lumpy dwarf (sometimes with a little moon); a massive
   overkill scatters almost everything. **Kepler shear** smears the
   escaping cloud along the dead world's orbit into a glittering ring over (sim) time,
