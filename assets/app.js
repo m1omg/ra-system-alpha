@@ -1199,15 +1199,17 @@ function getScars(rec){
   if(rec.scar) return rec.scar;
   // texture uploads are the mobile bottleneck: every needsUpdate re-sends the
   // whole canvas to the GPU. Half resolution on touch devices = 4× cheaper.
-  const SW=MOBILE_UI?512:1024, SH=SW/2, SEG=MOBILE_UI?48:64, SEGH=MOBILE_UI?32:48;
+  const SW=MOBILE_UI?512:1024, SH=SW/2;
+  // overlay spheres are HIGH-poly (≥ the body's 64×48) so the high-contrast lava
+  // texture doesn't warp across coarse triangles → that was the "mesh screen" grid
+  const SEG=MOBILE_UI?96:128, SEGH=MOBILE_UI?64:96;
   const charC=newCanvas(SW,SH), glowC=newCanvas(SW,SH), meltC=newCanvas(SW,SH);
   const charT=new THREE.CanvasTexture(charC), glowT=new THREE.CanvasTexture(glowC), meltT=new THREE.CanvasTexture(meltC);
-  const aniso=Math.min(8, (renderer&&renderer.capabilities)?renderer.capabilities.getMaxAnisotropy():1);
-  for(const t of [charT,glowT,meltT]) t.anisotropy=aniso;   // smooth at grazing angles (kills the moiré grid)
-  // polygonOffset pulls each overlay slightly forward in depth so they don't z-fight
-  // with the body / each other on low-precision mobile depth buffers (the "mesh screen" grid)
+  // plain linear filtering, NO mipmaps — mipmapping a sparse high-contrast overlay
+  // canvas produced the moiré on mobile GPUs
+  for(const t of [charT,glowT,meltT]){ t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter; }
   const overlayMat=(map,extra)=>new THREE.MeshBasicMaterial(Object.assign(
-    {map,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4}, extra||{}));
+    {map,transparent:true,depthWrite:false}, extra||{}));
   const mC=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.004,SEG,SEGH), overlayMat(charT));
   const mM=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.012,SEG,SEGH), overlayMat(meltT));
   const mG=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.02,SEG,SEGH),
@@ -1256,8 +1258,13 @@ function impMeltJ(rec){ return impBodyMassKg(rec)*impMeltEJkg(rec); }   // melt 
    the oceans boil into a global steam atmosphere; only then does the rock
    underneath melt (~1.7 MJ/kg) into the familiar magma ocean. ---- */
 function impWaterFrac(rec){
-  const c=rec.data.comp; if(c) return c.water||0;
-  return {icemoon:0.4, iceworld:0.4, ocean:0.5}[rec.data.kind]||0;
+  const c=rec.data.comp;
+  let w = c ? (c.water||0) : ({icemoon:0.4, iceworld:0.4, ocean:0.5}[rec.data.kind]||0);
+  // surface-ocean worlds (terran/ocean) always have oceans to boil — the .ubox BULK
+  // composition can read ~0 water (e.g. Satis) because oceans are a thin surface layer,
+  // which otherwise made them skip the boiling stage entirely
+  if(impLiquidSurface(rec)) w=Math.max(w, 0.03);
+  return w;
 }
 // worlds whose water is already LIQUID at the surface (Earth-likes, ocean worlds):
 // they skip the thaw phase and boil directly, and their base texture already shows water
@@ -1296,12 +1303,11 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
     (seed^0x9e37)>>>0, {glow:'#fff0b0', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
   const cv=genO();
   const t=new THREE.CanvasTexture(cv);
-  t.anisotropy=Math.min(8,(renderer&&renderer.capabilities)?renderer.capabilities.getMaxAnisotropy():4);
+  t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;  // no moiré
   t.wrapS=THREE.RepeatWrapping;                                 // wraps → the magma can churn
   regCanvasTex(t, function(){ cv.getContext('2d').drawImage(genO(),0,0); });  // Android canvas wipe
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
-      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.016,MOBILE_UI?96:128,MOBILE_UI?64:96),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
   rec.mesh.add(m);
   s.ocean=m;
@@ -1339,11 +1345,11 @@ function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
   };
   paint();
   const t=new THREE.CanvasTexture(cv);
-  t.anisotropy=4; t.wrapS=THREE.RepeatWrapping;
+  t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
+  t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
-      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.006,MOBILE_UI?96:128,MOBILE_UI?64:96),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=3;
   rec.mesh.add(m);
   s.wocean=m;
@@ -1374,11 +1380,11 @@ function getSteamShroud(rec){                // boiled-off oceans: a global whit
   };
   paint();
   const t=new THREE.CanvasTexture(cv);
+  t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
   t.wrapS=THREE.RepeatWrapping;
   regCanvasTex(t,paint);
-  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.026,MOBILE_UI?48:64,MOBILE_UI?32:48),
-    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false,
-      polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4}));
+  const m=new THREE.Mesh(new THREE.SphereGeometry(rec.radius*1.026,MOBILE_UI?96:128,MOBILE_UI?64:96),
+    new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthWrite:false}));
   m.renderOrder=6;
   rec.mesh.add(m);
   s.steam=m;
