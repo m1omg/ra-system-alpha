@@ -1676,7 +1676,10 @@ const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DE
 // once enough mass has re-accreted, part of it coalesces into moonlet(s) that
 // orbit the remnant on a real (softened-Kepler) orbit instead of joining the pile:
 // the first at DEB_MOON_T1 of the mass re-accreted, another every DEB_MOON_STEP.
-const DEB_MOON_T1=0.35, DEB_MOON_STEP=0.22, DEB_MOON_MAX=2;
+// Thresholds kept a touch low so moonlets form readily: reliably near the binding
+// energy (often two there), still possible a few x past it, none once a strike is a
+// big enough overkill to scatter almost everything.
+const DEB_MOON_T1=0.30, DEB_MOON_STEP=0.20, DEB_MOON_MAX=2;
 let _debRemnantGeo=null;
 function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,16,12)); }
 const _ROMAN=['I','II','III','IV'];
