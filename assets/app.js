@@ -3054,7 +3054,7 @@ function impHeal(){
     rec.helio=P.helio; rec.isMoon=P.isMoon; rec.helioA=P.helioA; rec._physA=P._physA;
     rec.aDisp=P.aDisp; rec.aDispReal=P.aDispReal; rec.aDispCompressed=P.aDispCompressed;
     rec.e=P.e; rec.q=P.q; rec.M=P.M; rec.period=P.period; rec.orbitLine=P.orbitLine;
-    if(rec.orbitLine) rec.orbitLine.visible=showOrbits;
+    if(rec.orbitLine) rec.orbitLine.visible=showOrbits&&!rec.nb;
     rec.orbitPerturbed=false; rec._preFree=null;
     const le=labelEls[rec.data.key]; if(le && !(rec.data.parent===DS.STAR.key||rec.data.kind==='star')) le.classList.remove('major');
     positionBody(rec);
@@ -4209,7 +4209,7 @@ function setupInteraction(){
     try{ sfxOn=localStorage.getItem('ra-sfx')!=='0'; }catch(_){ sfxOn=true; }   // on by default
     sx.classList.toggle('on',sfxOn); }
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
-    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits; };
+    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits&&!b.nb; };  // nb: Kepler ellipses are stale
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);
     labelLayer.style.display=showLabels?'block':'none'; };
   document.getElementById('reset').onclick=resetView;
