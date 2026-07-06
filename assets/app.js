@@ -1218,9 +1218,9 @@ const impDensityByKind={ star:1400, browndwarf:8e4, gasgiant:1300, terran:5200, 
 let impMatI=1;
 const impAsteroids=[], impFx=[], impScarred=[];
 const stellarBlasts=[];
-// true while one stellar death is cascading through many worlds in a single
-// frame — per-planet fx are trimmed so the frame doesn't drown in sprites
-let impMassEvent=false;
+let impWaveShatter=false;    // true while a blast-wave arrival shatters a world (leaner debris)
+let impShellBudget=1;        // first-time melt/water/steam shell bakes allowed this frame
+const _heatPaintQ=[];        // heat-overlay repaint requests, budgeted per frame
 let impBeam=null, impShake=0, impPool=null, impPoolActiveT=0;
 let _impFlashTex=null, _impRingTex=null;
 // baked rock albedo (gpt-image-2) for asteroids + debris chunks; falls back to
@@ -1577,10 +1577,14 @@ function impCraterDeg(rec,E){                // gravity-regime π-scaling D ∝ 
 function getMagmaOcean(rec){                 // lazy: a self-luminous molten-surface shell
   const s=getScars(rec);
   if(s.ocean) return s.ocean;
+  impShellBudget--;                          // heavy canvas bake — one per frame globally
   const seed=(rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0;
   // vivid orange lava — brighter than the old dark-brown palette so molten reads hot
+  // during a blast-wave cascade a dozen worlds bake shells back-to-back —
+  // half-res keeps each of those frames short (lava noise hides the difference)
+  const SWo=(MOBILE_UI||impBlastQueue.length||stellarBlasts.length)?512:1024;
   const genO=()=>texRocky({b:'#5a1204', base:'#b83c0a', a:'#ff7a1e', c:'#ffd24a'},
-    (seed^0x9e37)>>>0, {glow:'#fff0b0', w:MOBILE_UI?512:1024, h:MOBILE_UI?256:512});
+    (seed^0x9e37)>>>0, {glow:'#fff0b0', w:SWo, h:SWo/2});
   const cv=genO();
   const t=new THREE.CanvasTexture(cv);
   t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;  // no moiré
@@ -1596,11 +1600,12 @@ function getMagmaOcean(rec){                 // lazy: a self-luminous molten-sur
 function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
   const s=getScars(rec);
   if(s.wocean) return s.wocean;
+  impShellBudget--;                          // heavy canvas bake — one per frame globally
   const seed=((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)^0x51f7)>>>0;
   // coverage is BAKED per body: a water-rich world floods globally, a trace-water
   // world (Mars, 1%) only pools in polar basins → polar lakes, not a global flood
   const cov=impWaterVis(rec);
-  const SW2=MOBILE_UI?512:1024, SH2=MOBILE_UI?256:512;
+  const SW2=512, SH2=256;   // soft alpha-noise shell — 512 reads identically and bakes ~4x faster
   const cv=newCanvas(SW2,SH2);
   const paint=()=>{
     const ctx=cv.getContext('2d');
@@ -1638,8 +1643,9 @@ function getWaterOcean(rec){                 // thawed ice: a liquid-water shell
 function getSteamShroud(rec){                // boiled-off oceans: a global white cloud deck
   const s=getScars(rec);
   if(s.steam) return s.steam;
+  impShellBudget--;                          // heavy canvas bake — one per frame globally
   const seed=((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)^0xbead)>>>0;
-  const SW2=MOBILE_UI?512:1024, SH2=MOBILE_UI?256:512;
+  const SW2=512, SH2=256;   // soft alpha-noise shell — 512 reads identically and bakes ~4x faster
   const cv=newCanvas(SW2,SH2);
   const paint=()=>{
     const ctx=cv.getContext('2d');
@@ -1708,9 +1714,12 @@ function impBoostTail(rec,f){                               // escaping-material
 function impApplyMeltVisual(rec){
   const s=rec.scar; if(!s) return;
   const m=s.oceanM||0, hot=s.oceanHot||0, wat=s.waterM||0, stm=s.steamM||0;
-  if(wat>0.01) getWaterOcean(rec).material.opacity=Math.min(1,wat);
+  // each first-time shell is a ~full-res procedural bake; when a supernova wave
+  // superheats a dozen worlds at once, budget the builds (existing shells are
+  // free — a deferred one just eases in a frame or two later)
+  if(wat>0.01 && (s.wocean || impShellBudget>0)) getWaterOcean(rec).material.opacity=Math.min(1,wat);
   else if(s.wocean) s.wocean.material.opacity=0;
-  if(stm>0.01) getSteamShroud(rec).material.opacity=Math.min(1,stm*1.25);
+  if(stm>0.01 && (s.steam || impShellBudget>0)) getSteamShroud(rec).material.opacity=Math.min(1,stm*1.25);
   else if(s.steam) s.steam.material.opacity=0;
   const magmaHalo=1.6*(0.5*m+0.7*hot), steamHalo=1.2*stm*(1-hot);
   if(magmaHalo>0.001 || steamHalo>0.001){
@@ -1719,6 +1728,7 @@ function impApplyMeltVisual(rec){
     else { h.c.value.copy(_STEAM_HALO); h.p.value=steamHalo; }
   } else if(s.halo) s.halo.material.uniforms.p.value=0;
   if(m<=0 && hot<=0){ if(s.ocean) s.ocean.material.opacity=0; return; }
+  if(!s.ocean && impShellBudget<=0) return;    // defer the bake to a later frame
   const o=getMagmaOcean(rec);
   o.material.opacity=Math.min(1, m*(1.1+0.2*hot));
   o.material.color.setScalar(1.5+0.5*m+1.8*hot);
@@ -2087,8 +2097,22 @@ let _debRemnantGeo=null;
 function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,64,48)); }
 const _ROMAN=['I','II','III','IV'];
 const DEB_ORIGIN=new THREE.Vector3();
+/* The scorched-skin bake (~200 ms of noise painting) is deterministic per
+   (body, salt) — cache it. Cached textures are session-owned: material
+   disposal skips them (userData.scorchCached), so a Heal → re-shatter, the
+   rump, and the blast-wave prebuild all reuse the same bake. */
+function impScorchedSkinCached(rec, salt){
+  const k='s'+(salt||0);
+  rec._scorch=rec._scorch||{};
+  let sk=rec._scorch[k];
+  if(!sk){
+    sk=rec._scorch[k]=impScorchedSkin(rec, salt||0);
+    sk.map.userData={scorchCached:true}; sk.emap.userData={scorchCached:true};   // r132 Texture has no userData
+  }
+  return sk;
+}
 function hotRemnantMat(rec, salt){
-  const skin=impScorchedSkin(rec, salt||0);
+  const skin=impScorchedSkinCached(rec, salt||0);
   skin.map.wrapS=skin.emap.wrapS=THREE.RepeatWrapping;
   skin.map.anisotropy=4; skin.emap.anisotropy=4;
   const mat=new THREE.MeshStandardMaterial({map:skin.map, color:0xffc2a0, roughness:0.9,
@@ -2098,8 +2122,8 @@ function hotRemnantMat(rec, salt){
 }
 function disposeHotRemnantMat(mat){
   if(!mat) return;
-  if(mat.map){ unregCanvasTex(mat.map); mat.map.dispose(); }
-  if(mat.emissiveMap) mat.emissiveMap.dispose();
+  if(mat.map && !(mat.map.userData&&mat.map.userData.scorchCached)){ unregCanvasTex(mat.map); mat.map.dispose(); }
+  if(mat.emissiveMap && !(mat.emissiveMap.userData&&mat.emissiveMap.userData.scorchCached)) mat.emissiveMap.dispose();
   mat.dispose();
 }
 function finishReaccretionStep(D){
@@ -2258,6 +2282,13 @@ function impApplyBlastEnergy(rec, E, source, states){
   impUpdateMelt(rec);
   if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
 }
+/* The blast doesn't hit everything in the same frame: each world's damage is
+   queued and lands with a distance-staggered delay (the radiation/ejecta wave
+   sweeping outward), at most two arrivals per frame. That's both the drama —
+   you watch the wave march through the system — and the perf fix: scar
+   canvases, heat fields and debris-field builds spread over seconds instead
+   of one giant frame hitch. */
+const impBlastQueue=[];
 function impBlastDamage(source, blastE, states, skipOrbitKicks){
   const sourceState=states.get(source)||raStateOf(source);
   const kicks=new Map();
@@ -2265,26 +2296,57 @@ function impBlastDamage(source, blastE, states, skipOrbitKicks){
     if(rec===source || rec.destroyed || impImmune(rec)) continue;
     const st=states.get(rec)||raStateOf(rec);
     const dr=st.r.clone().sub(sourceState.r);
-    const distM=Math.max(1, dr.length()*KM_PER_AU*1000);
+    const dAU=dr.length();
+    const distM=Math.max(1, dAU*KM_PER_AU*1000);
     const Rm=(rec.data.radiusKm||1000)*1000;
     const eAbs=blastE*impBlastAbsorption(rec)*(Rm*Rm)/(4*distM*distM);
     if(!(eAbs>Math.max(1e18,impBindingJ(rec)*1e-8))) continue;
     const dirAU=dr.lengthSq()>1e-18 ? dr.normalize() : new THREE.Vector3(1,0,0);
     const dvKms=Math.min(C_KMS*0.25, Math.sqrt(Math.max(0,2*eAbs*0.012/impBodyMassKg0(rec)))/1000);
     kicks.set(rec,{dirAU:dirAU.clone(),dvKms});
-    impApplyBlastEnergy(rec,eAbs,source,states);
-    if(!skipOrbitKicks && !rec.destroyed && dvKms>1e-6){
-      const dirW=displayVectorFromAU(dirAU).normalize();
-      perturbOrbit(rec,dirW,dvKms);
-    }
+    impBlastQueue.push({rec, source, eAbs, dirAU:dirAU.clone(), dvKms,
+      at: 0.35+Math.min(7, Math.sqrt(Math.max(0.001,dAU))*1.1)});
   }
+  impBlastQueue.sort((a,b)=>a.at-b.at);
   return kicks;
+}
+function impProcessBlastQueue(dt){
+  if(!impBlastQueue.length) return;
+  for(const q of impBlastQueue) q.at-=dt;
+  // ONE wave arrival per frame (they're staggered anyway; a due sibling just
+  // lands a frame later), so a frame never pays for two shatters
+  let fired=0;
+  while(impBlastQueue.length && impBlastQueue[0].at<=0 && fired<1){
+    const q=impBlastQueue.shift();
+    const rec=q.rec;
+    if(rec.destroyed) continue;                    // died to something else meanwhile
+    impWaveShatter=true;                           // wave kills spawn leaner debris fields
+    impApplyBlastEnergy(rec,q.eAbs,q.source,null);
+    impWaveShatter=false;
+    fired++;
+    if(rec.destroyed || !(q.dvKms>1e-6)) continue;
+    if(rec.freeState) rec.freeState.v.addScaledVector(q.dirAU, q.dvKms/KMS_PER_AUYR);
+    else{ const dirW=displayVectorFromAU(q.dirAU).normalize(); perturbOrbit(rec,dirW,q.dvKms); }
+  }
+  // on quiet frames, pre-bake ONE upcoming target's expensive assets (scar
+  // canvases + the scorched-crust bake if it will shatter) so its actual
+  // arrival costs almost nothing
+  if(!fired) for(const q of impBlastQueue){
+    if(q.pb) continue;
+    q.pb=true;
+    const r=q.rec;
+    if(!r.destroyed && !impImmune(r)){
+      getScars(r);
+      if((r.dmgJ||0)+q.eAbs>=impBindingJ(r)) impScorchedSkinCached(r);
+    }
+    break;
+  }
 }
 function freeRaSurvivors(source, states, kicks){
   for(const rec of bodies.slice()){
     if(rec===source || rec.destroyed || rec._generated || impImmune(rec)) continue;
     const st=states.get(rec)||raStateOf(rec);
-    const kick=kicks.get(rec);
+    const kick=kicks&&kicks.get(rec);
     const v=st.v.clone();
     if(kick) v.addScaledVector(kick.dirAU,kick.dvKms/KMS_PER_AUYR);
     if(!rec._preFree) rec._preFree={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:rec.isMoon,
@@ -2310,25 +2372,8 @@ function freeRaSurvivors(source, states, kicks){
    resources, leaving just a tiny collapsed-core ember until 🧽 Heal. ---- */
 const SN_END=75;
 const _snRedTint=new THREE.Color(0xff7038);
-function makeStellarBlast(rec, blastE){
-  const group=new THREE.Object3D();
-  rec.holder.add(group);
-  const R=impRenderRadius(rec)||rec.radius||1;
-  const isStar=rec.data.kind==='star';
-  // core flash — blinding for the first second, gone in a few
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
-    blending:THREE.AdditiveBlending,depthWrite:false}));
-  sp.scale.setScalar(R*3);
-  group.add(sp);
-  // collapsed remnant core — a dense ember that stays after the light show
-  const core=new THREE.Sprite(new THREE.SpriteMaterial({
-    map:glowCanvasTex(isStar?'rgba(215,232,255,1)':'rgba(255,150,80,1)',
-                      isStar?'rgba(110,150,255,0)':'rgba(180,60,20,0)'),
-    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0}));
-  core.scale.setScalar(R*(isStar?0.9:0.7));
-  group.add(core);
-  // shock shell — one fresnel-limb sphere: reads as a luminous expanding ring
-  const shellMat=new THREE.ShaderMaterial({
+function snShellMaterial(){
+  return new THREE.ShaderMaterial({
     uniforms:{ c:{value:new THREE.Color(0xfff2dc)}, p:{value:1.0} },
     vertexShader:`varying vec3 vN; varying vec3 vV;
       void main(){ vN=normalize(normalMatrix*normal);
@@ -2339,26 +2384,9 @@ function makeStellarBlast(rec, blastE){
         float rim=pow(1.0-d,2.4)+0.22*pow(1.0-d,0.7);
         gl_FragColor=vec4(c, rim*p); }`,
     side:THREE.FrontSide, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false});
-  const shell=new THREE.Mesh(new THREE.SphereGeometry(1,48,32), shellMat);
-  shell.scale.setScalar(R*1.2);
-  group.add(shell);
-  // ejecta cloud — static buffers, motion in the shader
-  const N=isStar?(MOBILE_UI?800:1600):(MOBILE_UI?500:1000);
-  const dir=new Float32Array(N*3), spd=new Float32Array(N), seed=new Float32Array(N);
-  for(let i=0;i<N;i++){
-    let x,y,z,l2;
-    do{ x=Math.random()*2-1; y=Math.random()*2-1; z=Math.random()*2-1; l2=x*x+y*y+z*z; }while(l2<1e-4||l2>1);
-    const l=Math.sqrt(l2);
-    dir[i*3]=x/l; dir[i*3+1]=y/l; dir[i*3+2]=z/l;
-    // a few percent race ahead as fast filaments; the bulk drifts behind the shell
-    spd[i]=Math.random()<0.07 ? 1.05+Math.random()*0.75 : 0.25+0.75*Math.pow(Math.random(),0.7);
-    seed[i]=Math.random();
-  }
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(dir,3));  // unit dirs; true pos computed in-shader
-  g.setAttribute('aSpd', new THREE.BufferAttribute(spd,1));
-  g.setAttribute('aSeed', new THREE.BufferAttribute(seed,1));
-  const mat=new THREE.ShaderMaterial({
+}
+function snEjectaMaterial(R){
+  return new THREE.ShaderMaterial({
     uniforms:{ uT:{value:0}, uK:{value:0}, uR:{value:R}, uScaleH:{value:600} },
     vertexShader:
       'attribute float aSpd; attribute float aSeed;\n'+
@@ -2385,6 +2413,61 @@ function makeStellarBlast(rec, blastE){
       '  float a=d*(0.9-0.88*uK)*(0.55+0.45*vSeed);\n'+
       '  gl_FragColor=vec4(col*(0.7+0.6*vSeed), a); }',
     transparent:true, depthWrite:false, blending:THREE.AdditiveBlending});
+}
+/* compile the blast shaders ahead of time — otherwise the very first supernova
+   pays the GLSL compile+link right in the middle of its opening frame */
+function snPrewarm(){
+  if(snPrewarm._done || !renderer) return; snPrewarm._done=true;
+  const sc=new THREE.Scene();
+  const sh=new THREE.Mesh(new THREE.SphereGeometry(1,4,3), snShellMaterial());
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,0,0]),3));
+  g.setAttribute('aSpd', new THREE.BufferAttribute(new Float32Array([1]),1));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(new Float32Array([1]),1));
+  const pts=new THREE.Points(g, snEjectaMaterial(1));
+  sc.add(sh); sc.add(pts);
+  renderer.compile(sc,camera);
+  sh.geometry.dispose(); sh.material.dispose(); g.dispose(); pts.material.dispose();
+}
+function makeStellarBlast(rec, blastE){
+  const group=new THREE.Object3D();
+  rec.holder.add(group);
+  const R=impRenderRadius(rec)||rec.radius||1;
+  const isStar=rec.data.kind==='star';
+  // core flash — blinding for the first second, gone in a few
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+  sp.scale.setScalar(R*3);
+  group.add(sp);
+  // collapsed remnant core — a dense ember that stays after the light show
+  const core=new THREE.Sprite(new THREE.SpriteMaterial({
+    map:glowCanvasTex(isStar?'rgba(215,232,255,1)':'rgba(255,150,80,1)',
+                      isStar?'rgba(110,150,255,0)':'rgba(180,60,20,0)'),
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0}));
+  core.scale.setScalar(R*(isStar?0.9:0.7));
+  group.add(core);
+  // shock shell — one fresnel-limb sphere: reads as a luminous expanding ring
+  const shellMat=snShellMaterial();
+  const shell=new THREE.Mesh(new THREE.SphereGeometry(1,48,32), shellMat);
+  shell.scale.setScalar(R*1.2);
+  group.add(shell);
+  // ejecta cloud — static buffers, motion in the shader
+  const N=isStar?(MOBILE_UI?800:1600):(MOBILE_UI?500:1000);
+  const dir=new Float32Array(N*3), spd=new Float32Array(N), seed=new Float32Array(N);
+  for(let i=0;i<N;i++){
+    let x,y,z,l2;
+    do{ x=Math.random()*2-1; y=Math.random()*2-1; z=Math.random()*2-1; l2=x*x+y*y+z*z; }while(l2<1e-4||l2>1);
+    const l=Math.sqrt(l2);
+    dir[i*3]=x/l; dir[i*3+1]=y/l; dir[i*3+2]=z/l;
+    // a few percent race ahead as fast filaments; the bulk drifts behind the shell
+    spd[i]=Math.random()<0.07 ? 1.05+Math.random()*0.75 : 0.25+0.75*Math.pow(Math.random(),0.7);
+    seed[i]=Math.random();
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(dir,3));  // unit dirs; true pos computed in-shader
+  g.setAttribute('aSpd', new THREE.BufferAttribute(spd,1));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed,1));
+  const mat=snEjectaMaterial(R);
   const points=new THREE.Points(g,mat); points.frustumCulled=false;
   group.add(points);
   stellarBlasts.push({rec,group,sp,core,shell,shellMat,points,g,mat,t:0,R,blastE,done:false,
@@ -2437,12 +2520,10 @@ function shatterStellar(rec){
   }
   if(rec.data.kind==='star' && beltObj) beltObj.pts.visible=false;   // the swarm is vaporized
   makeStellarBlast(rec,blastE);
-  // one star-death can shatter many worlds in the same frame — while it does,
-  // each planet skips its own screen-filling flash/shock and trims its burst
-  impMassEvent=true;
-  const kicks=impBlastDamage(rec,blastE,states,rec.data.kind==='star');
-  impMassEvent=false;
-  if(rec.data.kind==='star') freeRaSurvivors(rec,states,kicks);
+  // queue the outward-sweeping damage wave (arrivals staggered by distance);
+  // survivors of a star death are unbound NOW — their kick lands with the wave
+  impBlastDamage(rec,blastE,states,rec.data.kind==='star');
+  if(rec.data.kind==='star') freeRaSurvivors(rec,states,null);
   else liberateMoons(rec);
   updateNavStatus(rec);
   const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data)+' ☠';
@@ -2458,8 +2539,9 @@ function shatterBody(rec){
   const U=impBindingJ(rec), shatterE=Math.max(U, rec.dmgJ||0);
   const over=Math.max(1, shatterE/U);
   const burstK=Math.min(9, Math.max(1, Math.pow(over,0.18)));
-  if(!impMassEvent){ spawnFlash(wp,R*(2.0+0.6*burstK),shatterE); spawnShock(wp,R*(1.7+0.45*burstK),shatterE); }
-  emitBurst(wp, impMassEvent?120:800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
+  spawnFlash(wp,R*(2.0+0.6*burstK),shatterE);
+  spawnShock(wp,R*(1.7+0.45*burstK),shatterE);
+  emitBurst(wp, impWaveShatter?300:800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
     R*(1.4+0.55*burstK), R*(0.12+0.025*burstK), 2.2+0.25*burstK);
   // hide the world + everything stuck to it (atmosphere, scar overlays)
   for(const ch of rec.mesh.children) ch.visible=false;
@@ -2537,8 +2619,10 @@ function makeShardGeo(dir, angR, k, depth, R){
    own map charred nearly black, with molten cracks glowing through it —
    no surviving oceans or forests. */
 function impScorchedSkin(rec, salt){
-  // 512×256 — shards are small; full res cost a visible hitch on tablets
-  const W=512,H=256, c=newCanvas(W,H), ec=newCanvas(W,H);
+  // 256×128 — shards are small tumbling rocks; the bake is the single biggest
+  // shatter cost (was ~200 ms at 512², ~55 ms here) and the crack detail
+  // still reads at shard scale
+  const W=256,H=128, c=newCanvas(W,H), ec=newCanvas(W,H);
   const seed=(((rec.data.key||'x').split('').reduce((a,ch)=>a*31+ch.charCodeAt(0),7)>>>0) ^ (salt||0))>>>0;
   const paint=function(){
     const ctx=c.getContext('2d');
@@ -2610,12 +2694,14 @@ function makeDebrisField(rec){
   // kind 'gasgiant' but mostly rock (debrisGas 0.4) and breaks into slabs.
   const shardGeos=[]; let outerMat=null;
   if(gas<0.85){
-    const skin=impScorchedSkin(rec);     // charred crust with molten cracks — not the living surface
+    const skin=impScorchedSkinCached(rec);   // charred crust with molten cracks — not the living surface
     skin.map.wrapS=THREE.RepeatWrapping; skin.emap.wrapS=THREE.RepeatWrapping;
     outerMat=new THREE.MeshStandardMaterial({map:skin.map, roughness:1.0,
       emissive:0xffffff, emissiveMap:skin.emap, emissiveIntensity:2.2});
     outerMat.userData.emberBase=2.2;
-    const NS=Math.round(30*(1-0.5*gas)*(MOBILE_UI?0.65:1));   // fewer draw calls on tablets
+    // fewer draw calls on tablets; leaner still when a supernova wave is felling
+    // many worlds (a dozen debris fields would otherwise stack up their meshes)
+    const NS=Math.round(30*(1-0.5*gas)*(MOBILE_UI?0.65:1)*(impWaveShatter?0.6:1));
     const GA=Math.PI*(3-Math.sqrt(5));
     for(let i=0;i<NS;i++){
       const y=1-2*(i+0.5)/NS, rr=Math.sqrt(Math.max(0,1-y*y)), a=GA*i;
@@ -2634,7 +2720,7 @@ function makeDebrisField(rec){
     }
   }
   // small rubble between the slabs (generic hot rocks, impact-driven too)
-  const NCH=Math.round((shardGeos.length?18:46)*(1-0.72*gas)*(MOBILE_UI?0.65:1));
+  const NCH=Math.round((shardGeos.length?18:46)*(1-0.72*gas)*(MOBILE_UI?0.65:1)*(impWaveShatter?0.6:1));
   const szF=1-0.35*gas;
   for(let i=0;i<NCH;i++){
     const m=new THREE.Mesh(geos[i%3], chunkMat);
@@ -2887,8 +2973,10 @@ function removeDebrisField(rec){
     rec.mesh.remove(D.group);
     for(const g of D.geos) g.dispose();
     for(const g of (D.shardGeos||[])) g.dispose();
-    if(D.outerMat){ if(D.outerMat.map){ unregCanvasTex(D.outerMat.map); D.outerMat.map.dispose(); }
-      if(D.outerMat.emissiveMap) D.outerMat.emissiveMap.dispose(); D.outerMat.dispose(); }
+    if(D.outerMat){
+      if(D.outerMat.map && !(D.outerMat.map.userData&&D.outerMat.map.userData.scorchCached)){ unregCanvasTex(D.outerMat.map); D.outerMat.map.dispose(); }
+      if(D.outerMat.emissiveMap && !(D.outerMat.emissiveMap.userData&&D.outerMat.emissiveMap.userData.scorchCached)) D.outerMat.emissiveMap.dispose();
+      D.outerMat.dispose(); }
     if(D.rumpMats) for(const mat of D.rumpMats) disposeHotRemnantMat(mat);
     else if(D.rumpMat) disposeHotRemnantMat(D.rumpMat);
     D.chunkMat.dispose();
@@ -2910,6 +2998,7 @@ function removeDebrisField(rec){
 }
 
 function impHeal(){
+  impBlastQueue.length=0;                    // cancel any still-travelling blast wave
   for(const rec of bodies){
     if(!rec._preFree) continue;
     const P=rec._preFree;
@@ -3192,6 +3281,8 @@ function placeCyl(mesh,a,b,r){
 
 /* ---- per-frame update (wall-clock dt) ---- */
 function updateImpacts(dt){
+  impShellBudget=1;                          // one first-time shell bake per frame
+  impProcessBlastQueue(dt);                  // staggered supernova damage wave
   // asteroids (iterate backwards: strikes splice)
   for(let i=impAsteroids.length-1;i>=0;i--){
     const a=impAsteroids[i];
@@ -3425,9 +3516,7 @@ function updateImpacts(dt){
     impStepHeat(s,surfaceDt);
     if(s.heat && (s.heatDirty || s.heatActive)){
       s.heatPaintT+=dt;
-      if(s.heatDirty && (s.heatPaintT>0.12 || !s.heatActive)){
-        impPaintHeat(rec,s,false); s.heatPaintT=0;
-      }
+      if(s.heatDirty && (s.heatPaintT>0.12 || !s.heatActive)) _heatPaintQ.push(rec);
     }
     impEaseMeltVisual(rec,surfaceDt);
     // batched scar uploads: canvas paints are cheap, GPU re-uploads are not —
@@ -3446,6 +3535,15 @@ function updateImpacts(dt){
       g.globalAlpha=Math.min(0.9,0.28*s.coolT); g.fillRect(0,0,s.glowC.width,s.glowC.height); g.restore();
       s.glowT.needsUpdate=true; s.coolT=0;
     }
+  }
+  // Heat overlays: the canvas repaint + 2 GPU texture uploads per body are the
+  // real cost, and a supernova can leave a dozen worlds glowing at once. Budget:
+  // only the longest-waiting few repaint per frame — the rest catch up next frames.
+  if(_heatPaintQ.length){
+    _heatPaintQ.sort((a,b)=>b.scar.heatPaintT-a.scar.heatPaintT);
+    const n=Math.min(_heatPaintQ.length, MOBILE_UI?2:3);
+    for(let i=0;i<n;i++){ const r=_heatPaintQ[i]; impPaintHeat(r,r.scar,false); r.scar.heatPaintT=0; }
+    _heatPaintQ.length=0;
   }
   // keep an open info panel's live mass row current while material boils off
   impInfoT+=dt;
@@ -3476,10 +3574,15 @@ function enterImpact(){
   if(flying) exitFly();
   impRockTex();                 // kick off the rock-texture load before anything fires
   astRockGeos(); astMaterial(); astGlowMat();   // warm the asteroid pools (no first-shot hitch)
+  snPrewarm();                  // compile the supernova shaders before the first blast
   // warm the focused body's scar canvases now — the first strike on a body otherwise
   // builds 3 canvases + 3 textures + 3 overlay spheres in one frame (a visible hitch)
   const fr=bodies.find(b=>b.data.key===selected);
-  if(fr && !impImmune(fr) && !fr.destroyed) getScars(fr);
+  if(fr && !impImmune(fr) && !fr.destroyed){
+    getScars(fr);
+    // bake the scorched crust off the click path — a first shatter otherwise pays ~200 ms
+    setTimeout(function(){ if(!fr.destroyed && !impIsStellar(fr)) impScorchedSkinCached(fr); }, 250);
+  }
   impacting=true;
   document.getElementById('implab').classList.add('on');
   const b=document.getElementById('t-impact'); if(b) b.classList.add('on');
