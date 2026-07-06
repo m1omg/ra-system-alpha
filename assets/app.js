@@ -1172,13 +1172,21 @@ function updateEvapTails(simDt, substep){   // simDt = sim-years advanced this f
       let n=Math.floor(t.emitAcc); t.emitAcc-=n;
       if(n>EVAP_MAX_EMIT){ n=EVAP_MAX_EMIT; t.emitAcc=0; }
       const dM=rec.M-t.prevM;
+      // N-body / free bodies: Kepler elements are stale — emit along the segment the
+      // holder actually travelled this frame instead of the element-predicted arc
+      const live=!!(rec.nb||rec.freeState);
+      if(!t.prevPos) t.prevPos=rec.holder.position.clone();
       for(let k=0;k<n;k++){
         const i=t.head; t.head=(t.head+1)%EVAP_N;
         const f=(k+1)/n;
+        if(live){
+          _evP.copy(t.prevPos).lerp(rec.holder.position,f).add(bp);
+        }else{
         // planet position at this sub-step (same Kepler math as positionBody)
         const M=(t.prevM+dM*f)%(Math.PI*2);
         const E=kepler(M,rec.e), a=rec.aDisp, b=a*Math.sqrt(1-rec.e*rec.e);
         _evP.set(a*(Math.cos(E)-rec.e),0,b*Math.sin(E)).applyQuaternion(rec.q).add(bp);
+        }
         _evD.copy(_evP).normalize();                       // anti-starward (star at origin)
         _evR.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
         _evR.addScaledVector(_evD,0.9).normalize();        // spawn biased to the night-side limb
@@ -1193,6 +1201,7 @@ function updateEvapTails(simDt, substep){   // simDt = sim-years advanced this f
         t.size[i]=tailLen*0.0125*(0.9+0.8*Math.random());  // ∝ tail length (matches Amunet's tuned look)
       }
       t.prevM=rec.M;
+      if(t.prevPos) t.prevPos.copy(rec.holder.position);
       for(let i=0;i<EVAP_N;i++) t.age01[i]=Math.min(1, t.ageYr[i]/t.lifeYr[i]);
       t.g.attributes.position.needsUpdate=true;
       t.g.attributes.aAge.needsUpdate=true;
@@ -3737,6 +3746,95 @@ let _nbF=null;                           // flat scratch arrays for the integrat
 const _nbV=new THREE.Vector3();
 function nbStar(){ return bodies.find(b=>b.data.kind==='star'); }
 function nbList(){ return bodies.filter(b=>b.nb); }
+/* ---- Universe-Sandbox-style trails: under real gravity the Kepler ellipses
+   are stale, so ◉ Orbits instead shows each body's actual recent path — a
+   ring of its last ~360 sampled positions (star-relative), sampled every
+   ~1/300th of its current orbit radius so one buffer ≈ one revolution. ---- */
+const NB_TRAIL_N=360;
+function nbTrailFor(rec){
+  if(rec._trail) return rec._trail;
+  const g=new THREE.BufferGeometry();
+  const pos=new Float32Array(NB_TRAIL_N*3);
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
+  g.setDrawRange(0,0);
+  const m=new THREE.LineBasicMaterial({color:new THREE.Color(rec.data.color||0x88aaff),
+    transparent:true, opacity:0.45});
+  const line=new THREE.Line(g,m);
+  line.frustumCulled=false;
+  sunHolder.add(line);
+  rec._trail={line,g,pos,count:0,last:new THREE.Vector3(1e9,1e9,1e9)};
+  return rec._trail;
+}
+function nbTrailSample(rec){
+  const t=nbTrailFor(rec), p=rec.holder.position;
+  const r=Math.max(1,p.length());
+  if(t.last.distanceToSquared(p) < (0.02*r)*(0.02*r)) return;
+  t.last.copy(p);
+  if(t.count<NB_TRAIL_N) t.count++;
+  else t.pos.copyWithin(0,3);                       // drop the oldest point
+  const i=(t.count-1)*3;
+  t.pos[i]=p.x; t.pos[i+1]=p.y; t.pos[i+2]=p.z;
+  t.g.attributes.position.needsUpdate=true;
+  t.g.setDrawRange(0,t.count);
+}
+function nbTrailsVisible(v){
+  for(const rec of bodies) if(rec._trail) rec._trail.line.visible=v;
+}
+function nbTrailsDispose(){
+  for(const rec of bodies){
+    if(!rec._trail) continue;
+    sunHolder.remove(rec._trail.line);
+    rec._trail.g.dispose(); rec._trail.line.material.dispose();
+    rec._trail=null;
+  }
+}
+/* ---- live osculating elements for the info panel: under real gravity the
+   book values are just initial conditions, so show what the body is doing
+   NOW — dominant attractor (strongest pull wins: a captured moon reports its
+   new parent), semi-major axis, eccentricity, period — refreshed every ½ s. */
+function nbDominantParent(rec){
+  let best=null, acc=0;
+  for(const b of nbList()){
+    if(b===rec || b.destroyed) continue;
+    const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
+    const a=b.nb.gm/d2;
+    if(a>acc){ acc=a; best=b; }
+  }
+  return best;
+}
+function nbLiveOrbitTxt(rec){
+  const p=nbDominantParent(rec); if(!p) return null;
+  const mu=p.nb.gm+rec.nb.gm;
+  const r=rec.nb.r.clone().sub(p.nb.r), v=rec.nb.v.clone().sub(p.nb.v);
+  const rl=r.length(), v2=v.lengthSq();
+  const a=1/(2/rl - v2/mu);
+  const ev=r.clone().multiplyScalar(v2-mu/rl).addScaledVector(v,-r.dot(v)).multiplyScalar(1/mu);
+  const e=ev.length();
+  const name=locName(p.data);
+  if(!(a>0) || e>=1)
+    return name+' · '+(LANG==='sk'?'neviazaná':'unbound')+' (e='+e.toFixed(2)+')';
+  const P=2*Math.PI*Math.sqrt(a*a*a/mu);               // yr (Kepler III with this mu)
+  const aTxt=a>=0.01 ? (+a.toPrecision(4))+' AU' : Math.round(a*KM_PER_AU).toLocaleString()+' km';
+  const pTxt=P>=1 ? (+P.toPrecision(3))+' '+T('e-yr') : (+(P*365.25).toPrecision(3))+' d';
+  return name+' · a='+aTxt+' · e='+e.toFixed(3)+' · P='+pTxt;
+}
+let _nbInfoT=0;
+function nbInfoTick(){
+  if(!nbodyOn || !APP.currentData) return;
+  if(!document.getElementById('info').classList.contains('open')) return;
+  const rec=bodies.find(b=>b.data.key===APP.currentData.key);
+  if(!rec || !rec.nb || rec.destroyed || rec.data.kind==='star') return;
+  const t=document.getElementById('i-stats'); if(!t) return;
+  let cell=document.getElementById('i-nb-orbit');
+  if(!cell){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>🌌 '+(LANG==='sk'?'Dráha teraz':'Live orbit')+'</td><td id="i-nb-orbit"></td>';
+    t.appendChild(tr);
+    cell=document.getElementById('i-nb-orbit');
+  }
+  const txt=nbLiveOrbitTxt(rec);
+  if(txt!=null) cell.textContent=txt;
+}
 function nbEnable(){
   if(nbodyOn) return;
   nbodyOn=true;
@@ -3770,7 +3868,12 @@ function nbEnable(){
   for(const b of list){ gmT+=b.nb.gm; pv.addScaledVector(b.nb.v, b.nb.gm); }
   if(gmT>0){ pv.multiplyScalar(1/gmT); for(const b of list) b.nb.v.sub(pv); }
   nbSyncHolders();
-  const btn=document.getElementById('t-nbody'); if(btn) btn.classList.add('on');
+  nbBtnState();
+}
+function nbBtnState(){
+  const btn=document.getElementById('t-nbody'); if(!btn) return;
+  btn.classList.toggle('on', nbodyOn);
+  btn.textContent='🌌 N-body: '+(nbodyOn?'ON':'OFF');
 }
 function nbDisable(){
   if(!nbodyOn) return;
@@ -3816,7 +3919,8 @@ function nbDisable(){
     if(rec.orbitLine) rec.orbitLine.visible=showOrbits;
     positionBody(rec);
   }
-  const btn=document.getElementById('t-nbody'); if(btn) btn.classList.remove('on');
+  nbTrailsDispose();
+  nbBtnState();
 }
 function toggleNbody(){ nbodyOn ? nbDisable() : nbEnable(); }
 /* position holders star-relative so the scene stays centred on the star */
@@ -3827,6 +3931,7 @@ function nbSyncHolders(){
     if(!rec.nb || rec===star) continue;
     _nbV.copy(rec.nb.r); if(sr) _nbV.sub(sr);
     rec.holder.position.copy(displayVectorFromAU(_nbV));
+    if(showOrbits) nbTrailSample(rec);
   }
 }
 /* leapfrog (KDK) over flat arrays — no per-step allocation */
@@ -4001,12 +4106,82 @@ function crUpdateUI(){
   g('cr-e-v').textContent=(+g('cr-e').value/100).toFixed(2);
   g('cr-i-v').textContent=g('cr-i').value+'°';
 }
+/* ---- 🎯 place-by-click: arm, then click the ecliptic to drop the new world
+   there — orbit radius AND starting longitude come from the click point ---- */
+let crPlaceArmed=false;
+function crSetPlaceArmed(v){
+  crPlaceArmed=v;
+  const b=document.getElementById('cr-place'); if(b) b.classList.toggle('on',v);
+  if(renderer) renderer.domElement.style.cursor=v?'crosshair':'';
+}
+const _crPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+function crPlaceAt(e){
+  crSetPlaceArmed(false);
+  const rect=renderer.domElement.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  ray.setFromCamera(mouse,camera);
+  const hit=new THREE.Vector3();
+  if(!ray.ray.intersectPlane(_crPlane,hit)) return;
+  const dScene=hit.length();
+  const au=realScale ? dScene/AU_UNIT : Math.pow(dScene/DIST_K, 1/DIST_P);
+  if(!(au>0.005 && au<90)) return;             // inside the star / deep interstellar: ignore
+  const g=id=>document.getElementById(id);
+  // node=0 + M=click longitude puts the world (e≈0) right where you clicked
+  const theta=Math.atan2(hit.z,hit.x);
+  createCustomBody({ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
+    massKg:crMassKg(+g('cr-mass').value), radiusKm:crRadKm(+g('cr-rad').value),
+    a:au, e:+g('cr-e').value/100, incl:+g('cr-i').value, node:0, M:theta });
+  g('cr-name').value='';
+  g('cr-a').value=Math.max(0,Math.min(100, 100*Math.log10(au/0.02)/3.6));
+  crUpdateUI();
+}
+/* ---- click a slider's value readout to TYPE the number instead ---- */
+function makeTypable(valId, sliderId, invFn, refreshFn){
+  const span=document.getElementById(valId), sl=document.getElementById(sliderId);
+  if(!span||!sl) return;
+  sl.step='any';                 // typed values must not snap to integer slider steps
+  span.style.cursor='text';
+  span.title='Click to type an exact value';
+  span.addEventListener('click', function(){
+    if(span.querySelector('input')) return;
+    const cur=span.textContent;
+    span.textContent='';
+    const inp=document.createElement('input');
+    inp.type='text'; inp.placeholder=cur;
+    inp.style.cssText='width:100%;box-sizing:border-box;background:#0d1526;border:1px solid #2a3a5a;'+
+      'border-radius:4px;color:#dce6ff;padding:1px 4px;font:inherit;text-align:right';
+    span.appendChild(inp); inp.focus();
+    let closed=false;
+    const done=commit=>{
+      if(closed) return; closed=true;
+      const txt=inp.value.trim();
+      span.removeChild(inp);
+      if(commit && txt){
+        const num=parseFloat(txt.replace(',','.'));
+        if(isFinite(num)){
+          sl.value=Math.max(+sl.min, Math.min(+sl.max, invFn(num)));
+        }
+      }
+      refreshFn();
+    };
+    inp.addEventListener('keydown',e=>{
+      if(e.key==='Enter') done(true);
+      else if(e.key==='Escape') done(false);
+      e.stopPropagation();
+    });
+    inp.addEventListener('blur',()=>done(true));
+  });
+}
 function setupCreateLab(){
   const g=id=>document.getElementById(id);
   if(!g('createlab')) return;
   const tbtn=g('t-create');
   const toggle=()=>{ g('createlab').classList.toggle('on');
-    if(tbtn) tbtn.classList.toggle('on', g('createlab').classList.contains('on')); crUpdateUI(); };
+    const open=g('createlab').classList.contains('on');
+    if(tbtn) tbtn.classList.toggle('on', open);
+    if(!open) crSetPlaceArmed(false);
+    crUpdateUI(); };
   if(tbtn) tbtn.onclick=toggle;
   g('cr-exit').onclick=toggle;
   g('cr-kind').onclick=()=>{ crKindI=(crKindI+1)%CR_KINDS.length; crUpdateUI(); };
@@ -4018,7 +4193,17 @@ function setupCreateLab(){
       a:crAAU(+g('cr-a').value), e:+g('cr-e').value/100, incl:+g('cr-i').value });
     g('cr-name').value='';
   };
+  const pb=g('cr-place'); if(pb) pb.onclick=()=>crSetPlaceArmed(!crPlaceArmed);
+  window.addEventListener('keydown',e=>{ if(e.code==='Escape'&&crPlaceArmed) crSetPlaceArmed(false); });
+  // every value readout is typable — click it and enter the exact number
+  makeTypable('cr-mass-v','cr-mass', n=>{           // plain numbers are Earth masses; huge ones are kg
+    const kg=n>1e6?n:n*5.972e24; return 100*Math.log10(kg/1e20)/10.3; }, crUpdateUI);
+  makeTypable('cr-rad-v','cr-rad', n=>100*Math.log10(n/200)/2.9, crUpdateUI);
+  makeTypable('cr-a-v','cr-a',     n=>100*Math.log10(n/0.02)/3.6, crUpdateUI);
+  makeTypable('cr-e-v','cr-e',     n=>n*100, crUpdateUI);
+  makeTypable('cr-i-v','cr-i',     n=>n, crUpdateUI);
   const nb=g('t-nbody'); if(nb) nb.onclick=toggleNbody;
+  nbBtnState();
   crUpdateUI();
 }
 
@@ -4048,6 +4233,7 @@ function animate(){
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
   lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
+  _nbInfoT+=dt; if(_nbInfoT>=0.5){ _nbInfoT=0; nbInfoTick(); }   // live osculating elements
   updateEvapTails(lastSimDtYears);
   updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
@@ -4174,6 +4360,7 @@ function setupInteraction(){
   dom.addEventListener('pointerup',e=>{ pdown=false;
     if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
     if(moved) return;
+    if(crPlaceArmed && !flying && e.button===0){ crPlaceAt(e); return; }   // 🎯 place a custom body
     if(flying){ setFlyTarget(pickNear(e)); }   // tap a world (tiny dots too) to target it
     else if(impacting){                        // impact mode: a left-click strikes instead of focusing
       if(impWeapon==='asteroid' && e.button===0){
@@ -4209,7 +4396,8 @@ function setupInteraction(){
     try{ sfxOn=localStorage.getItem('ra-sfx')!=='0'; }catch(_){ sfxOn=true; }   // on by default
     sx.classList.toggle('on',sfxOn); }
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
-    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits&&!b.nb; };  // nb: Kepler ellipses are stale
+    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits&&!b.nb;   // nb: Kepler ellipses are stale
+    nbTrailsVisible(showOrbits); };                                                 // …trails carry the job instead
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);
     labelLayer.style.display=showLabels?'block':'none'; };
   document.getElementById('reset').onclick=resetView;
@@ -4232,6 +4420,10 @@ function setupInteraction(){
   for(const id of ['imp-dia','imp-spd','imp-pow']){
     const el=document.getElementById(id); if(el) el.oninput=updateImpactUI;
   }
+  // click a readout to type the exact figure (km, km/s, W — e-notation ok)
+  makeTypable('imp-dia-v','imp-dia', n=>100*Math.log(n/0.1)/Math.log(20000), updateImpactUI);
+  makeTypable('imp-spd-v','imp-spd', n=>100*Math.log(n/11)/Math.log(30000/11), updateImpactUI);
+  makeTypable('imp-pow-v','imp-pow', n=>Math.log10(n/1e12)/0.30, updateImpactUI);
   const impH=document.getElementById('imp-heal'); if(impH) impH.onclick=impHeal;
   const impS=document.getElementById('imp-surface'); if(impS) impS.onclick=toggleSurfaceView;
   const impX=document.getElementById('imp-exit'); if(impX) impX.onclick=exitImpact;

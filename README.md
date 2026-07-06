@@ -20,6 +20,13 @@ and experimental editions keep the curated fictional-system experience.
   mass (up to stellar), radius and orbit, and they become first-class citizens — clickable,
   labelled, in the sidebar, damageable, and (with N-body on) a real gravitational actor
   that can destabilise the whole system. Custom worlds persist in your browser.
+  **🎯 Place by click** (experimental) drops the new world right where you click on the
+  orbital plane, and **every slider readout is typable** — click the value in the create
+  panel or the impact lab and enter the exact number (e-notation works).
+- **Live trails & elements** — with N-body on, ◉ Orbits shows each body's actual
+  recent path (Universe-Sandbox-style trails) instead of the stale Kepler ellipses, and
+  the info panel gains a 🌌 *Live orbit* row: current gravitational parent, osculating
+  semi-major axis, eccentricity and period, refreshed twice a second.
 - **Physical supernova timing** — the blast propagates on sim time at physical speed:
   the radiation front at *c*, the matter shock at 0.1 *c* (see below).
 

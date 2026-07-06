@@ -309,7 +309,7 @@
   <button id="reset" class="btn">⟲ Reset view</button>
   <button id="t-fly" class="btn" title="Free-roam flight (real scale)">🚀 Fly</button>
   <button id="t-impact" class="btn" title="Impact lab — customizable asteroid strikes &amp; laser">💥 Impact</button>
-  <button id="t-nbody" class="btn" title="Real N-body gravity — every world attracts every other with true masses (forces Real scale; moons run on physical orbits)">🌌 N-body</button>
+  <button id="t-nbody" class="btn" title="Real N-body gravity — every world attracts every other with true masses (forces Real scale; moons run on physical orbits)">🌌 N-body: OFF</button>
   <button id="t-create" class="btn" title="Create a custom planet — pick mass, size and orbit, then watch it perturb the system under N-body gravity">➕ Create</button>
   <button id="t-sfx" class="btn" title="Sound effects — not realistic (space is silent), but rule of cool">🔊 SFX</button>
   <button id="t-system" class="btn" title="Switch between the fictional Ra system and our real Solar System">⇄ 🌍 Solar System</button>
@@ -332,8 +332,8 @@
   <div class="improw"><label id="lbl-cr-a">Orbit a</label><input id="cr-a" type="range" min="0" max="100" value="42"><span class="val" id="cr-a-v">—</span></div>
   <div class="improw"><label id="lbl-cr-e">Eccentr.</label><input id="cr-e" type="range" min="0" max="88" value="5"><span class="val" id="cr-e-v">—</span></div>
   <div class="improw"><label id="lbl-cr-i">Incline</label><input id="cr-i" type="range" min="0" max="60" value="3"><span class="val" id="cr-i-v">—</span></div>
-  <div class="improw"><button id="cr-add" class="btn" style="flex:1">➕ Add body</button></div>
-  <div class="improw hint" id="cr-hint">Custom worlds persist in this browser · turn on 🌌 N-body to let them pull on everything else</div>
+  <div class="improw"><button id="cr-add" class="btn" style="flex:1">➕ Add body</button><button id="cr-place" class="btn" title="Arm, then click anywhere on the orbital plane to drop the body there (experimental)" style="flex:1">🎯 Place by click</button></div>
+  <div class="improw hint" id="cr-hint">Custom worlds persist in this browser · click any value to type it · turn on 🌌 N-body to let them pull on everything else</div>
 </div>
 
 <div id="implab" class="panel">
