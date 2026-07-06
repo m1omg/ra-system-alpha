@@ -101,15 +101,15 @@
   #flyhud .hint{font-size:10px;color:var(--dim);opacity:.6;flex-wrap:wrap;line-height:1.5}
 
   /* ---------- Impact lab (💥) ---------- */
-  #implab{top:16px;left:50%;transform:translateX(-50%);width:min(470px,92vw);padding:10px 13px;display:none;z-index:26}
-  #implab.on{display:flex;flex-direction:column;gap:7px}
-  #implab .improw{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
-  #implab .improw b{color:var(--hot);font-weight:600;letter-spacing:.04em;margin-right:auto}
-  #implab label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;min-width:58px}
-  #implab input[type=range]{flex:1}
-  #implab .val{min-width:84px;text-align:right;color:var(--accent2);font-variant-numeric:tabular-nums;white-space:nowrap}
+  #implab,#createlab{top:16px;left:50%;transform:translateX(-50%);width:min(470px,92vw);padding:10px 13px;display:none;z-index:26}
+  #implab.on,#createlab.on{display:flex;flex-direction:column;gap:7px}
+  #implab .improw,#createlab .improw{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  #implab .improw b,#createlab .improw b{color:var(--hot);font-weight:600;letter-spacing:.04em;margin-right:auto}
+  #implab label,#createlab label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;min-width:58px}
+  #implab input[type=range],#createlab input[type=range]{flex:1}
+  #implab .val,#createlab .val{min-width:84px;text-align:right;color:var(--accent2);font-variant-numeric:tabular-nums;white-space:nowrap}
   #implab #imp-energy{font-size:11px;color:var(--hot);letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #implab .hint{font-size:10px;color:var(--dim);opacity:.6;flex-wrap:wrap;line-height:1.5}
+  #implab .hint,#createlab .hint{font-size:10px;color:var(--dim);opacity:.6;flex-wrap:wrap;line-height:1.5}
 
   /* ---------- Info panel ---------- */
   /* slide via transform (not a negative `right`, which would push the page
@@ -309,6 +309,8 @@
   <button id="reset" class="btn">⟲ Reset view</button>
   <button id="t-fly" class="btn" title="Free-roam flight (real scale)">🚀 Fly</button>
   <button id="t-impact" class="btn" title="Impact lab — customizable asteroid strikes &amp; laser">💥 Impact</button>
+  <button id="t-nbody" class="btn" title="Real N-body gravity — every world attracts every other with true masses (forces Real scale; moons run on physical orbits)">🌌 N-body</button>
+  <button id="t-create" class="btn" title="Create a custom planet — pick mass, size and orbit, then watch it perturb the system under N-body gravity">➕ Create</button>
   <button id="t-sfx" class="btn" title="Sound effects — not realistic (space is silent), but rule of cool">🔊 SFX</button>
   <button id="t-system" class="btn" title="Switch between the fictional Ra system and our real Solar System">⇄ 🌍 Solar System</button>
   <button id="t-lang" class="btn" title="Slovenčina / English">🌐 SK</button>
@@ -320,6 +322,18 @@
   <div class="flyrow"><button id="fly-fwd" class="btn sm" title="Thrust forward (hold)">▲</button><button id="fly-back" class="btn sm" title="Reverse (hold)">▼</button><button id="fly-goto" class="btn sm">⤳ Go&nbsp;to</button><button id="fly-follow" class="btn sm" title="Follow the target as it orbits (F)">⛓ Follow</button><button id="fly-orient" class="btn sm">◎ Orient</button><button id="fly-brake" class="btn sm">⏹ Brake</button></div>
   <div class="flyrow tgt"><span id="fly-target">◎ no target — click a world</span><span id="fly-eta"></span></div>
   <div class="flyrow hint" id="fly-hint">W/S or ↑↓ fly · A/D or ←→ strafe · PgUp/PgDn or R = up·down · drag = look · Q/E roll · wheel = speed · F = follow · click a world (again = go to) · Esc exit</div>
+</div>
+
+<div id="createlab" class="panel">
+  <div class="improw"><b id="cr-title">➕ Create a body</b><button id="cr-kind" class="btn sm">🪨 Rocky</button><button id="cr-clear" class="btn sm" title="Remove every custom body">🗑 Clear</button><button id="cr-exit" class="btn sm" title="Close (Esc)">✕</button></div>
+  <div class="improw"><label>Name</label><input id="cr-name" type="text" maxlength="24" placeholder="New world" style="flex:1;min-width:60px;background:#0d1526;border:1px solid #2a3a5a;border-radius:6px;color:#dce6ff;padding:3px 8px;font:inherit"></div>
+  <div class="improw"><label id="lbl-cr-mass">Mass</label><input id="cr-mass" type="range" min="0" max="100" value="52"><span class="val" id="cr-mass-v">—</span></div>
+  <div class="improw"><label id="lbl-cr-rad">Radius</label><input id="cr-rad" type="range" min="0" max="100" value="50"><span class="val" id="cr-rad-v">—</span></div>
+  <div class="improw"><label id="lbl-cr-a">Orbit a</label><input id="cr-a" type="range" min="0" max="100" value="42"><span class="val" id="cr-a-v">—</span></div>
+  <div class="improw"><label id="lbl-cr-e">Eccentr.</label><input id="cr-e" type="range" min="0" max="88" value="5"><span class="val" id="cr-e-v">—</span></div>
+  <div class="improw"><label id="lbl-cr-i">Incline</label><input id="cr-i" type="range" min="0" max="60" value="3"><span class="val" id="cr-i-v">—</span></div>
+  <div class="improw"><button id="cr-add" class="btn" style="flex:1">➕ Add body</button></div>
+  <div class="improw hint" id="cr-hint">Custom worlds persist in this browser · turn on 🌌 N-body to let them pull on everything else</div>
 </div>
 
 <div id="implab" class="panel">

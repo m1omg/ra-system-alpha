@@ -839,6 +839,9 @@ function buildInner(){
   applyScaleMode();   // sets star size, body sizes, orbit radii for the current mode
   frameSystem();      // place the camera for the current mode
 
+  setupCreateLab();   // Alpha: custom-body panel + N-body toggle
+  restoreCustoms();   // Alpha: re-create this browser's saved custom worlds
+
   hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
 
   // optional deep-link: index.html#satis focuses a body on load
@@ -1407,6 +1410,11 @@ function positionFreeBody(rec){
 }
 function raStateOf(rec){
   if(!rec || rec.data.kind==='star') return {r:new THREE.Vector3(), v:new THREE.Vector3()};
+  if(rec.nb){                       // N-body mode: true state, star-relative like everyone else
+    const star=nbStar(), sr=star&&star.nb?star.nb:null;
+    return sr ? {r:rec.nb.r.clone().sub(sr.r), v:rec.nb.v.clone().sub(sr.v)}
+              : {r:rec.nb.r.clone(), v:rec.nb.v.clone()};
+  }
   if(rec.freeState) return {r:rec.freeState.r.clone(), v:rec.freeState.v.clone()};
   if(rec.helio){
     const a=rec.helioA!=null?rec.helioA:rec.data.dist;
@@ -2343,7 +2351,8 @@ function impProcessBlastQueue(simDt){        // simDt = sim-years advanced this 
     impWaveShatter=false;
     fired++;
     if(rec.destroyed || !(q.dvKms>1e-6)) continue;
-    if(rec.freeState) rec.freeState.v.addScaledVector(q.dirAU, q.dvKms/KMS_PER_AUYR);
+    if(rec.nb) rec.nb.v.addScaledVector(q.dirAU, q.dvKms/KMS_PER_AUYR);
+    else if(rec.freeState) rec.freeState.v.addScaledVector(q.dirAU, q.dvKms/KMS_PER_AUYR);
     else{ const dirW=displayVectorFromAU(q.dirAU).normalize(); perturbOrbit(rec,dirW,q.dvKms); }
   }
   // on quiet frames, pre-bake ONE upcoming target's expensive assets (scar
@@ -2553,7 +2562,11 @@ function shatterStellar(rec){
   // queue the outward-sweeping damage wave (arrivals staggered by distance);
   // survivors of a star death are unbound NOW — their kick lands with the wave
   impBlastDamage(rec,blastE,states,rec.data.kind==='star');
-  if(rec.data.kind==='star') freeRaSurvivors(rec,states,null);
+  if(nbodyOn){
+    // real gravity: survivors unbind on their own once the star sheds its mass
+    if(rec.nb) rec.nb.gm*=0.2;                 // supernova ejects ~80% of the star into the blast
+  }
+  else if(rec.data.kind==='star') freeRaSurvivors(rec,states,null);
   else liberateMoons(rec);
   updateNavStatus(rec);
   const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data)+' ☠';
@@ -2578,8 +2591,8 @@ function shatterBody(rec){
   rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
   makeDebrisField(rec);
   if(!rec._generated){
-    makeDebrisRing(rec);                // Kepler shear smears it into a ring along the old orbit
-    liberateMoons(rec);                 // its moons sail on around Ra on their own new orbits
+    if(!rec.nb) makeDebrisRing(rec);    // Kepler shear smears it into a ring along the old orbit
+    if(!nbodyOn) liberateMoons(rec);    // (N-body: moons already fly free under real gravity)
   }
   updateNavStatus(rec);                 // sidebar: red ☠ destroyed badge
   const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data)+' ☠';
@@ -2906,6 +2919,11 @@ const KMS_PER_AUYR=4.74047;
 function perturbOrbit(rec, dirWorld, dvKms){
   if(!(dvKms>1e-7) || rec.data.kind==='star' || rec.destroyed) return false;
   const dvA=dvKms/KMS_PER_AUYR;
+  if(rec.nb){                                  // N-body mode: kicks are just Δv, gravity does the rest
+    rec.nb.v.addScaledVector(_nbV.copy(dirWorld).normalize(), dvA);
+    rec.orbitPerturbed=true;
+    return true;
+  }
   if(rec.helio){
     const aCur=rec.helioA!=null?rec.helioA:rec.data.dist;
     const st=keplerStateAU(aCur, rec.e, rec.q, rec.M%(Math.PI*2), MU_RA);
@@ -3702,6 +3720,309 @@ function updateImpactUI(){
 }
 
 /* ============================================================
+   N-BODY GRAVITY (Alpha) — every world attracts every other with
+   its true mass. States live in rec.nb = {r AU, v AU/yr, gm} in a
+   near-barycentric frame (display stays star-relative). Integrator
+   is leapfrog (KDK) with substeps sized so even the innermost moon
+   stays stable across the whole speed-slider range. Toggling back
+   to Kepler recomputes each planet's elements from its final state
+   vector (perturbations carry over); moons snap back to their tuned
+   display orbits (or sail off free if they were ejected).
+   ============================================================ */
+let nbodyOn=false;
+const NB_GMK=4*Math.PI*Math.PI/SUN_KG;   // massKg -> GM in AU^3/yr^2 (GM_sun = 4π²)
+let _nbH=1.2e-4;                         // substep (yr) — retuned at enable to min-period/45
+const NB_MAXSTEPS=900;                   // per-frame cap; past it h grows (extreme warp only)
+let _nbF=null;                           // flat scratch arrays for the integrator
+const _nbV=new THREE.Vector3();
+function nbStar(){ return bodies.find(b=>b.data.kind==='star'); }
+function nbList(){ return bodies.filter(b=>b.nb); }
+function nbEnable(){
+  if(nbodyOn) return;
+  nbodyOn=true;
+  if(!realScale) setScaleMode(true);     // compressed distances would warp the force geometry
+  const star=nbStar();
+  let pMin=Infinity;                     // shortest physical period present → substep size
+  for(const rec of bodies){
+    if(rec.external || rec._generated || rec.destroyed) continue;
+    const st = rec===star ? {r:new THREE.Vector3(), v:new THREE.Vector3()} : raStateOf(rec);
+    if(rec!==star){
+      let mu=MU_RA, a=rec.helioA!=null?rec.helioA:rec.data.dist;
+      if(rec.isMoon){
+        const pRec=bodies.find(b=>b.holder===rec.parentHolder);
+        mu=4*Math.PI*Math.PI*(impBodyMassKg(pRec||rec)/SUN_KG);
+        a=rec._physA!=null?rec._physA:rec.data.dist;
+      }
+      if(a>0&&mu>0) pMin=Math.min(pMin, 2*Math.PI*Math.sqrt(a*a*a/mu));
+    }
+    rec._preNb={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:rec.isMoon,
+      helioA:rec.helioA, _physA:rec._physA, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(),
+      M:rec.M, period:rec.period, wasFree:!!rec.freeState};
+    if(rec.freeState){ st.r=rec.freeState.r.clone(); st.v=rec.freeState.v.clone(); rec.freeState=null; }
+    rec.nb={r:st.r.clone(), v:st.v.clone(), gm:NB_GMK*impBodyMassKg(rec)};
+    if(rec!==star){ rec.parentHolder=sunHolder; sunHolder.add(rec.holder); }
+    if(rec.orbitLine) rec.orbitLine.visible=false;
+  }
+  _nbH=Math.max(2e-5, Math.min(1.5e-4, (isFinite(pMin)?pMin:0.005)/45));
+  // cancel barycentric drift so the system doesn't wander
+  const list=nbList();
+  let gmT=0; const pv=new THREE.Vector3();
+  for(const b of list){ gmT+=b.nb.gm; pv.addScaledVector(b.nb.v, b.nb.gm); }
+  if(gmT>0){ pv.multiplyScalar(1/gmT); for(const b of list) b.nb.v.sub(pv); }
+  nbSyncHolders();
+  const btn=document.getElementById('t-nbody'); if(btn) btn.classList.add('on');
+}
+function nbDisable(){
+  if(!nbodyOn) return;
+  nbodyOn=false;
+  const star=nbStar();
+  // snapshot every state first — restoring moons needs their parent's final state
+  const snap=new Map();
+  const sR=star&&star.nb?star.nb.r.clone():new THREE.Vector3();
+  const sV=star&&star.nb?star.nb.v.clone():new THREE.Vector3();
+  for(const rec of nbList()) snap.set(rec,{r:rec.nb.r.clone().sub(sR), v:rec.nb.v.clone().sub(sV)});
+  for(const rec of bodies){
+    if(!rec.nb) continue;
+    const P=rec._preNb||{}, st=snap.get(rec);
+    rec.nb=null; rec._preNb=null;
+    if(rec===star) continue;
+    rec.parentHolder=P.parentHolder||sunHolder; rec.parentHolder.add(rec.holder);
+    rec.helio=P.helio; rec.isMoon=P.isMoon;
+    if(P.wasFree){ rec.freeState={r:st.r, v:st.v}; positionFreeBody(rec); continue; }
+    if(rec.helio){
+      // planets keep their perturbations: exact new elements from the state vector
+      const el=stateToElements(st.r, st.v, MU_RA);
+      rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
+      rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
+      rec.aDisp=distDisp(el.a);
+      if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+    } else if(rec.isMoon){
+      const pRec=bodies.find(b=>b.holder===rec.parentHolder);
+      const ps=pRec&&snap.get(pRec);
+      const muP=pRec?4*Math.PI*Math.PI*(impBodyMassKg(pRec)/SUN_KG):MU_RA;
+      const lr=ps?st.r.clone().sub(ps.r):st.r, lv=ps?st.v.clone().sub(ps.v):st.v;
+      if(ps && lv.lengthSq()/2 - muP/Math.max(1e-9,lr.length()) < 0){
+        // still bound: snap back to the tuned display orbit (phase kept via M below)
+        rec.helioA=P.helioA; rec._physA=P._physA; rec.e=P.e; rec.q=P.q; rec.M=P.M;
+        rec.period=P.period; rec.aDisp=P.aDisp;
+      } else {
+        // ejected from its parent: sail on heliocentric, unbound
+        rec.helio=false; rec.isMoon=false;
+        rec.parentHolder=sunHolder; sunHolder.add(rec.holder);
+        rec.freeState={r:st.r, v:st.v}; rec.orbitPerturbed=true;
+        positionFreeBody(rec); continue;
+      }
+    }
+    if(rec.orbitLine) rec.orbitLine.visible=showOrbits;
+    positionBody(rec);
+  }
+  const btn=document.getElementById('t-nbody'); if(btn) btn.classList.remove('on');
+}
+function toggleNbody(){ nbodyOn ? nbDisable() : nbEnable(); }
+/* position holders star-relative so the scene stays centred on the star */
+function nbSyncHolders(){
+  const star=nbStar();
+  const sr=star&&star.nb?star.nb.r:null;
+  for(const rec of bodies){
+    if(!rec.nb || rec===star) continue;
+    _nbV.copy(rec.nb.r); if(sr) _nbV.sub(sr);
+    rec.holder.position.copy(displayVectorFromAU(_nbV));
+  }
+}
+/* leapfrog (KDK) over flat arrays — no per-step allocation */
+function nbStep(dt){
+  const list=nbList(), n=list.length;
+  if(!n){ return; }
+  if(dt>0){
+    if(!_nbF || _nbF.cap<n){
+      _nbF={cap:n, x:new Float64Array(n),y:new Float64Array(n),z:new Float64Array(n),
+        vx:new Float64Array(n),vy:new Float64Array(n),vz:new Float64Array(n),
+        ax:new Float64Array(n),ay:new Float64Array(n),az:new Float64Array(n),
+        gm:new Float64Array(n), rad:new Float64Array(n)};
+    }
+    const F=_nbF;
+    for(let i=0;i<n;i++){ const b=list[i].nb;
+      F.x[i]=b.r.x; F.y[i]=b.r.y; F.z[i]=b.r.z;
+      F.vx[i]=b.v.x; F.vy[i]=b.v.y; F.vz[i]=b.v.z; F.gm[i]=b.gm;
+      F.rad[i]=(list[i].data.radiusKm||1000)/KM_PER_AU; }
+    const K=Math.max(1, Math.min(NB_MAXSTEPS, Math.ceil(dt/_nbH)));
+    const h=dt/K, h2=h*0.5, EPS2=1e-12;
+    const hits=[];                         // contact pairs caught INSIDE the substep loop (no tunnelling)
+    const accel=()=>{
+      F.ax.fill(0,0,n); F.ay.fill(0,0,n); F.az.fill(0,0,n);
+      for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+        const dx=F.x[j]-F.x[i], dy=F.y[j]-F.y[i], dz=F.z[j]-F.z[i];
+        const d2=dx*dx+dy*dy+dz*dz+EPS2, inv=1/(d2*Math.sqrt(d2));
+        const fi=F.gm[j]*inv, fj=F.gm[i]*inv;
+        F.ax[i]+=dx*fi; F.ay[i]+=dy*fi; F.az[i]+=dz*fi;
+        F.ax[j]-=dx*fj; F.ay[j]-=dy*fj; F.az[j]-=dz*fj;
+        const s=(F.rad[i]+F.rad[j])*0.9;
+        if(d2<s*s){ const key=i*8192+j;
+          if(hits.indexOf(key)<0) hits.push(key); }
+      }
+    };
+    accel();
+    for(let s=0;s<K;s++){
+      for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
+        F.x[i]+=F.vx[i]*h; F.y[i]+=F.vy[i]*h; F.z[i]+=F.vz[i]*h; }
+      accel();
+      for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2; }
+    }
+    for(let i=0;i<n;i++){ const b=list[i].nb;
+      b.r.set(F.x[i],F.y[i],F.z[i]); b.v.set(F.vx[i],F.vy[i],F.vz[i]); }
+    for(const key of hits) nbCollidePair(list[(key/8192)|0], list[key%8192]);
+  }
+  nbSyncHolders();
+}
+/* touching worlds collide: momentum-conserving merge of velocities + the
+   full impact energy routed into the existing damage/shatter machinery */
+function nbCollidePair(a,b){
+  if(!a.nb || !b.nb || (a.destroyed && b.destroyed)) return;
+  const rA=(a.data.radiusKm||1000)/KM_PER_AU, rB=(b.data.radiusKm||1000)/KM_PER_AU;
+  const dr=_nbV.copy(b.nb.r).sub(a.nb.r); let d=dr.length();
+  if(d<1e-12){ dr.set(1,0,0); d=1e-12; }
+  const mA=impBodyMassKg(a), mB=impBodyMassKg(b);
+  const vRel=b.nb.v.clone().sub(a.nb.v);
+  const vRelMs=vRel.length()*KMS_PER_AUYR*1000;
+  const E=0.5*(mA*mB/(mA+mB))*vRelMs*vRelMs;
+  // inelastic: both take the centre-of-mass velocity, contact is separated
+  const vcm=a.nb.v.clone().multiplyScalar(mA).addScaledVector(b.nb.v,mB).multiplyScalar(1/(mA+mB));
+  a.nb.v.copy(vcm); b.nb.v.copy(vcm);
+  dr.multiplyScalar(1/d);
+  const push=Math.max(0,(rA+rB)-d);
+  const small=mA<=mB?a:b, big=small===a?b:a;
+  small.nb.r.addScaledVector(dr, small===b?push:-push);
+  if(!small.destroyed) impApplyBlastEnergy(small, E, big, null);
+  if(!big.destroyed)   impApplyBlastEnergy(big, E*0.25, small, null);
+  impShake=Math.min(0.06, impShake+0.03);
+}
+
+/* ============================================================
+   CUSTOM BODIES (Alpha) — user-created worlds. First-class
+   bodies[] records around the star, persisted per system in
+   localStorage so they survive reloads.
+   ============================================================ */
+const CR_KINDS=[
+  {kind:'rocky',    icon:'🪨', label:'Rocky',     color:0xb59a7b,
+    tex:{rocky:{base:"#8f7a5f", a:"#c2ab88", b:"#4e4335", c:"#e0cba4"}}},
+  {kind:'terran',   icon:'🌍', label:'Terran',    color:0x7fb2d9,
+    tex:{terran:{ocean:"#123c6e", ocean2:"#2c68a8", land:"#8f9a5a", cloud:"#eef3f8", landAmt:0.32}}},
+  {kind:'iceworld', icon:'🧊', label:'Ice world', color:0xbfe0ef,
+    tex:{palette:["#9fb6c6","#d8ecf6","#7d95a8","#eef7fd"]}},
+  {kind:'gasgiant', icon:'🪐', label:'Gas giant', color:0xd9b98a,
+    tex:{palette:["#c8a06a","#e8d0a8","#96703f","#f2e4c2"]}},
+];
+let crKindI=0, _crN=0;
+const crMassKg=v=>1e20*Math.pow(10,v/100*10.3);          // 1e20 .. ~2e30 kg
+const crRadKm =v=>Math.round(200*Math.pow(10,v/100*2.9)); // 200 .. ~159,000 km
+const crAAU   =v=>0.02*Math.pow(10,v/100*3.6);           // 0.02 .. ~80 AU
+function crStoreKey(){ return 'ra-alpha-custom:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+function fmtMassE(kg){
+  if(kg>=1.5e29) return (kg/1.989e30).toFixed(2)+' M☉';
+  if(kg>=1e27)   return (kg/1.898e27).toFixed(2)+' M♃';
+  return (kg/5.972e24>=0.01?(kg/5.972e24).toFixed(2):(kg/5.972e24).toExponential(1))+' M⊕';
+}
+function createCustomBody(p, fromSave){
+  _crN++;
+  const kd=CR_KINDS.find(k=>k.kind===p.kind)||CR_KINDS[0];
+  const key=p.key||('custom'+Date.now().toString(36)+_crN);
+  const period=Math.sqrt(p.a*p.a*p.a/1.139);
+  const data=Object.assign({ key, name:p.name||('Custom '+_crN), kind:p.kind, custom:true,
+    radiusKm:p.radiusKm, massKg:p.massKg, dist:p.a, ecc:p.e, period,
+    rotationPeriod:18, color:kd.color, navTag:'custom' }, kd.tex);
+  Object.assign(data, {
+    desc:'A custom world created in the Alpha physics sandbox. It obeys the same rules as every other body — strike it, melt it, or let N-body gravity decide its fate.',
+    stats:[ ['Radius', p.radiusKm.toLocaleString()+' km'],
+            ['Mass', fmtMassE(p.massKg)],
+            ['Semi-major axis', p.a.toFixed(2)+' AU'],
+            ['Eccentricity', p.e.toFixed(2)],
+            ['Orbital period', period<1?(period*365.25).toFixed(1)+' days':period.toFixed(2)+' yr'],
+            ['Origin', 'created in the sandbox'] ] });
+  const rec=addBody(data, sunHolder, { aDisp:distDisp(p.a), incl:p.incl||0,
+    node:(p.node!=null?p.node:Math.random()*360) });
+  rec._custom=true; rec._crParams=Object.assign({}, p, {key, node:p.node});
+  if(p.M!=null) rec.M=p.M;
+  rec._newUntil=performance.now()+2600;
+  if(nbodyOn){
+    // join the running N-body sim with the exact state of its Kepler orbit
+    const st=keplerStateAU(p.a, p.e, rec.q, rec.M%(Math.PI*2), MU_RA);
+    const star=nbStar(), sr=star&&star.nb?star.nb:null;
+    if(sr){ st.r.add(sr.r); st.v.add(sr.v); }
+    rec._preNb={parentHolder:rec.parentHolder, helio:true, isMoon:false, helioA:null,
+      _physA:null, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(), M:rec.M, period:rec.period, wasFree:false};
+    rec.nb={r:st.r, v:st.v, gm:NB_GMK*p.massKg};
+    if(rec.orbitLine) rec.orbitLine.visible=false;
+    nbSyncHolders();
+  }
+  refreshNav();
+  if(!fromSave){ saveCustoms(); focusBody(key,true); }
+  return rec;
+}
+function saveCustoms(){
+  try{
+    const arr=bodies.filter(b=>b._custom).map(b=>Object.assign({}, b._crParams, {M:b.M}));
+    localStorage.setItem(crStoreKey(), JSON.stringify(arr));
+  }catch(_){}
+}
+function restoreCustoms(){
+  try{
+    const arr=JSON.parse(localStorage.getItem(crStoreKey())||'[]');
+    for(const p of arr) createCustomBody(p, true);
+  }catch(_){}
+}
+function clearCustoms(){
+  for(const rec of bodies.filter(b=>b._custom)){
+    if(rec.destroyed) removeDebrisField(rec);
+    if(rec.orbitLine){ rec.orbitLine.parent&&rec.orbitLine.parent.remove(rec.orbitLine);
+      rec.orbitLine.geometry.dispose(); rec.orbitLine.material.dispose(); }
+    rec.holder.parent&&rec.holder.parent.remove(rec.holder);
+    const pi=pickables.indexOf(rec.mesh); if(pi>=0) pickables.splice(pi,1);
+    const si=impScarred.indexOf(rec); if(si>=0) impScarred.splice(si,1);
+    const le=labelEls[rec.data.key]; if(le){ le.remove(); delete labelEls[rec.data.key]; }
+    const bi=bodies.indexOf(rec); if(bi>=0) bodies.splice(bi,1);
+    if(selected===rec.data.key) selected=null;
+    if(follow===rec) follow=null;
+    if(tween.body===rec) tween.active=false;
+    if(APP.currentData && APP.currentData.key===rec.data.key){
+      document.getElementById('info').classList.remove('open'); syncInfoBtn(); APP.currentData=null;
+    }
+  }
+  try{ localStorage.removeItem(crStoreKey()); }catch(_){}
+  refreshNav();
+}
+function crUpdateUI(){
+  const kd=CR_KINDS[crKindI];
+  const g=id=>document.getElementById(id);
+  if(!g('createlab')) return;
+  g('cr-kind').textContent=kd.icon+' '+kd.label;
+  g('cr-mass-v').textContent=fmtMassE(crMassKg(+g('cr-mass').value));
+  g('cr-rad-v').textContent=crRadKm(+g('cr-rad').value).toLocaleString()+' km';
+  g('cr-a-v').textContent=crAAU(+g('cr-a').value).toFixed(2)+' AU';
+  g('cr-e-v').textContent=(+g('cr-e').value/100).toFixed(2);
+  g('cr-i-v').textContent=g('cr-i').value+'°';
+}
+function setupCreateLab(){
+  const g=id=>document.getElementById(id);
+  if(!g('createlab')) return;
+  const tbtn=g('t-create');
+  const toggle=()=>{ g('createlab').classList.toggle('on');
+    if(tbtn) tbtn.classList.toggle('on', g('createlab').classList.contains('on')); crUpdateUI(); };
+  if(tbtn) tbtn.onclick=toggle;
+  g('cr-exit').onclick=toggle;
+  g('cr-kind').onclick=()=>{ crKindI=(crKindI+1)%CR_KINDS.length; crUpdateUI(); };
+  for(const id of ['cr-mass','cr-rad','cr-a','cr-e','cr-i']) g(id).oninput=crUpdateUI;
+  g('cr-clear').onclick=clearCustoms;
+  g('cr-add').onclick=()=>{
+    createCustomBody({ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
+      massKg:crMassKg(+g('cr-mass').value), radiusKm:crRadKm(+g('cr-rad').value),
+      a:crAAU(+g('cr-a').value), e:+g('cr-e').value/100, incl:+g('cr-i').value });
+    g('cr-name').value='';
+  };
+  const nb=g('t-nbody'); if(nb) nb.onclick=toggleNbody;
+  crUpdateUI();
+}
+
+/* ============================================================
    Animation
    ============================================================ */
 let follow=null;            // body rec being followed
@@ -3714,8 +4035,10 @@ function animate(){
   const simDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
 
   if(playing && !surfaceView){
+    if(nbodyOn) nbStep(simDtYears);            // real gravity: integrates + positions rec.nb bodies
     for(const rec of bodies){
-      if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,simDtYears); positionFreeBody(rec); }
+      if(rec.nb){ /* positioned by nbStep */ }
+      else if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,simDtYears); positionFreeBody(rec); }
       else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*simDtYears; positionBody(rec); }
       rec.mesh.rotation.y += rec.spin*dt*timeScale*SPIN_GAIN;   // rotation slows/freezes with the time rate
     }
@@ -4299,6 +4622,12 @@ function buildNav(){
       nav.appendChild(navItem(m,true));
       for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
     }
+  }
+  const customs=bodies.filter(b=>b._custom);          // Alpha: user-created worlds
+  if(customs.length){
+    const h3=document.createElement('h3'); h3.textContent=LANG==='sk'?'Vlastné svety':'Custom worlds';
+    nav.appendChild(h3);
+    for(const c of customs) nav.appendChild(navItem(c.data));
   }
 }
 function setActiveNav(key){

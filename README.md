@@ -2,9 +2,26 @@
 
 **The physically-accurate, Universe-Sandbox-style edition of the Ra system simulation.**
 This fork of the [experimental edition](https://github.com/m1omg/ra-system-experimental)
-is where real physics lands first: N-body gravity, custom body creation, and whatever
-else the sandbox grows next. The [stable](https://github.com/m1omg/ra-system-simulation)
+is where real physics lands first. The [stable](https://github.com/m1omg/ra-system-simulation)
 and experimental editions keep the curated fictional-system experience.
+
+## Alpha-only physics
+
+- **🌌 N-body gravity** — flip the toolbar toggle and the Kepler clockwork is replaced by
+  real mutual gravitation: every body attracts every other with its true mass (the exact
+  figures from the author's Universe Sandbox save), integrated with a leapfrog scheme whose
+  substep is sized from the shortest orbital period present, so the whole speed-slider
+  range stays stable — moons run on their *physical* orbits. Worlds that touch **collide**:
+  velocities merge conserving momentum and the full impact energy feeds the impact-lab
+  damage machinery (scars, melting, shattering, debris). Toggling back to Kepler converts
+  each planet's final state vector into exact new orbital elements, so perturbations and
+  gravitational scattering carry over.
+- **➕ Custom bodies** — create your own rocky / terran / ice / gas-giant worlds: pick
+  mass (up to stellar), radius and orbit, and they become first-class citizens — clickable,
+  labelled, in the sidebar, damageable, and (with N-body on) a real gravitational actor
+  that can destabilise the whole system. Custom worlds persist in your browser.
+- **Physical supernova timing** — the blast propagates on sim time at physical speed:
+  the radiation front at *c*, the matter shock at 0.1 *c* (see below).
 
 A self-contained, browser-based 3D orrery of the **Ra (10 Tauri)** system from the
 *Satis* worldbuilding document — the star, its planets, their moons, the brown-dwarf
