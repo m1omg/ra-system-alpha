@@ -413,9 +413,15 @@ function applyStaticLang(){
   applySysTitles();
 }
 function applySysTitles(){
-  if(SYS!=='sol') return;
-  const h=document.getElementById('title-h1'); if(h) h.innerHTML=T('title-sol-h1');
-  document.title=T('doc-title-sol');
+  const h=document.getElementById('title-h1');
+  if(SYS==='sol'){
+    if(h) h.innerHTML=T('title-sol-h1');
+    document.title=T('doc-title-sol');
+  }
+  // Alpha edition badge — survives language switches and the Sol retitle
+  if(h && h.innerHTML.indexOf('ALPHA')<0)
+    h.innerHTML+=' <small style="opacity:.65;font-size:.55em">ALPHA</small>';
+  if(document.title.indexOf('Alpha')<0) document.title+=' · Alpha';
 }
 function updateLangBtn(){ const b=document.getElementById('t-lang'); if(b) b.textContent = LANG==='sk'?'🌐 EN':'🌐 SK'; }
 function setLang(l){

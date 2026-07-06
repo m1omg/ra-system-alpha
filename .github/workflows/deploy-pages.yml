@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [experimental]
+    branches: [main]
   workflow_dispatch:
 
 # Allow the workflow to publish to Pages via OIDC.

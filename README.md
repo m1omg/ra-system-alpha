@@ -1,4 +1,10 @@
-# The Ra Planetary System — Interactive 3D Simulation
+# Ra System Alpha — Physics Sandbox
+
+**The physically-accurate, Universe-Sandbox-style edition of the Ra system simulation.**
+This fork of the [experimental edition](https://github.com/m1omg/ra-system-experimental)
+is where real physics lands first: N-body gravity, custom body creation, and whatever
+else the sandbox grows next. The [stable](https://github.com/m1omg/ra-system-simulation)
+and experimental editions keep the curated fictional-system experience.
 
 A self-contained, browser-based 3D orrery of the **Ra (10 Tauri)** system from the
 *Satis* worldbuilding document — the star, its planets, their moons, the brown-dwarf
