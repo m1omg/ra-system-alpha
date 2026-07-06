@@ -335,6 +335,30 @@ data: {
            ['Excentricita','0,113'],['Oslnenie','1,234 % Zeme'],['Teplota','−130 °C']],
     desc:'Shu je vzdialený svet nízkej hustoty v studenej vonkajšej sústave — dostáva len asi 1 % zemského slnečného svitu a pri −130 °C sedí na hranici medzi planétami Ra a ríšou jej hnedotrpasličieho spoločníka Horusa. (Autorove poznámky k Shu ešte len vznikajú.)'
   },
+  salibe: {
+    tagline:'Prízračne bledý štvrtý plynný obor ďaleko za Horusom',
+    stats:[['Hmotnosť','20,3 M⊕'],['Hustota','0,29 g/cm³ (veľmi nadýchaný)'],['Priemer','92 943 km'],
+           ['Zloženie','80,3 % H/He · 15,2 % voda · 3,4 % hornina · 1,1 % železo'],
+           ['Obežná vzdialenosť','146,8 AU'],['Excentricita','0,219'],['Obežná doba','~1 670 rokov'],
+           ['Oslnenie','0,014 % Zeme'],['Teplota','−224 °C']],
+    desc:'Salibe, trikrát ďalej od Ra než Horus, je prehliadaný štvrtý plynný obor sústavy — dvadsať zemských hmotností vodíka takého studeného a tak mierne stlačeného, že patrí k najnadýchanejším známym svetom: nedosahuje ani tretinu hustoty vody. Pri −224 °C jeho oblačné paluby zamrzli do takmer bezštruktúrneho, prízračne bledého oparu, ktorý odráža bodový jas ďalekej hviezdy. (Autorove poznámky k Salibe ešte len vznikajú.)'
+  },
+  yamm: {
+    tagline:'Zamrznutá superzem na naklonenej, výstrednej dráhe',
+    stats:[['Hmotnosť','5,30 M⊕'],['Hustota','3,76 g/cm³'],['Priemer','25 249 km'],
+           ['Zloženie','63,7 % hornina · 20,7 % železo · 15,1 % voda (ľad)'],
+           ['Obežná vzdialenosť','558,5 AU (267 → 850 AU)'],['Excentricita','0,522'],['Sklon dráhy','9,2°'],
+           ['Obežná doba','~12 400 rokov'],['Teplota','−242 °C']],
+    desc:'Yamm, pomenovaný po starom bohu búrlivého mora, je svet piatich zemských hmotností z horniny a železa, glazovaný zamrznutými oceánmi — boh mora uväznený v ľade. Tmou sa nesie po osamelej výstrednej dráhe naklonenej 9° od roviny sústavy; od 267 po 850 AU sa zhupne raz za dvanásť tisícročí a Ra je preň sotva viac než najjasnejšia hviezda na oblohe. (Autorove poznámky k Yammu ešte len vznikajú.)'
+  },
+  kauket: {
+    tagline:'Sednoidný ľadový svet na miliónročnej dráhe — temná hranica sústavy',
+    stats:[['Hmotnosť','1,96 M⊕'],['Hustota','1,17 g/cm³ (ľadová)'],['Priemer','26 718 km'],
+           ['Zloženie','62,5 % voda (ľad) · 30 % hornina · 4,6 % železo'],
+           ['Obežná vzdialenosť','10 934 AU (1 173 → 20 700 AU)'],['Excentricita','0,893'],
+           ['Obežná doba','~1,07 milióna rokov'],['Teplota','−263 °C (10 K)']],
+    desc:'Kauket — pomenovaná po prvotnej bohyni temnoty — je najvzdialenejší svet sústavy Ra: odpútaná tuláčka podobná Sedne, ktorej dráha sa k planétam nikdy nepriblíži ani na tisíc AU. Dve zemské hmotnosti zamrznutého oceánu nad horninou sa vezú po miliónročnej elipse až do pätiny svetelného roka, pri desiatich kelvinoch nad absolútnou nulou: aj jej riedky obal plynov leží zamrznutý na ľade. Z povrchu je Ra len výnimočne jasná hviezda vo večnej noci. (Autorove poznámky ku Kauket ešte len vznikajú.)'
+  },
   sekhmet: {
     tagline:'Roztavený kríženec Io a Venuše, vlečúci kométam podobný chvost',
     stats:[['Hmotnosť','0,761 × Luna'],['Hustota','6,23 g/cm³'],['Priemer','0,202 × Zem (~2 574 km)'],
@@ -417,6 +441,8 @@ glossary: [
   ['Vitriolický','Oceány z kyseliny sírovej.'],
   ['Fotodisociácia','Rozštiepenie molekuly svetlom/žiarením (zvyčajne UV).'],
   ['Hlavná postupnosť','„Normálna“ hviezda spaľujúca v jadre vodík na hélium.'],
+  ['Odpútaný objekt','Teleso, ktorého ďaleká dráha sa nikdy nepriblíži k planétam — ako Sedna v našej sústave. Kauket je jedným z nich.'],
+  ['Roj úlomkov','Trblietavý pás pri dráhe Wadjetu: ~680 kolíznych úlomkov na viazaných dráhach, zo záznamu autora v Universe Sandboxe.'],
   ['g','Povrchová gravitácia Zeme. AU = priemerná vzdialenosť Zem–Slnko.']
 ],
 

@@ -1,8 +1,11 @@
 # The Ra Planetary System — Interactive 3D Simulation
 
 A self-contained, browser-based 3D orrery of the **Ra (10 Tauri)** system from the
-*Satis* worldbuilding document — the star, its eight planets, their moons, and the
-brown-dwarf companion **Horus** with its own four worlds.
+*Satis* worldbuilding document — the star, its planets, their moons, the brown-dwarf
+companion **Horus** with its own four worlds, and the far outer system from the
+author's Universe Sandbox save: the ghost-pale gas giant **Salibe**, the frozen
+super-Earth **Yamm**, the sednoid ice world **Kauket**, and a glittering **fragment
+belt** of ~680 collision shards near Wadjet's orbit.
 
 ## How to run
 
@@ -19,8 +22,8 @@ bottom bar flips between:
 - **Summary + source** (default) — the summary, then your verbatim text beneath it.
 - **Author's text** — your *exact* words only, with no summary and no paraphrasing.
 
-(Worlds the document hasn't described yet — Shu, Horus, Khonsu, Nut, Osiris — show only the
-summary in the default mode, and a short note in author's-text mode.)
+(Worlds the document hasn't described yet — Shu, Horus, Khonsu, Nut, Osiris, Salibe, Yamm,
+Kauket — show only the summary in the default mode, and a short note in author's-text mode.)
 
 ## What's inside
 
@@ -76,6 +79,12 @@ It is a genuine little physics sandbox, not just an effect:
   escaping cloud along the dead world's orbit into a glittering ring over (sim) time,
   and a shattered planet **liberates its moons**, which sail on around Ra on their own
   newly-computed orbits.
+- **Even the star is fair game.** Pump more than Ra's own binding energy into it and it
+  detonates in a supernova-like blast: a blinding core flash, an expanding shock shell,
+  a shader-driven ejecta cloud that cools from white-gold through orange to a wispy
+  remnant nebula — while the dying light surges, reddens and goes out, nearby worlds
+  are scorched by inverse-square exposure, and the survivors are flung onto unbound
+  orbits. A collapsed ember core is all that remains (🧽 Heal undoes even this).
 - **Momentum is conserved.** A massive, fast strike **kicks the target's orbit** — the
   new ellipse is recomputed exactly from the perturbed state vector and redrawn.
 - **Superheated worlds lose mass**, and the data panel tracks the live figure.

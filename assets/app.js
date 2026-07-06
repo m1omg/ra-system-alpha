@@ -310,10 +310,11 @@ function applySystem(sys){
   SYS = (sys==='sol' && typeof SOL_SYSTEM!=='undefined') ? 'sol' : 'ra';
   DS = SYS==='sol'
     ? {STAR:SOL_SYSTEM.STAR, PLANETS:SOL_SYSTEM.PLANETS, MOONS:SOL_SYSTEM.MOONS,
-       HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY}
-    : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY};
+       HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY, BELT:null}
+    : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY,
+       BELT:(typeof BELT!=='undefined'?BELT:null)};
 }
-let scene,camera,renderer,controls,clock;
+let scene,camera,renderer,controls,clock,starfieldPts=null;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
 let elapsedYears=0, _clockT=0;    // accumulated sim-time + throttle timer for the clock readout
 let USE_VERBATIM = !!window.USE_VERBATIM;   // true = show only the author's own text
@@ -811,6 +812,9 @@ function buildInner(){
   // ring systems (Saturn) — a flat banded annulus in the equator plane
   for(const rec of bodies) if(rec.data.rings) makeBodyRings(rec);
 
+  // the Wadjet fragment swarm — a debris belt from the author's .ubox save
+  if(DS.BELT) makeBelt();
+
   // evaporation tails (bodies flagged evapTail in data.js — planets and moons)
   for(const rec of bodies) if(rec.data.evapTail) makeEvapTail(rec);
 
@@ -873,8 +877,11 @@ function applyScaleMode(){
     else if(rec.isMoon){ rec.aDisp = realScale?rec.aDispReal:rec.aDispCompressed; rebuildOrbitLine(rec); }
   }
   applySizes();
-  controls.maxDistance = realScale?20000:4000;
+  // outer wanderers: real → Yamm's whole orbit (~850 AU) fits; compressed → past Salibe/Yamm.
+  // (Kauket at 10,934 AU is a click-to-visit destination in either mode, like Sedna.)
+  controls.maxDistance = realScale?95000:6500;
   controls.minDistance = realScale?0.004:0.8;
+  beltDirty=true;                        // re-map belt points through the new scale transform
   for(const rec of bodies) positionBody(rec);
   updateScaleUI();
 }
@@ -928,7 +935,95 @@ function buildStarfield(){
   g.setAttribute('position', new THREE.BufferAttribute(pos,3));
   g.setAttribute('color', new THREE.BufferAttribute(col,3));
   const m=new THREE.PointsMaterial({size:7, sizeAttenuation:true, vertexColors:true, transparent:true, opacity:0.9, depthWrite:false});
-  scene.add(new THREE.Points(g,m));
+  starfieldPts=new THREE.Points(g,m);
+  scene.add(starfieldPts);
+}
+
+/* ============================================================
+   The Wadjet fragment swarm (Ra only) — a debris belt seeded from the
+   684 bound-orbit collision fragments in the author's Universe Sandbox
+   save (element distribution in data.js BELT). Scenery, not bodies:
+   one Points draw call; per-point Kepler elements advanced on SIM time
+   (speed slider fast-forwards it, pause freezes it), positions mapped
+   through the active scale transform so the belt is correct in both
+   Real and Compressed views.
+   ============================================================ */
+let beltObj=null, beltDirty=false;
+function makeBelt(){
+  const B=DS.BELT; if(!B || beltObj) return;
+  const N=MOBILE_UI?550:900;
+  let s=1234567891;                                  // deterministic layout (xorshift32)
+  const rnd=()=>{ s^=s<<13; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; };
+  const g2=()=>{ const u=Math.max(1e-9,rnd()); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*rnd()); };
+  const aA=new Float32Array(N), eA=new Float32Array(N), nA=new Float64Array(N), MA=new Float64Array(N),
+        PB=new Float32Array(N*3), QB=new Float32Array(N*3);
+  const col=new Float32Array(N*3), base=new THREE.Color(B.color||0xb9a892);
+  const e1=new THREE.Vector3(), e2=new THREE.Vector3(), q=new THREE.Quaternion(), eu=new THREE.Euler();
+  for(let i=0;i<N;i++){
+    let a,e,inc;
+    if(rnd()<B.core.frac){                           // the tight core swarm
+      a=B.core.a[0]+B.core.a[1]*g2();
+      e=Math.max(0.01, B.core.e[0]+B.core.e[1]*g2());
+      inc=Math.max(0.2, B.core.inc[0]+B.core.inc[1]*g2());
+    }else{                                           // the scattered tail
+      a=B.tail.aMin+(B.tail.aMax-B.tail.aMin)*Math.pow(rnd(),1.6);
+      e=Math.min(B.tail.eMax, 0.05+0.9*Math.pow(rnd(),2.2));
+      inc=B.core.inc[0]+(B.tail.incMax-B.core.inc[0])*Math.pow(rnd(),3.0);
+    }
+    a=Math.min(B.tail.aMax, Math.max(B.tail.aMin*0.6, a));
+    e=Math.min(0.95, Math.max(0.01, e));
+    const node=rnd()*Math.PI*2, argp=rnd()*Math.PI*2;
+    eu.set(inc*Math.PI/180, node, 0, 'YXZ'); q.setFromEuler(eu);
+    e1.set(Math.cos(argp),0,Math.sin(argp)).applyQuaternion(q);   // in-plane basis (P,Q)
+    e2.set(-Math.sin(argp),0,Math.cos(argp)).applyQuaternion(q);
+    PB[i*3]=e1.x; PB[i*3+1]=e1.y; PB[i*3+2]=e1.z;
+    QB[i*3]=e2.x; QB[i*3+1]=e2.y; QB[i*3+2]=e2.z;
+    aA[i]=a; eA[i]=e;
+    nA[i]=2*Math.PI/(Math.pow(a,1.5)/1.067);         // rad per sim-year (Kepler, M* = 1.139 M☉)
+    MA[i]=rnd()*Math.PI*2;
+    const b=0.55+0.5*rnd(), t=rnd();
+    col[i*3]=base.r*b*(0.9+0.2*t); col[i*3+1]=base.g*b; col[i*3+2]=base.b*b*(1.1-0.2*t);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N*3),3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aC', new THREE.BufferAttribute(col,3));
+  // clamped point size: stays a glint up close (fly mode) and a visible dot from afar
+  const m=new THREE.ShaderMaterial({
+    uniforms:{uScaleH:{value:600}},
+    vertexShader:
+      'attribute vec3 aC; varying vec3 vC; uniform float uScaleH;\n'+
+      'void main(){ vC=aC; vec4 mv=modelViewMatrix*vec4(position,1.0);\n'+
+      '  gl_PointSize=clamp(0.55*uScaleH/max(0.0001,-mv.z),1.2,14.0);\n'+
+      '  gl_Position=projectionMatrix*mv; }',
+    fragmentShader:
+      'varying vec3 vC;\n'+
+      'void main(){ float r=length(gl_PointCoord-0.5)*2.0; if(r>1.0) discard;\n'+
+      '  gl_FragColor=vec4(vC, exp(-3.0*r*r)*0.9); }',
+    transparent:true, depthWrite:false});
+  const pts=new THREE.Points(g,m); pts.frustumCulled=false;
+  sunHolder.add(pts);
+  beltObj={pts,g,N,aA,eA,nA,MA,PB,QB};
+  beltDirty=true;
+  updateBelt(0);
+}
+function updateBelt(dYears){
+  const B=beltObj; if(!B || !B.pts.visible || (!dYears && !beltDirty)) return;
+  const pos=B.g.attributes.position.array;
+  for(let i=0;i<B.N;i++){
+    let M=B.MA[i]+B.nA[i]*dYears; if(dYears) B.MA[i]=M;
+    const e=B.eA[i];
+    let E=M;                                          // Newton — 3 steps is plenty at belt e
+    for(let k=0;k<3;k++) E-=(E-e*Math.sin(E)-M)/(1-e*Math.cos(E));
+    const a=B.aA[i], x=a*(Math.cos(E)-e), y=a*Math.sqrt(1-e*e)*Math.sin(E);
+    const px=B.PB[i*3]*x+B.QB[i*3]*y,
+          py=B.PB[i*3+1]*x+B.QB[i*3+1]*y,
+          pz=B.PB[i*3+2]*x+B.QB[i*3+2]*y;
+    const r=Math.sqrt(px*px+py*py+pz*pz)||1e-9;
+    const k2=distDisp(r)/r;                           // Real (linear) or Compressed (power-law)
+    pos[i*3]=px*k2; pos[i*3+1]=py*k2; pos[i*3+2]=pz*k2;
+  }
+  B.g.attributes.position.needsUpdate=true;
+  beltDirty=false;
 }
 
 /* ============================================================
@@ -1123,6 +1218,9 @@ const impDensityByKind={ star:1400, browndwarf:8e4, gasgiant:1300, terran:5200, 
 let impMatI=1;
 const impAsteroids=[], impFx=[], impScarred=[];
 const stellarBlasts=[];
+// true while one stellar death is cascading through many worlds in a single
+// frame — per-planet fx are trimmed so the frame doesn't drown in sprites
+let impMassEvent=false;
 let impBeam=null, impShake=0, impPool=null, impPoolActiveT=0;
 let _impFlashTex=null, _impRingTex=null;
 // baked rock albedo (gpt-image-2) for asteroids + debris chunks; falls back to
@@ -2202,46 +2300,121 @@ function freeRaSurvivors(source, states, kicks){
     positionFreeBody(rec);
   }
 }
+/* ---- supernova, rebuilt for looks AND for speed. Three cheap elements:
+   a core flash sprite (seconds), ONE expanding fresnel shock shell (a thin
+   luminous rim, not a screen-filling glow blob), and a shader-driven ejecta
+   cloud whose expansion, colour evolution (white-gold → orange → brick →
+   remnant-nebula teal) and fade all live in the vertex/fragment shaders —
+   after creation the CPU only updates a couple of uniforms per frame, never
+   the buffers. The show winds itself down by SN_END and frees its GPU
+   resources, leaving just a tiny collapsed-core ember until 🧽 Heal. ---- */
+const SN_END=75;
+const _snRedTint=new THREE.Color(0xff7038);
 function makeStellarBlast(rec, blastE){
   const group=new THREE.Object3D();
   rec.holder.add(group);
   const R=impRenderRadius(rec)||rec.radius||1;
-  const tex=glowCanvasTex('rgba(255,250,220,1)','rgba(255,95,24,0.42)');
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,
+  const isStar=rec.data.kind==='star';
+  // core flash — blinding for the first second, gone in a few
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
     blending:THREE.AdditiveBlending,depthWrite:false}));
-  sp.scale.setScalar(R*(impIsStellar(rec)&&rec.data.kind==='star'?24:16));
+  sp.scale.setScalar(R*3);
   group.add(sp);
-  const N=rec.data.kind==='star'?(MOBILE_UI?900:1800):(MOBILE_UI?600:1200);
-  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
-  const cA=new THREE.Color(0xfff0c0), cB=new THREE.Color(rec.data.color||0xff6a30);
+  // collapsed remnant core — a dense ember that stays after the light show
+  const core=new THREE.Sprite(new THREE.SpriteMaterial({
+    map:glowCanvasTex(isStar?'rgba(215,232,255,1)':'rgba(255,150,80,1)',
+                      isStar?'rgba(110,150,255,0)':'rgba(180,60,20,0)'),
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0}));
+  core.scale.setScalar(R*(isStar?0.9:0.7));
+  group.add(core);
+  // shock shell — one fresnel-limb sphere: reads as a luminous expanding ring
+  const shellMat=new THREE.ShaderMaterial({
+    uniforms:{ c:{value:new THREE.Color(0xfff2dc)}, p:{value:1.0} },
+    vertexShader:`varying vec3 vN; varying vec3 vV;
+      void main(){ vN=normalize(normalMatrix*normal);
+        vec4 mv=modelViewMatrix*vec4(position,1.0); vV=normalize(-mv.xyz);
+        gl_Position=projectionMatrix*mv; }`,
+    fragmentShader:`uniform vec3 c; uniform float p; varying vec3 vN; varying vec3 vV;
+      void main(){ float d=abs(dot(normalize(vN),normalize(vV)));
+        float rim=pow(1.0-d,2.4)+0.22*pow(1.0-d,0.7);
+        gl_FragColor=vec4(c, rim*p); }`,
+    side:THREE.FrontSide, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false});
+  const shell=new THREE.Mesh(new THREE.SphereGeometry(1,48,32), shellMat);
+  shell.scale.setScalar(R*1.2);
+  group.add(shell);
+  // ejecta cloud — static buffers, motion in the shader
+  const N=isStar?(MOBILE_UI?800:1600):(MOBILE_UI?500:1000);
+  const dir=new Float32Array(N*3), spd=new Float32Array(N), seed=new Float32Array(N);
   for(let i=0;i<N;i++){
-    const d=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize()
-      .multiplyScalar(R*(0.2+2.2*Math.random()));
-    pos[i*3]=d.x; pos[i*3+1]=d.y; pos[i*3+2]=d.z;
-    const c=cA.clone().lerp(cB,Math.random()*0.65).multiplyScalar(0.55+0.65*Math.random());
-    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+    let x,y,z,l2;
+    do{ x=Math.random()*2-1; y=Math.random()*2-1; z=Math.random()*2-1; l2=x*x+y*y+z*z; }while(l2<1e-4||l2>1);
+    const l=Math.sqrt(l2);
+    dir[i*3]=x/l; dir[i*3+1]=y/l; dir[i*3+2]=z/l;
+    // a few percent race ahead as fast filaments; the bulk drifts behind the shell
+    spd[i]=Math.random()<0.07 ? 1.05+Math.random()*0.75 : 0.25+0.75*Math.pow(Math.random(),0.7);
+    seed[i]=Math.random();
   }
   const g=new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute('color', new THREE.BufferAttribute(col,3));
-  const mat=new THREE.PointsMaterial({map:glowCanvasTex('rgba(255,245,225,1)','rgba(255,180,90,0)'),
-    vertexColors:true, size:R*0.28, sizeAttenuation:true, transparent:true, opacity:1,
-    blending:THREE.AdditiveBlending, depthWrite:false});
-  const points=new THREE.Points(g,mat); points.frustumCulled=false; group.add(points);
-  stellarBlasts.push({rec,group,sp,points,g,mat,t:0,R,blastE});
+  g.setAttribute('position', new THREE.BufferAttribute(dir,3));  // unit dirs; true pos computed in-shader
+  g.setAttribute('aSpd', new THREE.BufferAttribute(spd,1));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed,1));
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{ uT:{value:0}, uK:{value:0}, uR:{value:R}, uScaleH:{value:600} },
+    vertexShader:
+      'attribute float aSpd; attribute float aSeed;\n'+
+      'uniform float uT; uniform float uR; uniform float uScaleH;\n'+
+      'varying float vSeed;\n'+
+      'void main(){ vSeed=aSeed;\n'+
+      '  float rr=uR*(0.35+aSpd*(3.0*uT+30.0*(1.0-exp(-uT*0.05))));\n'+  // fast launch, decelerating drift
+      '  vec4 mv=modelViewMatrix*vec4(position*rr,1.0);\n'+
+      '  float sz=uR*(0.10+0.06*aSeed)*(1.0+0.028*uT*aSpd);\n'+
+      '  gl_PointSize=clamp(sz*uScaleH/max(0.0001,-mv.z),1.0,64.0);\n'+
+      '  gl_Position=projectionMatrix*mv; }',
+    fragmentShader:
+      'uniform float uK; varying float vSeed;\n'+
+      'void main(){\n'+
+      '  float r=length(gl_PointCoord-0.5)*2.0; if(r>1.0) discard;\n'+
+      '  float d=exp(-3.5*r*r);\n'+
+      '  vec3 cA=vec3(1.0,0.96,0.86);\n'+   // white-gold fireball
+      '  vec3 cB=vec3(1.0,0.45,0.16);\n'+   // orange
+      '  vec3 cC=vec3(0.46,0.20,0.13);\n'+  // cooling brick
+      '  vec3 cD=vec3(0.28,0.42,0.52);\n'+  // remnant-nebula teal wisp
+      '  vec3 col = uK<0.10 ? mix(cA,cB,uK/0.10)\n'+
+      '           : uK<0.45 ? mix(cB,cC,(uK-0.10)/0.35)\n'+
+      '                     : mix(cC,cD,(uK-0.45)/0.55);\n'+
+      '  float a=d*(0.9-0.88*uK)*(0.55+0.45*vSeed);\n'+
+      '  gl_FragColor=vec4(col*(0.7+0.6*vSeed), a); }',
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending});
+  const points=new THREE.Points(g,mat); points.frustumCulled=false;
+  group.add(points);
+  stellarBlasts.push({rec,group,sp,core,shell,shellMat,points,g,mat,t:0,R,blastE,done:false,
+    c0:new THREE.Color(0xfff2dc), c1:new THREE.Color(0xb3341c)});
+}
+/* the show is over: free the flash/shell/ejecta GPU resources; keep the core */
+function finishStellarBlast(B){
+  if(B.done) return;
+  B.done=true;
+  B.group.remove(B.sp); B.sp.material.dispose();            // map is the SHARED flash tex — keep it
+  B.group.remove(B.shell); B.shell.geometry.dispose(); B.shellMat.dispose();
+  B.group.remove(B.points); B.g.dispose(); B.mat.dispose(); // point map is shared too
+  B.sp=B.shell=B.shellMat=B.points=B.g=B.mat=null;
 }
 function removeStellarBlast(rec){
   for(let i=stellarBlasts.length-1;i>=0;i--){
     const B=stellarBlasts[i]; if(B.rec!==rec) continue;
+    finishStellarBlast(B);
+    unregCanvasTex(B.core.material.map); B.core.material.map.dispose(); B.core.material.dispose();
     rec.holder.remove(B.group);
-    B.g.dispose(); unregCanvasTex(B.mat.map); B.mat.map.dispose(); B.mat.dispose();
-    unregCanvasTex(B.sp.material.map); B.sp.material.map.dispose(); B.sp.material.dispose();
     stellarBlasts.splice(i,1);
   }
   if(rec.data.kind==='star' && starGroup) for(const ch of starGroup.children) ch.visible=true;
   for(const ch of rec.mesh.children) ch.visible=true;
   if(rec.mesh.material) rec.mesh.material.visible=true;
-  if(rec.data.kind==='star' && sunLight) sunLight.intensity=sunLight.userData.baseIntensity||sunLight.intensity||1.9;
+  if(rec.data.kind==='star' && sunLight){
+    sunLight.intensity=sunLight.userData.baseIntensity||sunLight.intensity||1.9;
+    if(sunLight.userData.baseColor) sunLight.color.copy(sunLight.userData.baseColor);
+  }
+  if(rec.data.kind==='star' && beltObj){ beltObj.pts.visible=true; beltDirty=true; }
 }
 function shatterStellar(rec){
   rec.shattered=true; rec.destroyed=true;
@@ -2251,17 +2424,24 @@ function shatterStellar(rec){
   const wp=worldPosOf(rec), R=impRenderRadius(rec)||rec.radius||1;
   spawnFlash(wp,R*5.0,blastE);
   spawnShock(wp,R*4.2,blastE);
-  emitBurst(wp, 900, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
-    R*3.0, R*0.22, 3.4);
+  // the shader ejecta cloud carries the visual now — the pool burst is just close-in sparks
+  emitBurst(wp, 260, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
+    R*3.0, R*0.20, 3.0);
   if(rec.data.kind==='star' && starGroup) for(const ch of starGroup.children) if(ch!==rec.mesh) ch.visible=false;
   for(const ch of rec.mesh.children) ch.visible=false;
   if(rec.mesh.material) rec.mesh.material.visible=false;
   if(rec.data.kind==='star' && sunLight){
+    // stash the healthy light; the blast loop surges then extinguishes it
     sunLight.userData.baseIntensity=sunLight.userData.baseIntensity||sunLight.intensity;
-    sunLight.intensity=0;
+    sunLight.userData.baseColor=sunLight.userData.baseColor||sunLight.color.clone();
   }
+  if(rec.data.kind==='star' && beltObj) beltObj.pts.visible=false;   // the swarm is vaporized
   makeStellarBlast(rec,blastE);
+  // one star-death can shatter many worlds in the same frame — while it does,
+  // each planet skips its own screen-filling flash/shock and trims its burst
+  impMassEvent=true;
   const kicks=impBlastDamage(rec,blastE,states,rec.data.kind==='star');
+  impMassEvent=false;
   if(rec.data.kind==='star') freeRaSurvivors(rec,states,kicks);
   else liberateMoons(rec);
   updateNavStatus(rec);
@@ -2278,9 +2458,8 @@ function shatterBody(rec){
   const U=impBindingJ(rec), shatterE=Math.max(U, rec.dmgJ||0);
   const over=Math.max(1, shatterE/U);
   const burstK=Math.min(9, Math.max(1, Math.pow(over,0.18)));
-  spawnFlash(wp,R*(2.0+0.6*burstK),shatterE);
-  spawnShock(wp,R*(1.7+0.45*burstK),shatterE);
-  emitBurst(wp, 800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
+  if(!impMassEvent){ spawnFlash(wp,R*(2.0+0.6*burstK),shatterE); spawnShock(wp,R*(1.7+0.45*burstK),shatterE); }
+  emitBurst(wp, impMassEvent?120:800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
     R*(1.4+0.55*burstK), R*(0.12+0.025*burstK), 2.2+0.25*burstK);
   // hide the world + everything stuck to it (atmosphere, scar overlays)
   for(const ch of rec.mesh.children) ch.visible=false;
@@ -3184,15 +3363,29 @@ function updateImpacts(dt){
     }
   }
   for(const B of stellarBlasts){
+    if(B.done) continue;                       // only the tiny remnant core is left
     B.t+=dt;
-    const k=Math.min(1,B.t/6);
-    B.sp.scale.setScalar(B.R*(B.rec.data.kind==='star'?24:16)*(1+2.8*k));
-    B.sp.material.opacity=Math.max(0.15,Math.pow(1-k,1.2));
-    B.mat.opacity=Math.max(0.18,0.95*Math.pow(1-k,0.8));
-    B.mat.size=B.R*0.28*(1+1.8*k);
-    const hp=B.g.attributes.position, grow=1+dt*(0.18+0.35*(1-k));
-    for(let i=0;i<hp.count;i++) hp.setXYZ(i,hp.getX(i)*grow,hp.getY(i)*grow,hp.getZ(i)*grow);
-    hp.needsUpdate=true;
+    const t=B.t, K=Math.min(1,t/SN_END);
+    // core flash: blinding for a second, gone in a few
+    const f=Math.exp(-t/1.1);
+    B.sp.material.opacity=Math.min(1,3*f);
+    B.sp.scale.setScalar(B.R*(3+10*(1-f)));
+    // shock shell: decelerating expansion; whitens → reddens → thins to nothing
+    B.shell.scale.setScalar(B.R*(1.2+52*(1-Math.exp(-t/16))));
+    B.shellMat.uniforms.c.value.copy(B.c0).lerp(B.c1, Math.min(1,t/20));
+    B.shellMat.uniforms.p.value=1.15*(1-K)*(1-K);
+    // ejecta: two uniforms — the shaders do all the motion/colour work
+    B.mat.uniforms.uT.value=t; B.mat.uniforms.uK.value=K;
+    // the collapsed core fades in as the fireball clears
+    B.core.material.opacity=Math.min(0.85, Math.max(0,(t-2.5)/6));
+    // the dying star's light: a brief surge, then the lights go out, reddening
+    if(B.rec.data.kind==='star' && sunLight){
+      const base=sunLight.userData.baseIntensity||1.9;
+      if(!sunLight.userData.baseColor) sunLight.userData.baseColor=sunLight.color.clone();
+      sunLight.intensity=base*(t<0.4 ? 1+2.4*(t/0.4) : Math.max(0,3.4*Math.exp(-(t-0.4)/1.6)));
+      sunLight.color.copy(sunLight.userData.baseColor).lerp(_snRedTint, Math.min(1,t/3));
+    }
+    if(t>SN_END) finishStellarBlast(B);        // frees the fx; keeps the core ember
   }
   // debris rings shear along the orbit on SIM time (time warp spreads them)
   if(debrisRings.length) updateDebrisRings(lastSimDtYears);
@@ -3388,7 +3581,9 @@ function animate(){
   }
   lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
   updateEvapTails(lastSimDtYears);
+  updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
+  if(starfieldPts) starfieldPts.position.copy(camera.position);   // sky at any zoom depth
 
   if(flying){
     updateFly(dt);

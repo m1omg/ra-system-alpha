@@ -24,6 +24,8 @@ const GLOSSARY = [
   ["Vitriolic", "Oceans made of sulfuric acid."],
   ["Photodissociation", "Splitting of a molecule by light/radiation (usually UV)."],
   ["Main sequence", "A 'normal' star fusing hydrogen into helium in its core."],
+  ["Detached object", "A body whose far-flung orbit never comes near the planets — like Sedna in our system. Kauket is one."],
+  ["Fragment swarm", "The glittering belt near Wadjet's orbit: ~680 collision fragments on bound orbits, from the author's Universe Sandbox save."],
   ["g", "Earth surface gravity. AU = average Earth–Sun distance."]
 ];
 
@@ -302,8 +304,106 @@ const PLANETS = [
       "Shu is a distant, low-density world of the cold outer system — only about 1% of Earth's sunlight reaches "+
       "it, and at −130 °C it sits on the frontier between Ra's planets and the realm of its brown-dwarf companion, "+
       "Horus. (The worldbuilding notes for Shu are still in progress.)"
+  },
+  /* ---- The trans-Horus worlds. All three exist in the author's Universe
+     Sandbox save ("Ra planetary system 10 Taur 2.ubox"); orbits, masses,
+     radii and compositions below are extracted from its state vectors. ---- */
+  {
+    key: "salibe", name: "Salibe", kind: "gasgiant",
+    parent: "ra",
+    tagline: "A ghost-pale fourth gas giant, far beyond Horus",
+    dist: 146.8, ecc: 0.219, period: 1670, incl: 0.2,
+    radiusKm: 46472, rotationPeriod: 0.55,
+    massKg: 1.215e26, comp: { iron: 0.011, rock: 0.034, water: 0.152, gas: 0.803 },   // Universe Sandbox .ubox depots
+    color: 0x9db4c4,
+    palette: ["#6b8698","#9db4c4","#d3e2ea","#7d97a9","#b7ccd8"],
+    atmo: 0xa8c8da,
+    stats: [
+      ["Mass", "20.3 M⊕"],
+      ["Density", "0.29 g/cm³ (very puffy)"],
+      ["Diameter", "92,943 km"],
+      ["Composition", "80.3% H/He · 15.2% water · 3.4% rock · 1.1% iron"],
+      ["Orbital distance", "146.8 AU"],
+      ["Eccentricity", "0.219"],
+      ["Orbital period", "~1,670 years"],
+      ["Insolation", "0.014 % Earth"],
+      ["Temperature", "−224 °C"]
+    ],
+    images: [],
+    desc:
+      "Three times farther from Ra than Horus, Salibe is the system's overlooked fourth gas giant — twenty Earth "+
+      "masses of hydrogen so cold and so gently squeezed that it is one of the puffiest worlds known, barely a "+
+      "third of water's density. At −224 °C its cloud decks have frozen into a nearly featureless, ghost-pale "+
+      "haze that reflects the pinprick glare of the distant star. (The worldbuilding notes for Salibe are still "+
+      "in progress.)"
+  },
+  {
+    key: "yamm", name: "Yamm", kind: "rocky",
+    parent: "ra",
+    tagline: "A frozen super-Earth adrift on a tilted, eccentric orbit",
+    dist: 558.5, ecc: 0.522, period: 12400, incl: 9.2,
+    radiusKm: 12625, rotationPeriod: 1.3,
+    massKg: 3.165e25, comp: { iron: 0.207, rock: 0.637, water: 0.151, gas: 0.005 },   // Universe Sandbox .ubox depots
+    color: 0x767a86,
+    rocky: { base:"#4c4f58", a:"#7e828e", b:"#2a2c33", c:"#d5dde6" },
+    stats: [
+      ["Mass", "5.30 M⊕"],
+      ["Density", "3.76 g/cm³"],
+      ["Diameter", "25,249 km"],
+      ["Composition", "63.7% rock · 20.7% iron · 15.1% water (ice)"],
+      ["Orbital distance", "558.5 AU (267 → 850 AU)"],
+      ["Eccentricity", "0.522"],
+      ["Inclination", "9.2°"],
+      ["Orbital period", "~12,400 years"],
+      ["Temperature", "−242 °C"]
+    ],
+    images: [],
+    desc:
+      "Named for the old god of the raging sea, Yamm is a five-Earth-mass world of rock and iron glazed with "+
+      "frozen oceans — a sea god locked in ice. It drifts through the darkness on a lonely, eccentric orbit "+
+      "tilted 9° out of the system's plane, swinging from 267 to 850 AU once every twelve millennia; Ra is "+
+      "little more than the brightest star in its sky. (The worldbuilding notes for Yamm are still in progress.)"
+  },
+  {
+    key: "kauket", name: "Kauket", kind: "iceworld",
+    parent: "ra",
+    tagline: "A sednoid ice world on a million-year orbit — the system's dark frontier",
+    dist: 10934, ecc: 0.893, period: 1071000, incl: 0.2,
+    radiusKm: 13359, rotationPeriod: 1.1,
+    massKg: 1.171e25, comp: { iron: 0.046, rock: 0.300, water: 0.625, gas: 0.029 },   // Universe Sandbox .ubox depots
+    color: 0x4a5666,
+    palette: ["#323a48","#4a5666","#6c7d90","#3c4654"],
+    stats: [
+      ["Mass", "1.96 M⊕"],
+      ["Density", "1.17 g/cm³ (icy)"],
+      ["Diameter", "26,718 km"],
+      ["Composition", "62.5% water (ice) · 30% rock · 4.6% iron"],
+      ["Orbital distance", "10,934 AU (1,173 → 20,700 AU)"],
+      ["Eccentricity", "0.893"],
+      ["Orbital period", "~1.07 million years"],
+      ["Temperature", "−263 °C (10 K)"]
+    ],
+    images: [],
+    desc:
+      "Kauket — named for the primordial goddess of darkness — is the outermost world of the Ra system, a "+
+      "detached, Sedna-like wanderer whose orbit never comes within a thousand AU of the planets. Two Earth "+
+      "masses of frozen ocean over rock, it rides a million-year ellipse out to a fifth of a light-year, at "+
+      "ten kelvins above absolute zero: even its thin envelope of gases lies frozen on the ice. From its "+
+      "surface, Ra is only an exceptionally bright star in an eternal night. (The worldbuilding notes for "+
+      "Kauket are still in progress.)"
   }
 ];
+
+/* ---- The Wadjet fragment swarm: the author's .ubox save holds 1,652
+   collision fragments; the 684 still on bound orbits form a tight debris
+   belt crossing the Wadjet–Sekhmet orbit. The engine seeds its belt
+   points from this fitted element distribution (a in AU, i in degrees). ---- */
+const BELT = {
+  key: "belt",
+  core: { frac: 0.78, a: [0.264, 0.014], e: [0.226, 0.010], inc: [3.6, 0.7] },
+  tail: { aMin: 0.14, aMax: 0.53, eMax: 0.60, incMax: 19.6 },
+  color: 0xb9a892
+};
 
 /* Moons keyed by parent planet */
 const MOONS = [
