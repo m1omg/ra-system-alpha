@@ -346,6 +346,7 @@ const UI_EN={
   'st-status':'Status','st-destroyed':'☠ Destroyed','st-cause':'Cause','st-cause-v':'Bombardment (impact lab)',
   'st-eabs':'Energy absorbed','st-ebind':'Binding energy',
   'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, incandescent fragments and still-cooling ejecta drift apart — and Kepler shear is smearing them along the old orbit into a glittering debris ring. Speed up time to watch the arc close into a full ring.',
+  'debris-overkill':'The final energy input was far above the re-accretion window: the debris is expanding too fast to settle into a new spherical remnant or moonlets.',
   'stellar-epitaph':'{name} has been unbound. Its absorbed weapon energy exceeded its gravitational binding energy, driving a supernova-like blast that scorched nearby worlds by inverse-square exposure and threw surviving orbiters onto unbound or newly liberated paths.',
   'heal-hint':'(🧽 Heal in the impact lab restores the planet.)',
   'nav-destroyed':'destroyed',
@@ -368,6 +369,7 @@ const UI_EN={
   'tier-regional':' · surface: regional melting ({p}% molten)','tier-ocean':' · surface: global magma ocean ({p}% molten)',
   'tier-molten':' · surface: fully molten, superheated','tier-white':' · surface: white-hot — breakup imminent',
   'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
+  'imp-surface':'▣ Surface','imp-surface-on':'▣ Surface on',
   'imp-hint-ast':'Click a world to strike it · scars persist · enough total energy shatters a crust',
   'imp-hint-las':'Press & hold to fire · drag to sweep the beam across worlds · release to stop',
   'mat-0':'🧊 Ice','mat-1':'🪨 Rock','mat-2':'⛓ Iron',
@@ -426,6 +428,7 @@ function setLang(l){
   const pb=document.getElementById('play'); if(pb) pb.innerHTML=playing?T('pause'):T('play');
   const sb=document.getElementById('t-scale'); if(sb) sb.innerHTML=realScale?T('real-scale'):T('compressed');
   const tb=document.getElementById('t-text'); if(tb) tb.innerHTML=USE_VERBATIM?T('authors-text'):T('summary-source');
+  updateSurfaceUI();
   const sp=document.getElementById('speed'); if(sp) setSpeed(+sp.value);
   const sysb=document.getElementById('t-system');
   if(sysb) sysb.innerHTML = T('sys-change');
@@ -444,6 +447,9 @@ const MOBILE_UI = _COARSE;   // touch device (see _COARSE near the texture-size 
 
 // --- impact lab state (💥 button; module lives before the Animation section) ---
 let impacting=false, impWeapon='asteroid', impDiaKm=10, impSpdKms=30, impRho=3000, impPowW=1e18, impInfoT=0;
+let surfaceView=false, surfaceRec=null;
+const IMP_SURFACE_RATE_MAX=86400;       // one surface day per real second; faster rates stay visual, not wasteful
+const IMP_HEAT_MAX_STEPS=24;
 
 // --- free-roam flight state ---
 let flying=false, flyModel='flycam', flyAutoSpeed=true, throttleFrac=0, throttleKms=0, autoOrient=false, flyThrust=0;
@@ -1767,7 +1773,7 @@ function impStepHeat(s, dt){
   if(!s.heat || (!s.heatActive && !s.heatDirty)) return;
   s.heatT+=dt;
   let stepped=false, guard=0;
-  while(s.heatT>=IMP_HEAT_STEP && guard<3){
+  while(s.heatT>=IMP_HEAT_STEP && guard<IMP_HEAT_MAX_STEPS){
     s.heatT-=IMP_HEAT_STEP; guard++; stepped=true;
     const W=s.heatW, H=s.heatH, src=s.heat, dst=s.heatTmp;
     let max=0;
@@ -1789,7 +1795,7 @@ function impStepHeat(s, dt){
     }
     s.hot=Math.max(0.5+max*5, (s.hot||0)-IMP_HEAT_STEP);
   }
-  if(guard===3) s.heatT=0;
+  if(guard===IMP_HEAT_MAX_STEPS) s.heatT=Math.min(s.heatT, IMP_HEAT_STEP*2);
   if(stepped) s.heatDirty=true;
 }
 function impPaintHeat(rec, s, force){
@@ -1978,6 +1984,7 @@ const DEB_VESC_K=0.075, DEB_SOFT_K=0.22, DEB_RCORE0=0.10, DEB_RCORE_MAX=0.55, DE
 // energy (often two there), still possible a few x past it, none once a strike is a
 // big enough overkill to scatter almost everything.
 const DEB_RUMP_T1=0.08, DEB_MOON_T1=0.30, DEB_MOON_STEP=0.20, DEB_MOON_MAX=2;
+const DEB_REACCRETION_OVER_MAX=8;       // above this the escaping debris is too fast to make a rump or moonlets
 let _debRemnantGeo=null;
 function debRemnantGeo(){ return _debRemnantGeo || (_debRemnantGeo=new THREE.SphereGeometry(1,64,48)); }
 const _ROMAN=['I','II','III','IV'];
@@ -2268,10 +2275,13 @@ function shatterBody(rec){
   rec.shattered=true; rec.destroyed=true;
   sfxShatter(rec);
   const wp=worldPosOf(rec), R=impRenderRadius(rec);
-  spawnFlash(wp,R*2.6,impBindingJ(rec));
-  spawnShock(wp,R*2.0,impBindingJ(rec));
+  const U=impBindingJ(rec), shatterE=Math.max(U, rec.dmgJ||0);
+  const over=Math.max(1, shatterE/U);
+  const burstK=Math.min(9, Math.max(1, Math.pow(over,0.18)));
+  spawnFlash(wp,R*(2.0+0.6*burstK),shatterE);
+  spawnShock(wp,R*(1.7+0.45*burstK),shatterE);
   emitBurst(wp, 800, function(){ return _impV3.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().clone(); },
-    R*1.8, R*0.15, 2.8);
+    R*(1.4+0.55*burstK), R*(0.12+0.025*burstK), 2.2+0.25*burstK);
   // hide the world + everything stuck to it (atmosphere, scar overlays)
   for(const ch of rec.mesh.children) ch.visible=false;
   rec.mesh.material.visible=false;      // mesh object stays: keeps orbiting, pickable, scalable
@@ -2404,8 +2414,10 @@ function makeDebrisField(rec){
   const hit=rec._lastHit||{u:0.5,v:0.5};
   const hitDir=uvToLocal(rec, hit.u, hit.v, new THREE.Vector3()).normalize();
   const over=Math.max(1,(rec.dmgJ||0)/impBindingJ(rec));
-  const ovk=Math.min(3, Math.log10(over)+1);           // 1 @ U … 2 @ 10U … 3 @ 100U
-  const sBase=R*(0.012+0.038*ovk);
+  const allowReaccretion=!rec._generated && over<=DEB_REACCRETION_OVER_MAX;
+  const ovk=Math.min(4, Math.log10(over)+1);           // 1 @ U … 2 @ 10U … 3 @ 100U
+  const violentBoost=allowReaccretion ? 1 : Math.min(9, Math.pow(over/DEB_REACCRETION_OVER_MAX,0.18));
+  const sBase=R*(0.012+0.038*ovk)*violentBoost;
   const velOf=(dirFrom)=>{                              // impact-driven velocity field
     const cd=dirFrom.dot(hitDir), w=Math.pow(0.5+0.5*cd,1.6);
     const v=dirFrom.clone().addScaledVector(hitDir,-0.55).normalize()
@@ -2474,22 +2486,25 @@ function makeDebrisField(rec){
   // INCANDESCENT dust — small, dim-orange additive embers (big bright points
   // saturated the frame white; gray smoke hid the glowing fragments)
   const glowy = gas>=0.6;
-  const hzSize=glowy?R*(0.12+0.42*gas):R*0.09, hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
+  const hzSize=(glowy?R*(0.12+0.42*gas):R*0.09)*(allowReaccretion?1:Math.min(3.2,violentBoost*0.55));
+  const hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
   const hazeMat=new THREE.PointsMaterial({
     map:glowy?glowCanvasTex('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')
              :glowCanvasTex('rgba(255,150,70,0.75)','rgba(120,30,8,0.18)'),
     color:glowy?tint:new THREE.Color(0xff8542), size:hzSize*rec.mesh.scale.x,
     sizeAttenuation:true, transparent:true, opacity:hzOp,
-    blending:THREE.AdditiveBlending, depthWrite:false});
+    blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
+  haze.renderOrder=3;
   group.add(haze);
   // self-gravity params, in the mesh-local frame (R units)
   const totMw=chunks.reduce((s,c)=>s+c.mw,0);
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
-    gas, hazeSize:hzSize, op0:hzOp, fadeT:40*(0.6+1.3*gas),
-    GM:0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
+    gas, hazeSize:hzSize, hazeWorldSize:hzSize*rec.mesh.scale.x, op0:hzOp,
+    fadeT:40*(0.6+1.3*gas)/(allowReaccretion?1:Math.min(3,violentBoost*0.5)),
+    GM:(allowReaccretion?1:0.08)*0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
     rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, rumpMats:[], moonlets:[],
-    allowRemnant:!rec._generated});
+    allowRemnant:allowReaccretion, overkill:over});
 }
 
 /* ---- moon liberation: a destroyed planet no longer binds its moons ----
@@ -2919,6 +2934,12 @@ function toggleSfx(){
 }
 
 /* ---- asteroid projectiles: jittered rock + glow, homing at the chosen surface point ---- */
+function impSurfaceRate(){
+  if(!surfaceView || !playing) return 1;
+  return Math.max(1, Math.min(IMP_SURFACE_RATE_MAX, YEARS_PER_SEC*timeScale*SEC_PER_YEAR));
+}
+function impToolDt(dt){ return dt*impSurfaceRate(); }
+
 function launchAsteroid(rec, hit){
   const u=hit.uv?hit.uv.x:0.5, v=hit.uv?hit.uv.y:0.5;
   const E=impKE();
@@ -2944,8 +2965,8 @@ function launchAsteroid(rec, hit){
   sfxWhoosh(T);
 }
 
-/* ---- laser: frozen world-space ray; the body orbits/rotates through it ---- */
-function startBeam(rec, e){
+/* ---- laser: surface-locked ray; dragging retargets to a new hit ---- */
+function startBeam(rec, e, hit){
   if(impBeam) stopBeam();
   const r=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-r.left)/r.width)*2-1;
@@ -2959,10 +2980,18 @@ function startBeam(rec, e){
   const hitGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:impFlashTexture(),transparent:true,
     blending:THREE.AdditiveBlending,depthWrite:false}));
   scene.add(core); scene.add(sheath); scene.add(hitGlow);
+  const uv=hit&&hit.uv ? hit.uv : {x:0.5,y:0.5};
   impBeam={rec, origin:impRC.ray.origin.clone(), dir:impRC.ray.direction.clone(),
-    core, sheath, hitGlow, missT:0, sparkT:0, firedJ:0};
+    u:uv.x, v:uv.y, core, sheath, hitGlow, missT:0, sparkT:0, firedJ:0};
   controls.enabled=false;
   sfxBeamStart();
+}
+function retargetBeam(e){
+  if(!impBeam) return;
+  const h=pickHit(e);
+  if(!h || !h.uv) return;
+  const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey);
+  if(rec && !rec.destroyed){ impBeam.rec=rec; impBeam.u=h.uv.x; impBeam.v=h.uv.y; impBeam.missT=0; }
 }
 function stopBeam(){
   if(!impBeam) return;
@@ -3000,16 +3029,14 @@ function updateImpacts(dt){
   }
   // laser — follows the pointer; sweeping onto another world retargets it
   if(impBeam){
-    impRC.ray.origin.copy(impBeam.origin); impRC.ray.direction.copy(impBeam.dir);
-    const all=impRC.intersectObjects(pickables,false);
     let hit=null;
-    for(const h of all){                 // debris fields don't stop the beam
-      const r2=bodies.find(b=>b.data.key===h.object.userData.bodyKey);
-      if(r2 && !r2.destroyed){ hit=h; impBeam.rec=r2; break; }
+    if(impBeam.rec && !impBeam.rec.destroyed){
+      hit={point:uvToWorld(impBeam.rec,impBeam.u,impBeam.v), uv:{x:impBeam.u,y:impBeam.v}};
     }
     if(hit){
       impBeam.missT=0;
-      const EJ=impPowW*dt;
+      const toolDt=impToolDt(dt);
+      const EJ=impPowW*toolDt;
       impBeam.firedJ+=EJ;
       const rec=impBeam.rec, R=impRenderRadius(rec);
       if(!impImmune(rec) && !rec.destroyed){
@@ -3027,7 +3054,7 @@ function updateImpacts(dt){
               impPersistentSplat(s,'m',hit.uv.x,1-hit.uv.y,rPx*0.30,IMP_LAVA_SOFT,0.62);
             }
           }
-          const heatAmt=Math.min(0.28,(0.055+0.030*Math.cbrt(impPowW/1e18))*Math.min(1.8,dt*30));
+          const heatAmt=Math.min(0.28,(0.055+0.030*Math.cbrt(impPowW/1e18))*Math.min(1.8,toolDt*30));
           impDepositHeat(rec,s,hit.uv.x,1-hit.uv.y,rPx*(gasy?1.35:0.95),heatAmt);
           if(cold) impPaintHeat(rec,s,true);
         }
@@ -3085,7 +3112,7 @@ function updateImpacts(dt){
   // the dust haze expands and fades. This aftermath now runs on SIM time, like the
   // debris ring, so the speed slider fast-forwards re-accretion (and pausing freezes
   // it); the gravity step is sub-stepped so the integrator stays stable at high warp.
-  const debWarp=playing?timeScale:0, ddt=dt*debWarp;
+  const debWarp=(playing&&!surfaceView)?timeScale:0, ddt=dt*debWarp;
   const nSub=Math.max(1, Math.min(64, Math.ceil(ddt/0.05))), hSub=ddt/nSub;
   for(const D of debrisFields){
     D.t+=ddt;
@@ -3147,9 +3174,9 @@ function updateImpacts(dt){
       if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
         unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
       else{
-        D.hazeMat.opacity=D.op0*fade;
-        D.hazeMat.size=D.hazeSize*D.rec.mesh.scale.x;   // track the dot-floor scaling
-        const hp=D.haze.geometry.attributes.position, k=1+ddt*0.05;   // slow expansion
+        D.hazeMat.opacity+=(D.op0*fade-D.hazeMat.opacity)*Math.min(1,dt*10);
+        D.hazeMat.size=D.hazeWorldSize||D.hazeSize*D.rec.mesh.scale.x;
+        const hp=D.haze.geometry.attributes.position, k=1+Math.min(0.18,ddt*0.05);   // slow expansion
         for(let i=0;i<hp.count;i++) hp.setXYZ(i, hp.getX(i)*k, hp.getY(i)*k, hp.getZ(i)*k);
         hp.needsUpdate=true;
       }
@@ -3170,6 +3197,7 @@ function updateImpacts(dt){
   if(debrisRings.length) updateDebrisRings(lastSimDtYears);
   // heat glow cools (shattered worlds are gone); batched, and only while hot —
   // once faded, no more full-canvas ops or texture re-uploads
+  const surfaceDt=impToolDt(dt);
   for(const rec of impScarred){
     // heated gas giants ease toward their inflated radius
     if(rec.puffTarget && Math.abs((rec.puffK||1)-rec.puffTarget)>1e-4){
@@ -3179,12 +3207,12 @@ function updateImpacts(dt){
     if(rec.shattered) continue;
     const s=rec.scar;
     if(s.wocean && s.waterM>0)
-      s.wocean.material.map.offset.x=(s.wocean.material.map.offset.x+dt*0.006)%1;  // currents
+      s.wocean.material.map.offset.x=(s.wocean.material.map.offset.x+surfaceDt*0.006)%1;  // currents
     if(s.steam && s.steamM>0)
-      s.steam.material.map.offset.x=(s.steam.material.map.offset.x+dt*0.010)%1;    // storm bands
+      s.steam.material.map.offset.x=(s.steam.material.map.offset.x+surfaceDt*0.010)%1;    // storm bands
     if(s.ocean && s.oceanM>0){
-      s.ocean.material.map.offset.x=(s.ocean.material.map.offset.x+dt*0.0045)%1;  // magma churns
-      s.emberT=(s.emberT||0)+dt;
+      s.ocean.material.map.offset.x=(s.ocean.material.map.offset.x+surfaceDt*0.0045)%1;  // magma churns
+      s.emberT=(s.emberT||0)+Math.min(surfaceDt,0.5);
       // shed incandescent spray — but only when the surface is actually resolved:
       // a dot-floor-inflated far view would spray planet-sized blobs
       const R=impRenderRadius(rec);
@@ -3200,14 +3228,14 @@ function updateImpacts(dt){
         }
       }
     }
-    impStepHeat(s,dt);
+    impStepHeat(s,surfaceDt);
     if(s.heat && (s.heatDirty || s.heatActive)){
       s.heatPaintT+=dt;
       if(s.heatDirty && (s.heatPaintT>0.12 || !s.heatActive)){
         impPaintHeat(rec,s,false); s.heatPaintT=0;
       }
     }
-    impEaseMeltVisual(rec,dt);
+    impEaseMeltVisual(rec,surfaceDt);
     // batched scar uploads: canvas paints are cheap, GPU re-uploads are not —
     // laser burns mark dirty and we flush at ~10 Hz instead of every frame
     if(s.dirty){
@@ -3217,7 +3245,7 @@ function updateImpacts(dt){
     }
     if(s.heat && (s.heatActive || s.heatDirty || s.heatMax>0.012)) continue;
     if(s.hot<=0) continue;
-    s.coolT+=dt; s.hot-=dt;
+    s.coolT+=surfaceDt; s.hot-=surfaceDt;
     if(s.coolT>0.25){                        // fade cadence: 4 uploads/s, imperceptible vs 8
       const g=s.glowC.getContext('2d');
       g.save(); g.globalCompositeOperation='destination-out';
@@ -3264,11 +3292,29 @@ function enterImpact(){
   updateImpactUI();
 }
 function exitImpact(){
-  impacting=false; stopBeam();
+  impacting=false; stopBeam(); exitSurfaceView();
   document.getElementById('implab').classList.remove('on');
   const b=document.getElementById('t-impact'); if(b) b.classList.remove('on');
   renderer.domElement.style.cursor='grab';
 }
+function updateSurfaceUI(){
+  const b=document.getElementById('imp-surface');
+  if(b){ b.textContent=surfaceView?T('imp-surface-on'):T('imp-surface'); b.classList.toggle('on',surfaceView); }
+}
+function enterSurfaceView(){
+  const rec=bodies.find(b=>b.data.key===selected) || (APP.currentData && bodies.find(b=>b.data.key===APP.currentData.key));
+  if(!rec || rec.destroyed) return;
+  if(flying) exitFly();
+  surfaceView=true; surfaceRec=rec; follow=rec; tween.active=false;
+  controls.target.copy(worldPosOf(rec));
+  updateSurfaceUI();
+}
+function exitSurfaceView(){
+  if(!surfaceView) return;
+  surfaceView=false; surfaceRec=null;
+  updateSurfaceUI();
+}
+function toggleSurfaceView(){ surfaceView?exitSurfaceView():enterSurfaceView(); }
 function fmtBigJ(J){
   const tnt=J/IMP_MT_TNT_J; let t;
   if(tnt<1)        t=(tnt*1000).toPrecision(2)+' kt';
@@ -3313,6 +3359,7 @@ function updateImpactUI(){
   if(en) en.textContent = impWeapon==='asteroid' ? ('💣 '+fmtBigJ(impKE())) : ('🔥 '+fmtBigJ(impPowW)+' / s');
   const hint=document.getElementById('imp-hint');
   if(hint) hint.textContent = impWeapon==='asteroid' ? T('imp-hint-ast') : T('imp-hint-las');
+  updateSurfaceUI();
 }
 
 /* ============================================================
@@ -3324,17 +3371,21 @@ const tween={active:false,t:0,fromCam:new THREE.Vector3(),fromTarget:new THREE.V
 function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05);
+  if(surfaceView && (!surfaceRec || bodies.indexOf(surfaceRec)<0 || surfaceRec.destroyed)) exitSurfaceView();
+  const simDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
 
-  if(playing){
+  if(playing && !surfaceView){
     for(const rec of bodies){
-      if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,YEARS_PER_SEC*timeScale*dt); positionFreeBody(rec); }
-      else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*YEARS_PER_SEC*timeScale*dt; positionBody(rec); }
+      if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,simDtYears); positionFreeBody(rec); }
+      else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*simDtYears; positionBody(rec); }
       rec.mesh.rotation.y += rec.spin*dt*timeScale*SPIN_GAIN;   // rotation slows/freezes with the time rate
     }
-    elapsedYears += YEARS_PER_SEC*timeScale*dt;          // real sim-time elapsed
+  }
+  if(playing){
+    elapsedYears += simDtYears;          // real sim-time elapsed
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
-  lastSimDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
+  lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
   updateEvapTails(lastSimDtYears);
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
 
@@ -3445,19 +3496,14 @@ function setupInteraction(){
     if(flying){ try{ dom.setPointerCapture(e.pointerId); }catch(_){} }   // keep look-drag alive off-canvas
     if(!flying && impacting && impWeapon==='laser' && e.button===0){     // press-and-hold (left button) on a world = burn
       const h=pickHit(e);
-      if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) startBeam(rec,e); }
+      if(h){ const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey); if(rec) startBeam(rec,e,h); }
     }
     document.getElementById('nav').classList.remove('open');});
   dom.addEventListener('pointermove',e=>{
     if(Math.abs(e.clientX-downX)>4||Math.abs(e.clientY-downY)>4) moved=true;
     if(flying){ if(pdown) flyLook(e.clientX-lastX, e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; }
     else {
-      if(impBeam){                       // drag the beam Universe-Sandbox style: it follows the pointer
-        const r=dom.getBoundingClientRect();
-        mouse.x=((e.clientX-r.left)/r.width)*2-1; mouse.y=-((e.clientY-r.top)/r.height)*2+1;
-        impRC.setFromCamera(mouse,camera);
-        impBeam.origin.copy(impRC.ray.origin); impBeam.dir.copy(impRC.ray.direction);
-      }
+      if(impBeam) retargetBeam(e);       // drag the beam Universe-Sandbox style: retarget surface hits
       hover(e);
     }
   });
@@ -3523,6 +3569,7 @@ function setupInteraction(){
     const el=document.getElementById(id); if(el) el.oninput=updateImpactUI;
   }
   const impH=document.getElementById('imp-heal'); if(impH) impH.onclick=impHeal;
+  const impS=document.getElementById('imp-surface'); if(impS) impS.onclick=toggleSurfaceView;
   const impX=document.getElementById('imp-exit'); if(impX) impX.onclick=exitImpact;
   window.addEventListener('keydown',e=>{ if(e.code==='Escape'&&impacting&&!flying) exitImpact(); });
 
@@ -3670,6 +3717,7 @@ function focusBody(key, openPanel){
     const ws=rec.radius*(rec._parentMesh?rec._parentMesh.scale.x:1);
     tween.dist=Math.max(ws*6, controls.minDistance*1.5);
     selected=key; setActiveNav(key);
+    if(surfaceView) surfaceRec=rec;
     if(openPanel==='force' || (openPanel!==false && !MOBILE_UI)) openInfo(rec.data);
     return;
   }
@@ -3683,6 +3731,7 @@ function focusBody(key, openPanel){
     if(rec.data.kind==='star') tween.dist = starVisR()*7;
   }
   selected=key; setActiveNav(key);
+  if(surfaceView) surfaceRec=rec;
   // 'force' (deep links) always opens; plain true is suppressed on touch devices
   if(openPanel==='force' || (openPanel!==false && !MOBILE_UI)) openInfo(rec.data);
 }
@@ -4037,6 +4086,10 @@ function openInfoDestroyed(rec){
   if(!stellar && field && field.rumpRec){
     const p2=document.createElement('p');
     p2.textContent=locName(d)+' has begun to re-form: enough bound debris has fallen back to make '+field.rumpRec.data.name+', a red-hot spherical planetary remnant. Any moonlets listed beneath it are also accreted from the same incandescent rubble.';
+    ds.appendChild(p2);
+  } else if(!stellar && field && !field.allowRemnant){
+    const p2=document.createElement('p');
+    p2.textContent=T('debris-overkill');
     ds.appendChild(p2);
   }
   const hint=document.createElement('p');

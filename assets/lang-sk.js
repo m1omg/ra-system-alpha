@@ -32,6 +32,7 @@ ui: {
   'st-status':'Stav','st-destroyed':'☠ Zničený','st-cause':'Príčina','st-cause-v':'Bombardovanie (impaktné laboratórium)',
   'st-eabs':'Pohltená energia','st-ebind':'Väzbová energia',
   'debris-epitaph':'{name} už neexistuje. Nahromadené bombardovanie prekročilo gravitačnú väzbovú energiu a svet sa rozpadol. Tam, kde bol {name}, sa teraz rozlietavajú rozžeravené úlomky a chladnúci vyvrhnutý materiál — a Keplerov strih ich rozmazáva pozdĺž pôvodnej dráhy do trblietavého prstenca trosiek. Zrýchlite čas a sledujte, ako sa oblúk uzavrie do celého prstenca.',
+  'debris-overkill':'Posledný prísun energie bol ďaleko nad oknom opätovnej akrécie: trosky sa rozpínajú príliš rýchlo na to, aby sa usadili do nového guľového zvyšku alebo mesiačikov.',
   'stellar-epitaph':'{name} bol gravitačne rozviazaný. Pohltená energia zbraní prekročila jeho gravitačnú väzbovú energiu a vyvolala výbuch podobný supernove, ktorý ožiaril blízke svety podľa zákona inverzného štvorca a preživšie telesá vyhodil na neviazané alebo novo oslobodené dráhy.',
   'heal-hint':'(🧽 Uzdraviť v impaktnom laboratóriu planétu obnoví.)',
   'nav-destroyed':'zničený',
@@ -54,6 +55,7 @@ ui: {
   'tier-regional':' · povrch: regionálne tavenie ({p} % roztavených)','tier-ocean':' · povrch: globálny magmatický oceán ({p} % roztavených)',
   'tier-molten':' · povrch: úplne roztavený, prehriaty','tier-white':' · povrch: rozžeravený dobiela — hrozí rozpad',
   'imp-w-ast':'☄ Asteroid','imp-w-las':'🔆 Laser',
+  'imp-surface':'▣ Povrch','imp-surface-on':'▣ Povrch zap.',
   'imp-hint-ast':'Klikni na svet a udri · jazvy zostávajú · dosť celkovej energie roztrhá kôru',
   'imp-hint-las':'Stlač a drž pre paľbu · ťahaním vedieš lúč po svetoch · pustením končíš',
   'mat-0':'🧊 Ľad','mat-1':'🪨 Hornina','mat-2':'⛓ Železo',
@@ -78,7 +80,7 @@ html: {
   'fly-title':'🚀 Voľný let','lbl-throttle':'Rýchlosť','fly-exit':'✕ Koniec',
   'fly-goto':'⤳ Leť&nbsp;k','fly-follow':'⛓ Sleduj','fly-orient':'◎ Zorientuj','fly-brake':'⏹ Brzda',
   'fly-hint':'W/S alebo ↑↓ let · A/D alebo ←→ úkrok · PgUp/PgDn alebo R = hore·dole · ťahanie = rozhliadanie · Q/E náklon · koliesko = rýchlosť · F = sledovanie · klik na svet (znova = leť k) · Esc koniec',
-  'imp-title':'💥 Impaktné laboratórium','imp-heal':'🧽 Uzdraviť',
+  'imp-title':'💥 Impaktné laboratórium','imp-surface':'▣ Povrch','imp-heal':'🧽 Uzdraviť',
   'lbl-imp-dia':'Priemer','lbl-imp-spd':'Rýchlosť','lbl-imp-mat':'Materiál','lbl-imp-pow':'Výkon'
 },
 
@@ -91,6 +93,7 @@ titles: {
   't-sfx':'Zvukové efekty — nerealistické (vesmír je tichý), ale pre efekt',
   't-system':'Prepni medzi fiktívnou sústavou Ra a našou skutočnou Slnečnou sústavou',
   't-lang':'Slovenčina / English',
+  'imp-surface':'Zmrazí obežný pohyb a posúva iba povrch vybraného sveta',
   'imp-heal':'Odstráni všetky jazvy a vynuluje poškodenie',
   'imp-exit':'Zavrieť (Esc)',
   'helpbtn':'Pomoc a slovník',
