@@ -3,7 +3,8 @@
 post.py — turn raw gpt-image-2 renders into sphere-ready texture maps.
 
 Reads:  tools/_raw/ai/<key>.png   (raw renders Codex produced)
-Writes: assets/img/textures/<key>.webp  (2048x1024, seam-blended, WebP)
+Writes: assets/img/textures/<key>.webp              (2048x1024, seam-blended, WebP)
+        assets/img/textures/local-data/<key>.js     (matching data URL for file://)
 
 WebP is ~2x smaller than JPEG at equal quality, so the whole 17-body set loads
 fast from GitHub Pages while keeping full 2048 resolution for close-up flight.
@@ -11,18 +12,19 @@ fast from GitHub Pages while keeping full 2048 resolution for close-up flight.
 Post-processing:
   1. feather the left/right wrap so the 0deg/360deg meridian tiles (no seam line),
   2. resize to 2048x1024 (equirectangular 2:1),
-  3. save as WebP.
+  3. save as WebP and matching file:// sidecar.
 
 Pillow-only (no numpy). Usage:
   python3 tools/post.py            # process every png in tools/_raw/ai/
   python3 tools/post.py satis set  # process only these keys
 """
-import sys, pathlib
+import base64, json, pathlib, sys
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC  = ROOT / "tools" / "_raw" / "ai"
 DST  = ROOT / "assets" / "img" / "textures"
+LOCAL_DST = DST / "local-data"
 OUT_W, OUT_H = 2048, 1024
 BAND_FRAC = 0.04          # seam feather width as a fraction of image width
 WEBP_Q = 74               # WebP quality — full 2048 sharpness at ~1/2 the JPEG size
@@ -55,10 +57,25 @@ def process(key):
     DST.mkdir(parents=True, exist_ok=True)
     dst = DST / f"{key}.webp"
     img.save(dst, "WEBP", quality=WEBP_Q, method=6)
+    write_local_sidecar(key, dst)
     print(f"ok   {key:10s} {in_size[0]}x{in_size[1]} -> {OUT_W}x{OUT_H}  {dst.stat().st_size//1024} KB")
     return True
 
+def write_local_sidecar(key, webp_path):
+    """Embed the WebP as a tiny JS data-url assignment for file:// browser loads."""
+    LOCAL_DST.mkdir(parents=True, exist_ok=True)
+    data = base64.b64encode(webp_path.read_bytes()).decode("ascii")
+    js = (
+        f"// Generated from ../{webp_path.name} for local file:// texture loading.\n"
+        "window.RA_LOCAL_TEXTURES=window.RA_LOCAL_TEXTURES||{};\n"
+        f"window.RA_LOCAL_TEXTURES[{json.dumps(key)}]={json.dumps('data:image/webp;base64,' + data)};\n"
+    )
+    (LOCAL_DST / f"{key}.js").write_text(js, encoding="utf-8")
+
 def main():
+    from PIL import features
+    if not features.check("webp"):
+        sys.exit("this Pillow build lacks WebP support (pip install --upgrade pillow)")
     keys = sys.argv[1:]
     if not keys:
         keys = sorted(p.stem for p in SRC.glob("*.png")) if SRC.exists() else []

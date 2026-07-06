@@ -29,6 +29,12 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Drop file://-only texture sidecars from the site
+        # local-data/ holds base64 copies of the WebP maps used only when the
+        # sim is opened from disk (file://); browsers on the hosted site never
+        # fetch them, so keep the ~8.6 MB out of the deployed artifact.
+        run: rm -rf assets/img/textures/local-data
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:

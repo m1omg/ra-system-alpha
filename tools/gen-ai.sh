@@ -7,7 +7,8 @@
 # raw PNG into tools/_raw/ai/. Re-runnable: existing outputs are skipped.
 #
 # Prereqs: `node tools/gen-refs.mjs` first (refs + prompts.json), an authenticated
-# Codex CLI. After this, run `python3 tools/post.py` to bake the final JPEGs.
+# Codex CLI. After this, run `python3 tools/post.py` to bake the final WebP
+# maps + their file:// data-url sidecars (assets/img/textures/local-data/).
 set -u
 cd "$(dirname "$0")/.."
 
