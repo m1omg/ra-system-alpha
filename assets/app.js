@@ -2282,12 +2282,20 @@ function impApplyBlastEnergy(rec, E, source, states){
   impUpdateMelt(rec);
   if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
 }
-/* The blast doesn't hit everything in the same frame: each world's damage is
-   queued and lands with a distance-staggered delay (the radiation/ejecta wave
-   sweeping outward), at most two arrivals per frame. That's both the drama —
-   you watch the wave march through the system — and the perf fix: scar
-   canvases, heat fields and debris-field builds spread over seconds instead
-   of one giant frame hitch. */
+/* The blast sweeps the system at PHYSICAL speed on SIM time: every world gets
+   TWO queued arrivals — the radiation front (light/heat/X-rays, travelling at
+   c) and the matter shock (ejecta, at SN_SHOCK_C of c, ~10× slower). Queue
+   times are sim-years, decremented by the frame's simDtYears, so the speed
+   slider paces the sweep and pause freezes it (light needs 8.3 min per AU,
+   the shock ~1.4 h per AU — run ~1 h/s–1 day/s to watch it march). Still at
+   most one arrival lands per frame: that's the perf fix — scar canvases,
+   heat fields and debris-field builds never pile into one giant frame hitch. */
+const SN_LIGHT_S_PER_AU = KM_PER_AU/C_KMS;              // ≈ 499 s: light-travel time per AU
+const SN_LIGHT_YR_PER_AU = SN_LIGHT_S_PER_AU/SEC_PER_YEAR;
+const SN_SHOCK_C = 0.1;                                 // shock/ejecta front speed as fraction of c
+const SN_SHOCK_YR_PER_AU = SN_LIGHT_YR_PER_AU/SN_SHOCK_C;
+const SN_RAD_FRAC = 0.5;   // share of a body's absorbed energy delivered by the radiation flash
+                           // (rest arrives with the shock, along with the orbit kick)
 const impBlastQueue=[];
 function impBlastDamage(source, blastE, states, skipOrbitKicks){
   const sourceState=states.get(source)||raStateOf(source);
@@ -2304,15 +2312,19 @@ function impBlastDamage(source, blastE, states, skipOrbitKicks){
     const dirAU=dr.lengthSq()>1e-18 ? dr.normalize() : new THREE.Vector3(1,0,0);
     const dvKms=Math.min(C_KMS*0.25, Math.sqrt(Math.max(0,2*eAbs*0.012/impBodyMassKg0(rec)))/1000);
     kicks.set(rec,{dirAU:dirAU.clone(),dvKms});
-    impBlastQueue.push({rec, source, eAbs, dirAU:dirAU.clone(), dvKms,
-      at: 0.35+Math.min(7, Math.sqrt(Math.max(0.001,dAU))*1.1)});
+    // radiation front: heat/char only, no momentum — arrives at light speed
+    impBlastQueue.push({rec, source, eAbs:eAbs*SN_RAD_FRAC, dirAU:dirAU.clone(), dvKms:0,
+      at: dAU*SN_LIGHT_YR_PER_AU});
+    // matter shock: the rest of the energy + the orbit kick — arrives at SN_SHOCK_C·c
+    impBlastQueue.push({rec, source, eAbs:eAbs*(1-SN_RAD_FRAC), dirAU:dirAU.clone(), dvKms,
+      at: dAU*SN_SHOCK_YR_PER_AU});
   }
   impBlastQueue.sort((a,b)=>a.at-b.at);
   return kicks;
 }
-function impProcessBlastQueue(dt){
+function impProcessBlastQueue(simDt){        // simDt = sim-years advanced this frame
   if(!impBlastQueue.length) return;
-  for(const q of impBlastQueue) q.at-=dt;
+  for(const q of impBlastQueue) q.at-=simDt;
   // ONE wave arrival per frame (they're staggered anyway; a due sibling just
   // lands a frame later), so a frame never pays for two shatters
   let fired=0;
@@ -2368,9 +2380,12 @@ function freeRaSurvivors(source, states, kicks){
    cloud whose expansion, colour evolution (white-gold → orange → brick →
    remnant-nebula teal) and fade all live in the vertex/fragment shaders —
    after creation the CPU only updates a couple of uniforms per frame, never
-   the buffers. The show winds itself down by SN_END and frees its GPU
-   resources, leaving just a tiny collapsed-core ember until 🧽 Heal. ---- */
-const SN_END=75;
+   the buffers. The whole show runs on SIM time at physical speed: the shock
+   shell rides the true 0.1c front, a second faint shell rides the light
+   front at c, and the show winds itself down once the shock leaves the
+   system (SN_MAX_AU), freeing its GPU resources and leaving just a tiny
+   collapsed-core ember until 🧽 Heal. ---- */
+const SN_MAX_AU=55;          // shock front past the Wadjet belt (~46 AU) = show over
 const _snRedTint=new THREE.Color(0xff7038);
 function snShellMaterial(){
   return new THREE.ShaderMaterial({
@@ -2387,15 +2402,16 @@ function snShellMaterial(){
 }
 function snEjectaMaterial(R){
   return new THREE.ShaderMaterial({
-    uniforms:{ uT:{value:0}, uK:{value:0}, uR:{value:R}, uScaleH:{value:600} },
+    uniforms:{ uF:{value:0}, uK:{value:0}, uR:{value:R}, uScaleH:{value:600} },
     vertexShader:
       'attribute float aSpd; attribute float aSeed;\n'+
-      'uniform float uT; uniform float uR; uniform float uScaleH;\n'+
+      'uniform float uF; uniform float uK; uniform float uR; uniform float uScaleH;\n'+
       'varying float vSeed;\n'+
       'void main(){ vSeed=aSeed;\n'+
-      '  float rr=uR*(0.35+aSpd*(3.0*uT+30.0*(1.0-exp(-uT*0.05))));\n'+  // fast launch, decelerating drift
+      // uF = shock-front radius (scene units): the bulk rides behind it, fast filaments a bit ahead
+      '  float rr=uR*0.35+uF*aSpd*0.8;\n'+
       '  vec4 mv=modelViewMatrix*vec4(position*rr,1.0);\n'+
-      '  float sz=uR*(0.10+0.06*aSeed)*(1.0+0.028*uT*aSpd);\n'+
+      '  float sz=uR*(0.10+0.06*aSeed)*(1.0+2.5*uK*aSpd);\n'+
       '  gl_PointSize=clamp(sz*uScaleH/max(0.0001,-mv.z),1.0,64.0);\n'+
       '  gl_Position=projectionMatrix*mv; }',
     fragmentShader:
@@ -2451,6 +2467,12 @@ function makeStellarBlast(rec, blastE){
   const shell=new THREE.Mesh(new THREE.SphereGeometry(1,48,32), shellMat);
   shell.scale.setScalar(R*1.2);
   group.add(shell);
+  // radiation front — a second, fainter blue-white shell racing ahead at c
+  const lightMat=snShellMaterial();
+  lightMat.uniforms.c.value.set(0xcfe4ff);
+  const lightShell=new THREE.Mesh(new THREE.SphereGeometry(1,48,32), lightMat);
+  lightShell.scale.setScalar(R*1.2);
+  group.add(lightShell);
   // ejecta cloud — static buffers, motion in the shader
   const N=isStar?(MOBILE_UI?800:1600):(MOBILE_UI?500:1000);
   const dir=new Float32Array(N*3), spd=new Float32Array(N), seed=new Float32Array(N);
@@ -2470,7 +2492,8 @@ function makeStellarBlast(rec, blastE){
   const mat=snEjectaMaterial(R);
   const points=new THREE.Points(g,mat); points.frustumCulled=false;
   group.add(points);
-  stellarBlasts.push({rec,group,sp,core,shell,shellMat,points,g,mat,t:0,R,blastE,done:false,
+  stellarBlasts.push({rec,group,sp,core,shell,shellMat,lightShell,lightMat,points,g,mat,
+    tYears:0,R,blastE,done:false,
     c0:new THREE.Color(0xfff2dc), c1:new THREE.Color(0xb3341c)});
 }
 /* the show is over: free the flash/shell/ejecta GPU resources; keep the core */
@@ -2479,8 +2502,9 @@ function finishStellarBlast(B){
   B.done=true;
   B.group.remove(B.sp); B.sp.material.dispose();            // map is the SHARED flash tex — keep it
   B.group.remove(B.shell); B.shell.geometry.dispose(); B.shellMat.dispose();
+  B.group.remove(B.lightShell); B.lightShell.geometry.dispose(); B.lightMat.dispose();
   B.group.remove(B.points); B.g.dispose(); B.mat.dispose(); // point map is shared too
-  B.sp=B.shell=B.shellMat=B.points=B.g=B.mat=null;
+  B.sp=B.shell=B.shellMat=B.lightShell=B.lightMat=B.points=B.g=B.mat=null;
 }
 function removeStellarBlast(rec){
   for(let i=stellarBlasts.length-1;i>=0;i--){
@@ -3282,7 +3306,7 @@ function placeCyl(mesh,a,b,r){
 /* ---- per-frame update (wall-clock dt) ---- */
 function updateImpacts(dt){
   impShellBudget=1;                          // one first-time shell bake per frame
-  impProcessBlastQueue(dt);                  // staggered supernova damage wave
+  impProcessBlastQueue(lastSimDtYears);      // supernova damage fronts sweep on SIM time
   // asteroids (iterate backwards: strikes splice)
   for(let i=impAsteroids.length-1;i>=0;i--){
     const a=impAsteroids[i];
@@ -3455,28 +3479,40 @@ function updateImpacts(dt){
   }
   for(const B of stellarBlasts){
     if(B.done) continue;                       // only the tiny remnant core is left
-    B.t+=dt;
-    const t=B.t, K=Math.min(1,t/SN_END);
-    // core flash: blinding for a second, gone in a few
-    const f=Math.exp(-t/1.1);
+    // the whole show runs on SIM time at physical speed: light front at c,
+    // shock/ejecta front at 0.1c — the speed slider paces it, pause freezes it
+    B.tYears+=lastSimDtYears;
+    const tD=B.tYears*365.25;                              // sim-days since core collapse
+    const shockAU=B.tYears/SN_SHOCK_YR_PER_AU;             // matter front position
+    const lightAU=B.tYears/SN_LIGHT_YR_PER_AU;             // radiation front position
+    const K=Math.min(1,shockAU/SN_MAX_AU);
+    // core flash: a supernova light curve — blinding, decaying over sim-days
+    const f=Math.exp(-tD/6);
     B.sp.material.opacity=Math.min(1,3*f);
     B.sp.scale.setScalar(B.R*(3+10*(1-f)));
-    // shock shell: decelerating expansion; whitens → reddens → thins to nothing
-    B.shell.scale.setScalar(B.R*(1.2+52*(1-Math.exp(-t/16))));
-    B.shellMat.uniforms.c.value.copy(B.c0).lerp(B.c1, Math.min(1,t/20));
+    // shock shell rides the true 0.1c front; whitens → reddens → thins to nothing
+    B.shell.scale.setScalar(Math.max(B.R*1.2, distDisp(shockAU)));
+    B.shellMat.uniforms.c.value.copy(B.c0).lerp(B.c1, Math.min(1,K/0.27));
     B.shellMat.uniforms.p.value=1.15*(1-K)*(1-K);
+    // radiation shell rides the light front, fading as it thins with distance
+    const KL=Math.min(1,lightAU/SN_MAX_AU);
+    B.lightShell.visible=KL<1;
+    if(B.lightShell.visible){
+      B.lightShell.scale.setScalar(Math.max(B.R*1.2, distDisp(lightAU)));
+      B.lightMat.uniforms.p.value=0.7*(1-KL)*(1-KL);
+    }
     // ejecta: two uniforms — the shaders do all the motion/colour work
-    B.mat.uniforms.uT.value=t; B.mat.uniforms.uK.value=K;
-    // the collapsed core fades in as the fireball clears
-    B.core.material.opacity=Math.min(0.85, Math.max(0,(t-2.5)/6));
+    B.mat.uniforms.uF.value=Math.max(B.R*0.2, distDisp(shockAU)); B.mat.uniforms.uK.value=K;
+    // the collapsed core fades in as the fireball clears (first sim-days)
+    B.core.material.opacity=Math.min(0.85, Math.max(0,(tD-0.5)/10));
     // the dying star's light: a brief surge, then the lights go out, reddening
     if(B.rec.data.kind==='star' && sunLight){
       const base=sunLight.userData.baseIntensity||1.9;
       if(!sunLight.userData.baseColor) sunLight.userData.baseColor=sunLight.color.clone();
-      sunLight.intensity=base*(t<0.4 ? 1+2.4*(t/0.4) : Math.max(0,3.4*Math.exp(-(t-0.4)/1.6)));
-      sunLight.color.copy(sunLight.userData.baseColor).lerp(_snRedTint, Math.min(1,t/3));
+      sunLight.intensity=base*(tD<0.05 ? 1+2.4*(tD/0.05) : Math.max(0,3.4*Math.exp(-(tD-0.05)/5)));
+      sunLight.color.copy(sunLight.userData.baseColor).lerp(_snRedTint, Math.min(1,tD/10));
     }
-    if(t>SN_END) finishStellarBlast(B);        // frees the fx; keeps the core ember
+    if(K>=1) finishStellarBlast(B);            // shock left the system: free the fx, keep the ember
   }
   // debris rings shear along the orbit on SIM time (time warp spreads them)
   if(debrisRings.length) updateDebrisRings(lastSimDtYears);

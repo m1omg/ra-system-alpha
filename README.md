@@ -85,6 +85,11 @@ It is a genuine little physics sandbox, not just an effect:
   remnant nebula — while the dying light surges, reddens and goes out, nearby worlds
   are scorched by inverse-square exposure, and the survivors are flung onto unbound
   orbits. A collapsed ember core is all that remains (🧽 Heal undoes even this).
+  The blast propagates at **physical speed on sim time**: the radiation front
+  (light/heat/X-rays) crosses the system at *c* (8.3 min per AU) and the matter shock
+  follows at 0.1 *c*, so each world is flash-scorched first and hammered later — crank
+  the time warp to ~1 hour/s–1 day/s to watch the fronts sweep the system, pause to
+  freeze them mid-flight.
 - **Momentum is conserved.** A massive, fast strike **kicks the target's orbit** — the
   new ellipse is recomputed exactly from the perturbed state vector and redrawn.
 - **Superheated worlds lose mass**, and the data panel tracks the live figure.
