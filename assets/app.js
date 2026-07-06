@@ -2472,9 +2472,10 @@ function makeDebrisField(rec){
   // Amount, spread, brightness and lifetime all scale with the gas fraction;
   // tinted by the body's own colour (Amunet bursts bronze, Wadjet teal).
   const HN=Math.round(500+1600*gas), hp=new Float32Array(HN*3);
+  const hazeScale=rec.mesh.getWorldScale(new THREE.Vector3()).x;
   for(let i=0;i<HN;i++){
     const d=new THREE.Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize()
-      .multiplyScalar(R*(0.5+(1.0+0.9*gas)*Math.random()));
+      .multiplyScalar(R*hazeScale*(0.5+(1.0+0.9*gas)*Math.random()));
     hp[i*3]=d.x; hp[i*3+1]=d.y; hp[i*3+2]=d.z;
   }
   const hg=new THREE.BufferGeometry();
@@ -2486,21 +2487,21 @@ function makeDebrisField(rec){
   // INCANDESCENT dust — small, dim-orange additive embers (big bright points
   // saturated the frame white; gray smoke hid the glowing fragments)
   const glowy = gas>=0.6;
-  const hzSize=(glowy?R*(0.12+0.42*gas):R*0.09)*(allowReaccretion?1:Math.min(3.2,violentBoost*0.55));
+  const hzSize=(glowy?R*(0.12+0.42*gas):R*0.09)*hazeScale*(allowReaccretion?1:Math.min(3.2,violentBoost*0.55));
   const hzOp=glowy?0.55*(0.45+0.85*gas):0.5;
   const hazeMat=new THREE.PointsMaterial({
     map:glowy?glowCanvasTex('rgba(255,235,205,0.85)','rgba(160,120,85,0.28)')
              :glowCanvasTex('rgba(255,150,70,0.75)','rgba(120,30,8,0.18)'),
-    color:glowy?tint:new THREE.Color(0xff8542), size:hzSize*rec.mesh.scale.x,
+    color:glowy?tint:new THREE.Color(0xff8542), size:hzSize,
     sizeAttenuation:true, transparent:true, opacity:hzOp,
     blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
   const haze=new THREE.Points(hg,hazeMat); haze.frustumCulled=false;
   haze.renderOrder=3;
-  group.add(haze);
+  rec.holder.add(haze);       // gas is world-sized; don't inherit mesh dot-floor scaling
   // self-gravity params, in the mesh-local frame (R units)
   const totMw=chunks.reduce((s,c)=>s+c.mw,0);
   debrisFields.push({rec,group,chunks,chunkMat,geos,shardGeos,outerMat,haze,hazeMat,t:0,
-    gas, hazeSize:hzSize, hazeWorldSize:hzSize*rec.mesh.scale.x, op0:hzOp,
+    gas, hazeSize:hzSize, hazeWorldSize:hzSize, hazeParent:rec.holder, op0:hzOp,
     fadeT:40*(0.6+1.3*gas)/(allowReaccretion?1:Math.min(3,violentBoost*0.5)),
     GM:(allowReaccretion?1:0.08)*0.5*DEB_VESC_K*DEB_VESC_K*R*R*R, soft:DEB_SOFT_K*R, Rloc:R,
     rCore:R*DEB_RCORE0, capMw:0, totMw, remnant:null, rumpMats:[], moonlets:[],
@@ -2712,7 +2713,7 @@ function removeDebrisField(rec){
     if(D.rumpMats) for(const mat of D.rumpMats) disposeHotRemnantMat(mat);
     else if(D.rumpMat) disposeHotRemnantMat(D.rumpMat);
     D.chunkMat.dispose();
-    if(D.haze){ D.haze.geometry.dispose(); unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
+    if(D.haze){ (D.hazeParent||D.group).remove(D.haze); D.haze.geometry.dispose(); unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); }
     debrisFields.splice(i,1);
   }
   for(let i=debrisRings.length-1;i>=0;i--){
@@ -3171,7 +3172,7 @@ function updateImpacts(dt){
     if(D.outerMat) D.outerMat.emissiveIntensity=(D.outerMat.userData.emberBase||2.2)*cool;
     if(D.haze){
       const fade=1/(1+D.t/D.fadeT);
-      if(fade<0.05){ D.group.remove(D.haze); D.haze.geometry.dispose();
+      if(fade<0.05){ (D.hazeParent||D.group).remove(D.haze); D.haze.geometry.dispose();
         unregCanvasTex(D.hazeMat.map); D.hazeMat.map.dispose(); D.hazeMat.dispose(); D.haze=null; }
       else{
         D.hazeMat.opacity+=(D.op0*fade-D.hazeMat.opacity)*Math.min(1,dt*10);
