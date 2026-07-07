@@ -4563,26 +4563,43 @@ function crMissFeedback(msg){                 // a failed click must SAY so, not
   crMissFeedback._t=setTimeout(function(){ hint.style.color=''; crUpdateUI(); }, 2200);
 }
 /* screen click -> {p: point in AU (star-relative), near: body rec|null, dir: view ray}.
-   Clicking on/near a world (within ~40px) places in TRUE 3D at the ray's closest
-   approach to that world — no ecliptic projection, works for inclined orbits and
-   tilted cameras. Empty-space clicks still fall back to the ecliptic plane: a 2D
-   mouse needs SOME depth cue, and the plane is the only honest one. */
+   Clicking on/near a world places in TRUE 3D at the ray's closest approach to that
+   world — no ecliptic projection, works for inclined orbits and tilted cameras.
+   The snap radius follows the body's apparent disk size, so far-away dots and
+   close-up limbs both behave like the world you meant. Empty-space clicks still
+   fall back to the ecliptic plane: a 2D mouse needs SOME depth cue, and the plane
+   is the only honest one. */
 function crClickPointAU(e){
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
   ray.setFromCamera(mouse,camera);
   const dir=ray.ray.direction.clone();
-  // nearest live body within ~40px of the click (same forgiveness as pickNear)
-  let near=null, bd=40*40; const _sp=new THREE.Vector3();
-  for(const rec of bodies){
-    if(rec.destroyed || rec.external || rec.data.kind==='star') continue;
-    const wp=worldPosOf(rec);
-    _sp.copy(wp).project(camera);
-    if(_sp.z>1) continue;                     // behind the camera
-    const sx=rect.left+(_sp.x*0.5+0.5)*rect.width, sy=rect.top+(-_sp.y*0.5+0.5)*rect.height;
-    const dd=(sx-e.clientX)**2+(sy-e.clientY)**2;
-    if(dd<bd){ bd=dd; near=rec; }
+  let near=null;
+  const exact=pickHit(e);
+  if(exact){
+    const rec=bodies.find(b=>b.data.key===exact.object.userData.bodyKey);
+    if(rec && !rec.destroyed && !rec.external && rec.data.kind!=='star') near=rec;
+  }
+  // nearest live body within its apparent radius + a label-sized pad. Rank by
+  // normalized distance so a small nearby moon is not shadowed by a giant disk.
+  if(!near){
+    let bestScore=1; const _sp=new THREE.Vector3();
+    const pxPerUnit=(rect.height*0.5)/Math.tan(camera.fov*Math.PI/360);
+    const snapPad=70;
+    for(const rec of bodies){
+      if(rec.destroyed || rec.external || rec.data.kind==='star') continue;
+      const wp=worldPosOf(rec);
+      _sp.copy(wp).project(camera);
+      if(_sp.z>1) continue;                     // behind the camera
+      const sx=rect.left+(_sp.x*0.5+0.5)*rect.width, sy=rect.top+(-_sp.y*0.5+0.5)*rect.height;
+      const dd=(sx-e.clientX)**2+(sy-e.clientY)**2;
+      const dist=Math.max(1e-6, camera.position.distanceTo(wp));
+      const rPx=(rec.radius*rec.mesh.scale.x/dist)*pxPerUnit;
+      const snapR=rPx+snapPad;
+      const score=dd/(snapR*snapR);
+      if(score<bestScore){ bestScore=score; near=rec; }
+    }
   }
   const hit=new THREE.Vector3();
   if(near){                                   // snap: closest point on the view ray to the world
