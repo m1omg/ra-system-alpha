@@ -119,6 +119,7 @@ PLANETS: [
     terran: { ocean:"#12365c", ocean2:"#245b8f", land:"#55763a", land2:"#9a8a55", cloud:"#f4f7f9", landAmt:0.35, veg:true, ice:true },
     atmo: 0x9fc8ef,
     life: "intelligent",
+    vegKill: "green",      // multicellular world: ≥1e27 J absorbed kills its green vegetation
     stats: [
       ["Type", "Terrestrial planet"],
       ["Mass", "1 M⊕ (5.97 × 10²⁴ kg)"],

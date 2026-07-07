@@ -215,6 +215,7 @@ const PLANETS = [
     terran: { ocean:"#16386b", ocean2:"#2b62a0", land:"#8a3fb0", land2:"#b86fd0", cloud:"#eef2f6", landAmt:0.40, veg:true },
     atmo: 0x88b6ff,
     life: "intelligent",
+    vegKill: "purple",     // multicellular world: ≥1e27 J absorbed kills its violet forests
     stats: [
       ["Type", "AreanLacustric"],
       ["Mass", "0.25 M⊕ (2.37 × Mars)"],

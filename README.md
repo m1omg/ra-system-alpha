@@ -27,6 +27,20 @@ and experimental editions keep the curated fictional-system experience.
   recent path (Universe-Sandbox-style trails) instead of the stale Kepler ellipses, and
   the info panel gains a 🌌 *Live orbit* row: current gravitational parent, osculating
   semi-major axis, eccentricity and period, refreshed twice a second.
+- **Three placement modes** for 🎯 place-by-click: **⏸ Still** drops a body at zero
+  velocity relative to the star (real gravity takes it from there), **🔄 Orbit** puts it
+  in orbit around whatever body *gravitationally dominates the click point* (click beside
+  a gas giant and you've made it a moon), and **🚀 Launch** — the physical alternative to
+  the impact lab's scripted rocks: first click places, second click aims, the speed
+  slider sets the velocity, and gravity decides whether it hits, misses or slingshots
+  (🎯 Auto-aim launches at the selected body in one click).
+- **Extinction tiers** — life is more fragile than crust. A living world that absorbs
+  over **10²⁷ J (~239 petatons TNT)** loses all multicellular life: Satis's violet
+  forests and Earth's green lands are scrubbed from the surface map and the sidebar tag
+  drops to *✦ unicellular*. Past **1 exaton of TNT** all life dies — any living world
+  goes fully *∅ sterile*. Hovering any damaged world shows its damage stage (scarred →
+  heavily damaged → oceans boiled → molten → near breakup) even outside the impact lab.
+  🧽 Heal resurrects the biosphere along with everything else.
 - **Physical supernova timing** — the blast propagates on sim time at physical speed:
   the radiation front at *c*, the matter shock at 0.1 *c* (see below).
 

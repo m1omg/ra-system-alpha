@@ -341,6 +341,12 @@ const UI_EN={
   'choose-ra':'✨ The Ra System','choose-ra-sub':'A fictional world — “Satis v10”',
   'choose-sol':'🌍 The Solar System','choose-sol-sub':'Our home — real planets &amp; moons',
   'life-title':'harbours life','life-intelligent':'intelligent','life-alien':'alien','life-seeded':'seeded','life-native':'native',
+  'life-unicellular':'unicellular','life-sterile':'sterile',
+  'st-bio-now':'Biosphere (current)',
+  'bio-extinct-val':'multicellular life extinct — microbes only',
+  'bio-sterile-val':'ALL life extinct — the world is sterile',
+  'ext-note':'The bombardment sterilized the surface: every animal, plant and fungus is gone. Only single-celled life clings on in the deep rock and what remains of the seas. (🧽 Heal in the impact lab restores the biosphere.)',
+  'ext-note-sterile':'The bombardment exceeded an exaton of TNT: nothing survived, not even microbes. The world is completely sterile. (🧽 Heal in the impact lab restores the biosphere.)',
   'from-source':"From the source — author's text",
   'no-desc':'(No description in the source document yet — summary shown.)',
   'debris-type':'Debris field','debris-name-span':'destroyed','debris-tag':'A debris field.',
@@ -362,6 +368,8 @@ const UI_EN={
   'tier-puff-3':' · envelope: streaming away — breakup imminent',
   'imp-immune':' · immune to your weapons','imp-destroyed':' · ☠ destroyed — a debris field',
   'imp-strike':'strike','imp-beam':'beam/s','imp-binding-over':'≥100% of binding ☠','imp-binding-of':'% of binding',
+  'dmg-scarred':'scarred','dmg-heavy':'heavily damaged','dmg-boiled':'oceans boiled off',
+  'dmg-molten':'surface molten','dmg-critical':'near breakup',
   'imp-melts-sea':' · melts a ~{km} km lava sea',
   'tier-crater':' · surface: cratered','tier-seas':' · surface: scattered lava pools',
   'tier-thaw':' · thawing — seas of liquid water ({p}%)',
@@ -632,6 +640,9 @@ function buildBodyMesh(data, radius){
         mat.map=t; mat.needsUpdate=true;
         // the AI lava map already reads hot — ease the procedural emissive glow
         if(data.kind==='lava' && mat.emissiveIntensity!==undefined) mat.emissiveIntensity*=0.55;
+        // extinction landed before the baked map did — scrub this one too
+        const erec=bodies.find(function(b){ return b.data.key===data.key; });
+        if(erec && erec.extinct && data.vegKill){ erec._vegKilled=false; impKillVegetation(erec); }
       },
       undefined,
       function(){ /* missing / failed → keep the procedural texture */ }
@@ -1768,7 +1779,90 @@ function impEaseMeltVisual(rec,dt){
   s.steamM=ease(s.steamM||0, s.steamTarget||0, 0.55);
   impApplyMeltVisual(rec);
 }
+/* ---- extinction tiers: life is more fragile than crust. A living world that
+   absorbs ≥ IMP_EXTINCT_J (~239 petatons TNT) loses all MULTICELLULAR life —
+   its vegetation is scrubbed from the surface map and the sidebar tag drops
+   to "unicellular". Past IMP_STERILE_J (1 exaton TNT) ALL life dies: any
+   life-tagged world (Satis, Earth, Nephtys, Uat-Ur, Nu) goes fully sterile.
+   🧽 Heal resurrects the biosphere along with everything else. ---- */
+const IMP_EXTINCT_J=1e27;                    // multicellular extinction (vegKill worlds)
+const IMP_STERILE_J=4.184e27;                // 1 Et TNT: total sterilization (all life tags)
+function impCheckExtinct(rec){
+  if(!rec.data.life || rec.destroyed) return;
+  const E=rec.dmgJ||0;
+  if(!rec.sterile && E>=IMP_STERILE_J) impGoExtinct(rec,true);
+  else if(!rec.extinct && rec.data.vegKill && E>=IMP_EXTINCT_J) impGoExtinct(rec,false);
+}
+function impGoExtinct(rec, sterile){
+  rec.extinct=true;
+  if(sterile) rec.sterile=true;
+  if(rec.data.vegKill) impKillVegetation(rec);
+  updateNavStatus(rec);
+  if(APP.currentData && APP.currentData.key===rec.data.key &&
+     document.getElementById('info').classList.contains('open')) openInfo(rec.data);
+}
+/* scrub the vegetation hue family from whatever map is live — the procedural
+   canvas, the AI-baked webp or the real photo texture all expose a drawable
+   .image. Veg pixels are blended toward a luminance-matched barren tan;
+   oceans, ice and clouds are left alone. */
+function impKillVegetation(rec){
+  if(rec._vegKilled) return;
+  const mat=rec.mesh&&rec.mesh.material; if(!mat||!mat.map) return;
+  const img=mat.map.image;
+  if(!img || !(img.width>0)){                // baked map still in flight — retry shortly
+    setTimeout(function(){ if(rec.extinct) impKillVegetation(rec); }, 400);
+    return;
+  }
+  const W=Math.min(2048,img.width), H=Math.round(W*(img.height/img.width));
+  const cv=newCanvas(W,H), cx=cv.getContext('2d');
+  const purple=rec.data.vegKill==='purple';
+  const kill=function(){                     // draw the source map, scrub the veg hues
+    cx.drawImage(img,0,0,W,H);
+    try{
+      const im=cx.getImageData(0,0,W,H), d=im.data;
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i], g=d[i+1], b=d[i+2];
+        const veg = purple ? (r>g*1.12 && b>g*1.12 && r+b>110)
+                           : (g>r*1.04 && g>b*1.04 && g>34);
+        if(!veg) continue;
+        const lum=0.30*r+0.55*g+0.15*b;
+        // barren regolith tinted by the original brightness
+        d[i]  =Math.round(r*0.15 + (lum*0.72+58)*0.85);
+        d[i+1]=Math.round(g*0.15 + (lum*0.66+44)*0.85);
+        d[i+2]=Math.round(b*0.15 + (lum*0.55+30)*0.85);
+      }
+      cx.putImageData(im,0,0);
+      return true;
+    }catch(_){ return false; }               // tainted canvas (file:// photo) — keep the live map
+  };
+  if(!kill()) return;
+  if(rec._extinctTex){ unregCanvasTex(rec._extinctTex); rec._extinctTex.dispose(); }  // re-kill after a late baked load
+  const src=mat.map;
+  const tex=new THREE.CanvasTexture(cv);
+  tex.anisotropy=src.anisotropy||4; tex.wrapS=src.wrapS; tex.wrapT=src.wrapT;
+  if(src.encoding!==undefined) tex.encoding=src.encoding;
+  regCanvasTex(tex, function(){              // Android canvas-wipe survival
+    if(!rec.extinct || mat.map!==tex) return;
+    kill(); tex.needsUpdate=true;
+  });
+  rec._preExtinctMap=src;
+  rec._extinctTex=tex;
+  rec._vegKilled=true;
+  mat.map=tex; mat.needsUpdate=true;
+}
+function impHealExtinct(rec){                // 🧽: the biosphere comes back too
+  if(!rec.extinct && !rec.sterile) return;
+  rec.extinct=false; rec.sterile=false;
+  if(rec._vegKilled){
+    const mat=rec.mesh&&rec.mesh.material;
+    if(mat && rec._preExtinctMap){ mat.map=rec._preExtinctMap; mat.needsUpdate=true; }
+    if(rec._extinctTex){ unregCanvasTex(rec._extinctTex); rec._extinctTex.dispose(); rec._extinctTex=null; }
+    rec._preExtinctMap=null; rec._vegKilled=false;
+  }
+  updateNavStatus(rec);
+}
 function impUpdateMelt(rec){                 // cumulative surface state from the phase budgets
+  impCheckExtinct(rec);                      // life dies long before crust does
   if(!rec.scar || impImmune(rec)) return;
   if(rec._generated) return;                 // remnants are already molten; avoid extra full-body overlays.
   if(rec.data.kind==='gasgiant'||impIsStellar(rec)){ impUpdatePuff(rec); return; }
@@ -3105,6 +3199,7 @@ function impHeal(){
         const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data);
       } else removeDebrisField(rec);   // resurrect the world
     }
+    impHealExtinct(rec);               // the biosphere comes back with the crust
   }
   if(!realScale) applySizes();                  // deflated giants: reapply compressed-mode scales
   // undo impact-momentum orbit changes (liberated moons were restored above)
@@ -3920,7 +4015,9 @@ function nbDisable(){
     positionBody(rec);
   }
   nbTrailsDispose();
+  crPendingLaunch=null;                        // a half-aimed launch dies with the gravity
   nbBtnState();
+  if(typeof crUpdateUI==='function') crUpdateUI();   // Still/Launch modes just lost their gravity
 }
 function toggleNbody(){ nbodyOn ? nbDisable() : nbEnable(); }
 /* position holders star-relative so the scene stays centred on the star */
@@ -4047,6 +4144,15 @@ function createCustomBody(p, fromSave){
     node:(p.node!=null?p.node:Math.random()*360) });
   rec._custom=true; rec._crParams=Object.assign({}, p, {key, node:p.node});
   if(p.M!=null) rec.M=p.M;
+  if(p.nbState){                              // mode-placed body: restore its exact state vector
+    const r=new THREE.Vector3().fromArray(p.nbState.r), v=new THREE.Vector3().fromArray(p.nbState.v);
+    const el=stateToElements(r,v,MU_RA);      // (unbound states clamp to a drawable ellipse)
+    rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
+    rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
+    rec.aDisp=distDisp(el.a);
+    if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+    positionBody(rec);
+  }
   rec._newUntil=performance.now()+2600;
   if(nbodyOn){
     // join the running N-body sim with the exact state of its Kepler orbit
@@ -4060,7 +4166,7 @@ function createCustomBody(p, fromSave){
     nbSyncHolders();
   }
   refreshNav();
-  if(!fromSave){ saveCustoms(); focusBody(key,true); }
+  if(!fromSave){ saveCustoms(); if(!p.noFocus) focusBody(key,true); }
   return rec;
 }
 function saveCustoms(){
@@ -4105,36 +4211,162 @@ function crUpdateUI(){
   g('cr-a-v').textContent=crAAU(+g('cr-a').value).toFixed(2)+' AU';
   g('cr-e-v').textContent=(+g('cr-e').value/100).toFixed(2);
   g('cr-i-v').textContent=g('cr-i').value+'°';
+  // placement-mode rows: only meaningful while 🎯 armed
+  if(!nbodyOn && CR_MODES[crModeI].needsNb) crModeI=1;         // Still/Launch need real gravity
+  const mode=CR_MODES[crModeI];
+  const mrow=document.querySelector('#createlab .cr-placerow');
+  const srow=document.querySelector('#createlab .cr-speedrow');
+  const arow=document.querySelector('#createlab .cr-slider-a');
+  if(mrow) mrow.style.display=crPlaceArmed?'flex':'none';
+  if(srow) srow.style.display=(crPlaceArmed&&mode.id==='launch')?'flex':'none';
+  if(arow) arow.style.display=crPlaceArmed?'none':'flex';      // radius comes from the click
+  const mb=g('cr-mode');
+  if(mb){ mb.textContent=mode.icon+' '+mode.label;
+    mb.title=nbodyOn?'Cycle placement mode':'Still & Launch need 🌌 N-body ON'; }
+  const ab=g('cr-autoaim');
+  if(ab){ ab.style.display=(crPlaceArmed&&mode.id==='launch')?'':'none';
+    ab.classList.toggle('on',crAutoAim); }
+  const sv=g('cr-spd-v');
+  if(sv){ const k=crSpdKms(+g('cr-spd').value);
+    sv.textContent=k<100?(+k.toPrecision(2))+' km/s':Math.round(k).toLocaleString()+' km/s'; }
+  const hint=g('cr-hint');
+  if(hint && !crPendingLaunch){
+    hint.textContent = !crPlaceArmed
+      ? (LANG==='sk'?'Vlastné svety ostávajú v prehliadači · kliknutím na hodnotu ju napíšeš · zapni 🌌 N-body, nech pôsobia gravitáciou'
+                    :'Custom worlds persist in this browser · click any value to type it · turn on 🌌 N-body to let them pull on everything else')
+      : mode.id==='still' ? (LANG==='sk'?'⏸ klikni na rovinu dráh — teleso padá voľným pádom (0 rýchlosť voči hviezde)':'⏸ click the orbital plane — the body free-falls (0 velocity relative to the star)')
+      : mode.id==='orbit' ? (LANG==='sk'?'🔄 klikni na rovinu dráh — obehne gravitačne dominantné teleso v mieste kliku':'🔄 click the orbital plane — orbits whatever body gravitationally dominates the click point')
+      : (LANG==='sk'?'🚀 1. klik umiestni · 2. klik zamieri (rýchlosť podľa posuvníka)':'🚀 first click places · second click aims (speed from the slider)');
+  }
 }
-/* ---- 🎯 place-by-click: arm, then click the ecliptic to drop the new world
-   there — orbit radius AND starting longitude come from the click point ---- */
-let crPlaceArmed=false;
+/* ---- 🎯 place-by-click, Universe-Sandbox style. Three placement modes:
+   ⏸ Still  — drops the body at 0 velocity relative to the star; real gravity
+              takes it from there (usually straight into something). N-body only.
+   🔄 Orbit — orbits the gravitationally dominant body AT the click point
+              (a click beside a gas giant orbits the giant), panel eccentricity
+              applied at periapsis. Works in Kepler mode too (around Ra).
+   🚀 Launch — the physical alternative to the Impact lab's scripted rocks:
+              first click places, second click AIMS (velocity = direction to
+              the aim point × the Speed slider). 🎯 Auto-aim instead launches
+              at the currently selected body in one click. N-body only —
+              a launched world can miss, slingshot, or hit. ---- */
+let crPlaceArmed=false, crModeI=1, crAutoAim=false, crPendingLaunch=null;
+const CR_MODES=[
+  {id:'still',  icon:'⏸', label:'Still',  needsNb:true},
+  {id:'orbit',  icon:'🔄', label:'Orbit',  needsNb:false},
+  {id:'launch', icon:'🚀', label:'Launch', needsNb:true},
+];
+const crSpdKms=v=>0.1*Math.pow(10,v/100*4.5);        // 0.1 – ~3,160 km/s, log
 function crSetPlaceArmed(v){
   crPlaceArmed=v;
+  if(!v) crPendingLaunch=null;
   const b=document.getElementById('cr-place'); if(b) b.classList.toggle('on',v);
   if(renderer) renderer.domElement.style.cursor=v?'crosshair':'';
+  crUpdateUI();
 }
 const _crPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
-function crPlaceAt(e){
-  crSetPlaceArmed(false);
+function crClickAU(e){                        // screen click -> ecliptic point in AU (star-relative)
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
   ray.setFromCamera(mouse,camera);
   const hit=new THREE.Vector3();
-  if(!ray.ray.intersectPlane(_crPlane,hit)) return;
+  if(!ray.ray.intersectPlane(_crPlane,hit)) return null;
   const dScene=hit.length();
   const au=realScale ? dScene/AU_UNIT : Math.pow(dScene/DIST_K, 1/DIST_P);
-  if(!(au>0.005 && au<90)) return;             // inside the star / deep interstellar: ignore
+  if(!(au>0.005 && au<90)) return null;       // inside the star / deep interstellar: ignore
+  return hit.multiplyScalar(au/dScene);       // scene direction, AU magnitude
+}
+function crPlaceAt(e){
+  const mode=CR_MODES[crModeI];
+  const pAU=crClickAU(e);
+  if(!pAU) return;
   const g=id=>document.getElementById(id);
-  // node=0 + M=click longitude puts the world (e≈0) right where you clicked
-  const theta=Math.atan2(hit.z,hit.x);
-  createCustomBody({ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
+  const au=pAU.length(), theta=Math.atan2(pAU.z,pAU.x);
+  const base={ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
     massKg:crMassKg(+g('cr-mass').value), radiusKm:crRadKm(+g('cr-rad').value),
-    a:au, e:+g('cr-e').value/100, incl:+g('cr-i').value, node:0, M:theta });
+    a:au, e:+g('cr-e').value/100, incl:+g('cr-i').value, node:0, M:theta,
+    noFocus:true };                           // don't yank the camera mid-placement/aim
+  if(!nbodyOn){
+    // Kepler mode: only Orbit placements exist — a real ellipse around Ra
+    createCustomBody(base);
+    g('cr-name').value='';
+    crSetPlaceArmed(false);
+    return;
+  }
+  const rec=createCustomBody(base);
   g('cr-name').value='';
-  g('cr-a').value=Math.max(0,Math.min(100, 100*Math.log10(au/0.02)/3.6));
-  crUpdateUI();
+  if(!rec.nb) return;
+  const star=nbStar(), sv=star&&star.nb?star.nb:{r:new THREE.Vector3(),v:new THREE.Vector3()};
+  rec.nb.r.copy(pAU).add(sv.r);               // EXACT click point, no element roundtrip
+  if(mode.id==='still'){
+    rec.nb.v.copy(sv.v);                      // 0 relative to the star: free-fall
+  } else if(mode.id==='orbit'){
+    // dominant attractor AT the click point decides who it orbits
+    let parent=null, acc=0;
+    for(const b of nbList()){
+      if(b===rec || b.destroyed) continue;
+      const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
+      if(b.nb.gm/d2>acc){ acc=b.nb.gm/d2; parent=b; }
+    }
+    if(!parent) parent=star;
+    const rel=rec.nb.r.clone().sub(parent.nb.r), r=Math.max(1e-9,rel.length());
+    const mu=parent.nb.gm+rec.nb.gm, ecc=base.e;
+    const vp=Math.sqrt(mu*(1+ecc)/r);         // placed at periapsis of the requested ellipse
+    const tan=rel.clone().divideScalar(r).cross(new THREE.Vector3(0,1,0)).negate().normalize();
+    // (rhat × ŷ negated ≡ ŷ-frame prograde: matches keplerStateAU's orbital sense)
+    rec.nb.v.copy(parent.nb.v).addScaledVector(tan,vp);
+  } else {                                    // launch: hold Still, wait for the aim click
+    rec.nb.v.copy(sv.v);
+    if(crAutoAim){
+      const tgt=bodies.find(b=>b.data.key===selected&&b!==rec&&b.nb) ||
+                (follow&&follow.nb&&follow!==rec?follow:null);
+      if(tgt){ crLaunchToward(rec, tgt.nb.r.clone()); nbSyncHolders(); return; }
+    }
+    crPendingLaunch=rec;
+    rec._newUntil=performance.now()+60000;    // keep the label pulsing while it waits for aim
+    const hint=document.getElementById('cr-hint');
+    if(hint) hint.textContent=LANG==='sk'?'🚀 klikni na CIEĽ — smer letu':'🚀 click the TARGET to aim the launch';
+    nbSyncHolders();
+    return;                                   // stay armed for the aim click
+  }
+  crSaveState(rec);
+  nbSyncHolders();
+  crSetPlaceArmed(false);
+}
+function crSaveState(rec){                    // persist the exact star-relative state vector
+  if(!rec.nb || !rec._crParams) return;
+  const star=nbStar(), sv=star&&star.nb?star.nb:{r:new THREE.Vector3(),v:new THREE.Vector3()};
+  rec._crParams.nbState={ r:rec.nb.r.clone().sub(sv.r).toArray(),
+                          v:rec.nb.v.clone().sub(sv.v).toArray() };
+  saveCustoms();
+}
+function crLaunchToward(rec, tgtAbsAU){
+  const dir=tgtAbsAU.sub(rec.nb.r);
+  if(dir.lengthSq()<1e-12) return;
+  dir.normalize();
+  const star=nbStar(), sv=star&&star.nb?star.nb.v:new THREE.Vector3();
+  const kms=crSpdKms(+document.getElementById('cr-spd').value);
+  rec.nb.v.copy(sv).addScaledVector(dir, kms/KMS_PER_AUYR);
+  rec._newUntil=performance.now()+2600;
+  crSaveState(rec);
+  spawnFlash(worldPosOf(rec), Math.max(1,rec.radius*rec.mesh.scale.x*3), IMP_CHICXULUB_J);
+  sfxWhoosh(1.2);
+}
+function crAimAt(e){
+  const rec=crPendingLaunch;
+  crPendingLaunch=null;
+  if(!rec || !rec.nb){ crSetPlaceArmed(false); return; }
+  let tgt=null;
+  const k=(typeof pickNear==='function'&&pickNear(e))||pick(e);   // aiming AT a body beats the plane point
+  if(k){ const tr=bodies.find(b=>b.data.key===k); if(tr&&tr.nb&&tr!==rec) tgt=tr.nb.r.clone(); }
+  if(!tgt){
+    const pAU=crClickAU(e);
+    if(!pAU){ crSetPlaceArmed(false); return; }                   // bad aim click: stays Still
+    const star=nbStar(); tgt=pAU.add(star&&star.nb?star.nb.r:new THREE.Vector3());
+  }
+  crLaunchToward(rec, tgt);
+  crSetPlaceArmed(false);
 }
 /* ---- click a slider's value readout to TYPE the number instead ---- */
 function makeTypable(valId, sliderId, invFn, refreshFn){
@@ -4194,6 +4426,17 @@ function setupCreateLab(){
     g('cr-name').value='';
   };
   const pb=g('cr-place'); if(pb) pb.onclick=()=>crSetPlaceArmed(!crPlaceArmed);
+  const mb=g('cr-mode');
+  if(mb) mb.onclick=()=>{
+    for(let i=1;i<=CR_MODES.length;i++){
+      const j=(crModeI+i)%CR_MODES.length;
+      if(!CR_MODES[j].needsNb || nbodyOn){ crModeI=j; break; }
+    }
+    crUpdateUI();
+  };
+  const ab=g('cr-autoaim'); if(ab) ab.onclick=()=>{ crAutoAim=!crAutoAim; crUpdateUI(); };
+  const sp=g('cr-spd'); if(sp) sp.oninput=crUpdateUI;
+  makeTypable('cr-spd-v','cr-spd', n=>100*Math.log10(n/0.1)/4.5, crUpdateUI);
   window.addEventListener('keydown',e=>{ if(e.code==='Escape'&&crPlaceArmed) crSetPlaceArmed(false); });
   // every value readout is typable — click it and enter the exact number
   makeTypable('cr-mass-v','cr-mass', n=>{           // plain numbers are Earth masses; huge ones are kg
@@ -4360,6 +4603,7 @@ function setupInteraction(){
   dom.addEventListener('pointerup',e=>{ pdown=false;
     if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
     if(moved) return;
+    if(crPendingLaunch && !flying && e.button===0){ crAimAt(e); return; }  // 🚀 second click = aim
     if(crPlaceArmed && !flying && e.button===0){ crPlaceAt(e); return; }   // 🎯 place a custom body
     if(flying){ setFlyTarget(pickNear(e)); }   // tap a world (tiny dots too) to target it
     else if(impacting){                        // impact mode: a left-click strikes instead of focusing
@@ -4498,11 +4742,34 @@ function pickNear(e){
   }
   return best;
 }
+/* damage stage for the hover tooltip — shown for ANY damaged world, even
+   with the impact lab closed: stage word, % of binding energy, biosphere */
+function impDamageStageTxt(rec){
+  if(rec.destroyed) return T('imp-destroyed');
+  const E=rec.dmgJ||0; if(!(E>0)) return '';
+  const fU=E/impBindingJ(rec);
+  let st;
+  if(fU>=0.5) st=T('dmg-critical');
+  else if(rec.data.kind==='gasgiant'||impIsStellar(rec)) st=T('dmg-heavy');
+  else{
+    const P=impMeltPhases(rec);
+    if(E>=P.E3) st=T('dmg-molten');
+    else if(P.W>0 && E>=P.E2) st=T('dmg-boiled');
+    else if(fU>=0.02 || E>=P.E2*0.3) st=T('dmg-heavy');
+    else st=T('dmg-scarred');
+  }
+  const pct=fU*100;
+  let t=' · 💥 '+st+' ('+(pct<0.01?'<0.01':''+(+pct.toPrecision(2)))+T('imp-binding-of')+')';
+  if(rec.sterile) t+=' · ∅ '+T('life-sterile');
+  else if(rec.extinct) t+=' · ✦ '+T('life-unicellular');
+  return t;
+}
 function hover(e){
   const k=pick(e);
   renderer.domElement.style.cursor = impacting ? 'crosshair' : (k?'pointer':'grab');
   if(k){ const rec=bodies.find(b=>b.data.key===k);
     let txt=locName(rec.data);
+    if(!impacting && rec) txt+=impDamageStageTxt(rec);
     if(impacting && rec){
       if(impImmune(rec)) txt+=T('imp-immune');
       else if(rec.destroyed) txt+=T('imp-destroyed');
@@ -4833,6 +5100,14 @@ function updateNavStatus(rec){
     if(!tag){ tag=document.createElement('span'); tag.className='tag'; el.appendChild(tag); }
     tag.className='tag dead'; tag.removeAttribute('title');
     tag.innerHTML='☠&nbsp;'+T('nav-destroyed');
+  } else if(rec.sterile && rec.data.life){
+    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
+    tag.className='tag ext'; tag.title=T('life-title');
+    tag.innerHTML='∅&nbsp;'+T('life-sterile');
+  } else if(rec.extinct && rec.data.life){
+    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
+    tag.className='tag ext'; tag.title=T('life-title');
+    tag.innerHTML='✦&nbsp;'+T('life-unicellular');
   } else if(rec.data.life){
     if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
     tag.className='tag'; tag.title=T('life-title');
@@ -4877,8 +5152,9 @@ function openInfo(d){
   (locStats(d)||[]).forEach(([k,v])=>{ const tr=document.createElement('tr');
     tr.innerHTML=`<td>${k}</td><td>${v}</td>`; t.appendChild(tr); });
   // an impact-nudged orbit overrides the book values — show the live elements
+  // (skipped under N-body: the 🌌 Live orbit row supersedes these stale numbers)
   const prec=bodies.find(b=>b.data.key===d.key);
-  if(prec && prec.orbitPerturbed && !prec.destroyed){
+  if(prec && prec.orbitPerturbed && !prec.destroyed && !prec.nb){
     const aAU=prec.helio?(prec.helioA!=null?prec.helioA:prec.data.dist):(prec._physA!=null?prec._physA:prec.data.dist);
     const val=prec.helio
       ? (+aAU.toPrecision(4))+' AU · e='+(+prec.e.toPrecision(3))+' · '+(+prec.period.toPrecision(3))+' '+T('e-yr')
@@ -4895,6 +5171,12 @@ function openInfo(d){
   if(prec && !prec.destroyed && prec._impWaterKg>0){
     const tr=document.createElement('tr');
     tr.innerHTML='<td>⚠ '+T('st-water-now')+'</td><td>'+fmtKg(prec._impWaterKg)+'</td>';
+    t.appendChild(tr);
+  }
+  // a sterilized biosphere overrides the book's life claims
+  if(prec && !prec.destroyed && (prec.extinct||prec.sterile)){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>⚠ '+T('st-bio-now')+'</td><td>'+T(prec.sterile?'bio-sterile-val':'bio-extinct-val')+'</td>';
     t.appendChild(tr);
   }
   // description
@@ -4917,6 +5199,13 @@ function openInfo(d){
     // default edition: my short summary, then the author's verbatim text beneath it
     addParas(locDesc(d));
     if(verbatim){ addSource(T('from-source')); addParas(verbatim); }
+  }
+  // extinction note — a separate element AFTER the (untouchable) source text
+  if(prec && !prec.destroyed && (prec.extinct||prec.sterile)){
+    const note=document.createElement('p');
+    note.style.cssText='font-style:italic;color:#c08a8a;font-size:12px';
+    note.textContent='⚠ '+T(prec.sterile?'ext-note-sterile':'ext-note');
+    ds.insertBefore(note, ds.firstChild);
   }
   document.getElementById('info').classList.add('open');
   syncInfoBtn();
