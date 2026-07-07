@@ -313,6 +313,9 @@ function applySystem(sys){
        HORUS:null, HORUS_MOONS:[], GLOSSARY:SOL_SYSTEM.GLOSSARY, BELT:null}
     : {STAR:STAR, PLANETS:PLANETS, MOONS:MOONS, HORUS:HORUS, HORUS_MOONS:HORUS_MOONS, GLOSSARY:GLOSSARY,
        BELT:(typeof BELT!=='undefined'?BELT:null)};
+  // heliocentric Kepler mu follows the chosen star (Sol is 1.0 M☉, not Ra's 1.139)
+  STAR_MSUN=(DS.STAR.massKg||2.266e30)/1.989e30;
+  MU_RA=4*Math.PI*Math.PI*STAR_MSUN;
 }
 let scene,camera,renderer,controls,clock,starfieldPts=null;
 let playing=true, timeScale=1.0, sizeMult=1.0, showOrbits=true, showLabels=true, showTails=true;
@@ -2952,7 +2955,8 @@ function makeDebrisField(rec){
    Ra-centric orbital elements (a, e, plane, periapsis, phase). Runs once per
    destruction, so accuracy costs nothing per frame. Real units: AU and years,
    in Kepler form where mu = 4pi^2 * (M / M_sun). */
-const MU_RA=4*Math.PI*Math.PI*1.139;      // AU^3/yr^2 — Ra is 1.139 M_sun
+let STAR_MSUN=1.139;                      // stellar mass in suns — set per system in applySystem
+let MU_RA=4*Math.PI*Math.PI*STAR_MSUN;    // AU^3/yr^2 heliocentric mu (Ra 1.139 M☉, Sol 1.0 M☉)
 const SUN_KG=1.989e30;
 function keplerStateAU(aAU,e,q,M,mu){     // -> instantaneous {r (AU), v (AU/yr)}
   const E=kepler(M,e), b=aAU*Math.sqrt(1-e*e);
@@ -3060,7 +3064,7 @@ function perturbOrbit(rec, dirWorld, dvKms){
     const el=stateToElements(st.r, st.v, MU_RA);
     if(!rec._origOrbit) rec._origOrbit={helio:true, helioA:rec.helioA, e:rec.e, q:rec.q.clone(), period:rec.period};
     rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
-    rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
+    rec.period=Math.sqrt(el.a*el.a*el.a/STAR_MSUN);
     rec.aDisp=distDisp(el.a);
   } else if(rec.isMoon){
     const pRec=bodies.find(b=>b.holder===rec.parentHolder);
@@ -3086,7 +3090,8 @@ function perturbOrbit(rec, dirWorld, dvKms){
 
 function liberateMoons(parentRec){
   const muP=4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG);
-  const ps=keplerStateAU(parentRec.data.dist, parentRec.e, parentRec.q, parentRec.M%(Math.PI*2), MU_RA);
+  const ps=keplerStateAU(parentRec.helioA!=null?parentRec.helioA:parentRec.data.dist,
+                         parentRec.e, parentRec.q, parentRec.M%(Math.PI*2), MU_RA);
   for(const m of bodies){
     if(m.parentHolder!==parentRec.holder || m===parentRec || m.destroyed) continue;
     const ms=keplerStateAU(m._physA!=null?m._physA:m.data.dist, m.e, m.q, m.M%(Math.PI*2), muP);
@@ -3100,7 +3105,7 @@ function liberateMoons(parentRec){
     m.parentHolder=sunHolder; sunHolder.add(m.holder);
     m.helio=true; m.isMoon=false; m.helioA=a;
     m.e=e; m.q=qn; m.M=el.M;
-    m.period=Math.sqrt(a*a*a/1.139);                // real Kepler years, like every helio body
+    m.period=Math.sqrt(a*a*a/STAR_MSUN);                // real Kepler years, like every helio body
     m.aDisp=distDisp(a);
     const g=new THREE.BufferGeometry().setFromPoints(orbitPoints(m.aDisp,e));
     const lm=new THREE.LineBasicMaterial({color:new THREE.Color(m.data.color||0x88aaff),transparent:true,opacity:0.32});
@@ -3952,14 +3957,18 @@ function nbTrailsDispose(){
    NOW — dominant attractor (strongest pull wins: a captured moon reports its
    new parent), semi-major axis, eccentricity, period — refreshed every ½ s. */
 function nbDominantParent(rec){
-  let best=null, acc=0;
+  // a heavy moon close-in out-PULLS the star, but Jupiter doesn't orbit its own
+  // moon — the parent must out-weigh the child. Only if nothing heavier exists
+  // (the custom out-masses the star itself) fall back to the strongest pull.
+  let best=null, acc=0, anyBest=null, anyAcc=0;
   for(const b of nbList()){
     if(b===rec || b.destroyed) continue;
     const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
     const a=b.nb.gm/d2;
-    if(a>acc){ acc=a; best=b; }
+    if(a>anyAcc){ anyAcc=a; anyBest=b; }
+    if(b.nb.gm>rec.nb.gm && a>acc){ acc=a; best=b; }
   }
-  return best;
+  return best||anyBest;
 }
 function nbLiveOrbitTxt(rec){
   const p=nbDominantParent(rec); if(!p) return null;
@@ -3984,10 +3993,7 @@ function nbLiveOrbitTxt(rec){
 function orbCurrent(rec){
   if(!rec || rec.destroyed || rec.data.kind==='star' || rec._absorbedGone) return null;
   if(nbodyOn && rec.nb){
-    let parent=null, acc=0;
-    for(const b of nbList()){ if(b===rec || b.destroyed) continue;
-      const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
-      if(b.nb.gm/d2>acc){ acc=b.nb.gm/d2; parent=b; } }
+    const parent=nbDominantParent(rec);      // heavier-than-me rule: see above
     if(!parent) return null;
     const mu=parent.nb.gm+rec.nb.gm;
     const el=stateToElements(rec.nb.r.clone().sub(parent.nb.r),
@@ -4034,7 +4040,8 @@ function applyOrbitEdit(rec, a, e){
     if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
     positionBody(rec);
   } else return false;
-  if(rec._custom){ rec._crParams.a=a; rec._crParams.e=e; saveCustoms(); }
+  if(rec._custom){ rec._crParams.a=a; rec._crParams.e=e;
+    if(rec.nb) crSaveState(rec); else saveCustoms(); }
   return true;
 }
 let _nbInfoT=0;
@@ -4062,7 +4069,12 @@ function nbEnable(){
   let pMin=Infinity;                     // shortest physical period present → substep size
   for(const rec of bodies){
     if(rec.external || rec._generated || rec.destroyed) continue;
-    const st = rec===star ? {r:new THREE.Vector3(), v:new THREE.Vector3()} : raStateOf(rec);
+    // a just-restored click-placed orbiter: its Kepler ellipse may be a CLAMPED
+    // stand-in (hyperbolic heliocentric osculating state) — use the exact vector
+    const exact = rec!==star && rec._nbStateSaved && rec._nbStateT===elapsedYears;
+    const st = rec===star ? {r:new THREE.Vector3(), v:new THREE.Vector3()}
+             : exact ? {r:rec._nbStateSaved.r.clone(), v:rec._nbStateSaved.v.clone()}
+             : raStateOf(rec);
     if(rec!==star){
       let mu=MU_RA, a=rec.helioA!=null?rec.helioA:rec.data.dist;
       if(rec.isMoon){
@@ -4086,7 +4098,19 @@ function nbEnable(){
   let gmT=0; const pv=new THREE.Vector3();
   for(const b of list){ gmT+=b.nb.gm; pv.addScaledVector(b.nb.v, b.nb.gm); }
   if(gmT>0){ pv.multiplyScalar(1/gmT); for(const b of list) b.nb.v.sub(pv); }
+  // a custom orbiting a PLANET hides a days-long true period behind years-long
+  // heliocentric elements — the pMin scan above never saw it. Tighten from the
+  // actual parent-relative orbits so the substep covers them too.
+  for(const b of list){
+    if(!b._custom || b===star) continue;
+    const p=nbDominantParent(b); if(!p) continue;
+    const mu=p.nb.gm+b.nb.gm;
+    const rel=b.nb.r.clone().sub(p.nb.r), rv=b.nb.v.clone().sub(p.nb.v);
+    const a=1/(2/Math.max(1e-9,rel.length()) - rv.lengthSq()/mu);
+    if(a>0) _nbH=Math.max(2e-5, Math.min(_nbH, 2*Math.PI*Math.sqrt(a*a*a/mu)/45));
+  }
   nbSyncHolders();
+  refreshNav();                          // customs re-weave under their live parent
   nbBtnState();
 }
 function nbBtnState(){
@@ -4111,11 +4135,52 @@ function nbDisable(){
     rec.parentHolder=P.parentHolder||sunHolder; rec.parentHolder.add(rec.holder);
     rec.helio=P.helio; rec.isMoon=P.isMoon;
     if(P.wasFree){ rec.freeState={r:st.r, v:st.v}; positionFreeBody(rec); continue; }
+    // a custom that LIVES around a planet (click-placed orbiter, capture) can't
+    // be a heliocentric ellipse — its osculating state may even be hyperbolic
+    // and would get CLAMPED by stateToElements. Re-parent it as a real moon.
+    if(rec._custom && !rec.destroyed){
+      let p=null, acc=0;
+      for(const [b,s] of snap){
+        if(b===rec || b===star || b.destroyed || b._absorbedGone) continue;
+        if(impBodyMassKg(b)<=impBodyMassKg(rec)) continue;
+        const g=impBodyMassKg(b)/Math.max(1e-12, s.r.distanceToSquared(st.r));
+        if(g>acc){ acc=g; p=b; }
+      }
+      const ps=p&&snap.get(p);
+      if(ps){
+        const lr=st.r.clone().sub(ps.r), lv=st.v.clone().sub(ps.v);
+        const muP=4*Math.PI*Math.PI*(impBodyMassKg(p)/SUN_KG);
+        const rDom=ps.r.length()*Math.sqrt(impBodyMassKg(p)/Math.max(1,impBodyMassKg(star)))*0.9;
+        if(lr.length()<rDom && lv.lengthSq()/2 - muP/Math.max(1e-9,lr.length()) < 0){
+          const el=stateToElements(lr, lv, muP);
+          rec.helio=false; rec.isMoon=true;
+          rec.parentHolder=p.holder; p.holder.add(rec.holder);
+          rec._physA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
+          rec.period=2*Math.PI*Math.sqrt(el.a*el.a*el.a/muP);
+          rec.aDispReal=el.a*AU_UNIT;
+          rec.aDispCompressed=p.radius*1.7+Math.max(2.2,p.radius*0.95);
+          rec.aDisp=realScale?rec.aDispReal:rec.aDispCompressed;
+          rec.data.dist=el.a; rec.orbitPerturbed=true;
+          rec._origOrbit=null;             // new baseline: 🧽 Heal must not rewind
+          if(rec._crParams){ rec._crParams.parent=p.data.key; rec._crParams.a=el.a;
+            rec._crParams.e=el.e; delete rec._crParams.nbState; }
+          rec._nbStateSaved=null;
+          if(rec.orbitLine){
+            rec.orbitLine.parent && rec.orbitLine.parent.remove(rec.orbitLine);
+            p.holder.add(rec.orbitLine);
+            rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q);
+            rec.orbitLine.visible=showOrbits;
+          }
+          positionBody(rec);
+          continue;
+        }
+      }
+    }
     if(rec.helio){
       // planets keep their perturbations: exact new elements from the state vector
       const el=stateToElements(st.r, st.v, MU_RA);
       rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
-      rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
+      rec.period=Math.sqrt(el.a*el.a*el.a/STAR_MSUN);
       rec.aDisp=distDisp(el.a);
       if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
     } else if(rec.isMoon){
@@ -4140,6 +4205,8 @@ function nbDisable(){
   }
   nbTrailsDispose();
   nbBtnState();
+  saveCustoms();                                     // re-parented orbiters persist as moons
+  refreshNav();                                      // …and re-weave under their planet
   if(typeof crUpdateUI==='function') crUpdateUI();   // Still/Launch modes just lost their gravity
 }
 function toggleNbody(){ nbodyOn ? nbDisable() : nbEnable(); }
@@ -4380,6 +4447,26 @@ function crParentRec(){
   if(!rec){ crParentKey=null; return null; }             // parent died: fall back to the star
   return rec;
 }
+/* the Orbits row FOLLOWS the focus: focus Jupiter (or Io) → parent = Jupiter.
+   Cycling the row by hand still works until the next focus change. */
+function crParentFollowFocus(){
+  const lab=document.getElementById('createlab');
+  if(!lab || !lab.classList.contains('on')) return;
+  const rec=bodies.find(b=>b.data.key===selected && !b.destroyed && !b._absorbedGone);
+  if(!rec || rec.external) return;
+  let key;                                               // undefined = leave the row alone
+  if(rec.data.kind==='star') key=null;
+  else if(crParentList().indexOf(rec)>=0) key=rec.data.key;
+  else if(nbodyOn && rec.nb){                            // a moon in N-body: its live parent
+    const p=nbDominantParent(rec);
+    if(p && p.data.kind!=='star' && crParentList().indexOf(p)>=0) key=p.data.key;
+    else if(p && p.data.kind==='star') key=null;
+  } else if(rec.isMoon){                                 // Kepler moon: its planet
+    const p=bodies.find(b=>b.holder===rec.parentHolder && b.data.kind!=='star');
+    if(p) key=p.data.key;
+  }
+  if(key!==undefined && key!==crParentKey){ crParentKey=key; crUpdateUI(); }
+}
 function crARange(){
   const p=crParentRec();
   if(!p) return {min:0.02, max:80};                      // heliocentric: the original range
@@ -4438,13 +4525,16 @@ function createCustomBody(p, fromSave){
   if(p.M!=null) rec.M=p.M;
   if(p.nbState){                              // mode-placed body: restore its exact state vector
     const r=new THREE.Vector3().fromArray(p.nbState.r), v=new THREE.Vector3().fromArray(p.nbState.v);
-    const el=stateToElements(r,v,MU_RA);      // (unbound states clamp to a drawable ellipse)
-    rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;
-    rec.period=Math.sqrt(el.a*el.a*el.a/1.139);
-    rec.aDisp=distDisp(el.a);
-    if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
-    positionBody(rec);
+    if(!parentRec){                           // (a parented moon keeps its moon elements —
+      const el=stateToElements(r,v,MU_RA);    //  helio elements of a moon state are garbage;
+      rec.helioA=el.a; rec.e=el.e; rec.q=el.q; rec.M=el.M;   //  N-body uses the vector below)
+      rec.period=Math.sqrt(el.a*el.a*el.a/STAR_MSUN);
+      rec.aDisp=distDisp(el.a);
+      if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+      positionBody(rec);
+    }
     rec._nbStateSaved={r,v};                  // exact vector for a running N-body sim (below)
+    rec._nbStateT=elapsedYears;               // …trustworthy only until sim time advances
   }
   if(p.accretedKg>0) rec._accretedKg=p.accretedKg;
   rec._newUntil=performance.now()+2600;
@@ -4473,7 +4563,12 @@ function createCustomBody(p, fromSave){
     getScars(rec);
     stMarkSwallowed(rec);
   }
-  if(!fromSave){ saveCustoms(); if(!p.noFocus) focusBody(key,true); }
+  if(!fromSave){ saveCustoms();
+    if(!p.noFocus){                          // focusing the newborn must NOT retarget the
+      const pk=crParentKey;                  // Orbits row the user is creating around
+      focusBody(key,true);
+      if(crParentKey!==pk){ crParentKey=pk; crUpdateUI(); }
+    } }
   return rec;
 }
 function saveCustoms(){
@@ -4599,6 +4694,16 @@ const _ST_STYLES=[['C',IMP_CHAR],['CS',IMP_CHAR_SOFT],['L',IMP_LAVA],['LS',IMP_L
 function stStyleName(st){ const e=_ST_STYLES.find(x=>x[1]===st); return e?e[0]:st; }
 function stStyleFromName(n){ const e=_ST_STYLES.find(x=>x[0]===n); return e?e[1]:n; }
 function saveSystemState(){
+  // customs live in their own store — refresh it NOW (exact N-body vectors +
+  // current Kepler phases), else Load would rewind them to placement time
+  for(const b of bodies){ if(b._custom && b.nb && !b.destroyed){
+    const sv=nbStar(), so=sv&&sv.nb?sv.nb:{r:new THREE.Vector3(),v:new THREE.Vector3()};
+    if(b._crParams) b._crParams.nbState={ r:b.nb.r.clone().sub(so.r).toArray(),
+                                          v:b.nb.v.clone().sub(so.v).toArray() };
+    b._nbStateSaved={r:b.nb.r.clone().sub(so.r), v:b.nb.v.clone().sub(so.v)};
+    b._nbStateT=elapsedYears;
+  } }
+  saveCustoms();
   const out={v:ST_VER, ed:ST_ED, sys:SYS, t:Date.now(),
     elapsedYears:+elapsedYears.toFixed(6), nbodyOn:!!nbodyOn,
     deleted:deletedKeys.slice(), bodies:{}};
@@ -4705,7 +4810,18 @@ function restoreSystemState(){
         const b=st.bodies[key];
         if(b.nb){ rec.nb.r.fromArray(b.nb.r); rec.nb.v.fromArray(b.nb.v); rec.nb.gm=b.nb.gm; }
       }
+      // customs saved exact STAR-RELATIVE vectors, but nbEnable anchored them to
+      // a star at the origin — authored bodies above just moved to their saved
+      // ABSOLUTE frame (star wobble ≈ 0.005 AU: bigger than a close moon's whole
+      // orbit). Re-anchor the customs to the star's restored state.
+      const sr=nbStar();
+      if(sr && sr.nb) for(const rec of bodies){
+        if(!rec._custom || !rec.nb || !rec._nbStateSaved) continue;
+        rec.nb.r.copy(sr.nb.r).add(rec._nbStateSaved.r);
+        rec.nb.v.copy(sr.nb.v).add(rec._nbStateSaved.v);
+      }
       nbSyncHolders();
+      refreshNav();                      // weave customs by their NOW-correct live parent
     }
     if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
   } finally { impRestoring=false; }
@@ -5095,6 +5211,7 @@ function setupCreateLab(){
     const open=g('createlab').classList.contains('on');
     if(tbtn) tbtn.classList.toggle('on', open);
     if(!open) crSetPlaceArmed(false);
+    if(open) crParentFollowFocus();          // default the Orbits row to the focused body
     crUpdateUI(); };
   if(tbtn) tbtn.onclick=toggle;
   g('cr-exit').onclick=toggle;
@@ -5558,6 +5675,7 @@ function focusBody(key, openPanel){
     if(rec.data.kind==='star') tween.dist = starVisR()*7;
   }
   selected=key; setActiveNav(key);
+  crParentFollowFocus();                     // Create panel's Orbits row tracks the focus
   if(surfaceView) surfaceRec=rec;
   // 'force' (deep links) always opens; plain true is suppressed on touch devices
   if(openPanel==='force' || (openPanel!==false && !MOBILE_UI)) openInfo(rec.data);
@@ -5771,10 +5889,29 @@ function buildNav(){
   // custom worlds live under their gravitational parent, ordered by distance:
   // heliocentric ones woven into the planet list, moons into their planet's list
   const customs=bodies.filter(b=>b._custom && !b._absorbedGone);
-  const aHelio=b=>b.helioA!=null?b.helioA:(b.data.dist||0);
-  const customPlanets=customs.filter(b=>!b.isMoon).sort((x,y)=>aHelio(x)-aHelio(y));
-  const customMoonsOf=key=>customs.filter(b=>b.isMoon && b._crParams && b._crParams.parent===key)
-    .sort((x,y)=>(x.data.dist||0)-(y.data.dist||0));
+  // under N-body the creation flags go stale — a click-placed orbiter is
+  // heliocentric on paper but LIVES around Jupiter. Weave by the live
+  // dominant attractor; in Kepler mode by the recorded parent.
+  const starRec=bodies.find(b=>b.data.kind==='star');
+  const custPar={};
+  for(const b of customs){
+    let pk=null;
+    if(nbodyOn && b.nb && !b.destroyed && !b.freeState){
+      const p=nbDominantParent(b);
+      pk=(p && p.data.kind!=='star')?p.data.key:null;
+    } else if(b.isMoon && b._crParams && b._crParams.parent) pk=b._crParams.parent;
+    custPar[b.data.key]=pk;
+  }
+  const aHelio=b=>(nbodyOn && b.nb && starRec && starRec.nb)
+    ? b.nb.r.distanceTo(starRec.nb.r)
+    : (b.helioA!=null?b.helioA:(b.data.dist||0));
+  const customPlanets=customs.filter(b=>!custPar[b.data.key]).sort((x,y)=>aHelio(x)-aHelio(y));
+  const custD=(b,key)=>{                     // live separation for in-list ordering
+    if(nbodyOn && b.nb){ const p=bodies.find(r=>r.data.key===key && r.nb); if(p) return b.nb.r.distanceTo(p.nb.r); }
+    return b.data.dist||0;
+  };
+  const customMoonsOf=key=>customs.filter(b=>custPar[b.data.key]===key)
+    .sort((x,y)=>custD(x,key)-custD(y,key));
   let cpi=0;
   const flushCustomPlanets=upTo=>{           // append customs closer than the next built-in planet
     while(cpi<customPlanets.length && (upTo==null || aHelio(customPlanets[cpi])<upTo)){
@@ -5786,7 +5923,7 @@ function buildNav(){
   };
   const moonRows=key=>{                      // built-in + custom moons, sorted by distance
     const rows=DS.MOONS.filter(x=>x.parent===key && alive(x.key)).map(m=>({d:m.dist||0, data:m}));
-    for(const c of customMoonsOf(key)) rows.push({d:c.data.dist||0, data:c.data});
+    for(const c of customMoonsOf(key)) rows.push({d:custD(c,key), data:c.data});
     rows.sort((x,y)=>x.d-y.d);
     return rows;
   };
@@ -5799,6 +5936,7 @@ function buildNav(){
     for(const row of moonRows(p.key)){
       nav.appendChild(navItem(row.data,true));
       for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
+      for(const cm of customMoonsOf(row.data.key)) nav.appendChild(navItem(cm.data, true));
     }
   }
   flushCustomPlanets(null);                  // customs beyond the last planet
@@ -5807,13 +5945,19 @@ function buildNav(){
     if(alive(DS.HORUS.key)) nav.appendChild(navItem(DS.HORUS));
     for(const g of generatedFor(DS.HORUS.key)) nav.appendChild(navItem(g.data, true));
     const hRows=DS.HORUS_MOONS.filter(m=>alive(m.key)).map(m=>({d:m.dist||0, data:m}));
-    for(const c of customMoonsOf(DS.HORUS.key)) hRows.push({d:c.data.dist||0, data:c.data});
+    for(const c of customMoonsOf(DS.HORUS.key)) hRows.push({d:custD(c,DS.HORUS.key), data:c.data});
     hRows.sort((x,y)=>x.d-y.d);
     for(const row of hRows){
       nav.appendChild(navItem(row.data,true));
       for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
+      for(const cm of customMoonsOf(row.data.key)) nav.appendChild(navItem(cm.data, true));
     }
   }
+  // safety net: a custom whose parent isn't a listed body (orbiting a remnant,
+  // a deleted world's key, …) must still be reachable somewhere
+  for(const c of customs)
+    if(!nav.querySelector('.navitem[data-key="'+c.data.key+'"]'))
+      nav.appendChild(navItem(c.data, true));
 }
 function setActiveNav(key){
   document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.key===key));
