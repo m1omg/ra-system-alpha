@@ -72,6 +72,10 @@ ui: {
 },
 
 html: {
+  't-save':'💾 Uložiť',
+  't-load':'📂 Načítať',
+  't-sysreset':'♻ Obnoviť sústavu',
+  'i-del':'🗑 Vymazať',
   'loader-sub':'Budujem planetárnu sústavu…',
   'title-sub':'Interaktívna 3D simulácia',
   'title-h1':'Planetárna sústava <b>Ra</b>',
@@ -93,6 +97,12 @@ html: {
 },
 
 titles: {
+  't-save':'Uloží aktuálny stav sústavy (poškodenia, dráhy, zničené a vlastné svety) v tomto prehliadači',
+  't-load':'Načíta naposledy uložený stav',
+  't-export':'Stiahne uložený stav ako súbor',
+  't-import':'Načíta stav zo súboru',
+  't-sysreset':'Obnoví sústavu do pôvodného stavu — odstráni VŠETKY poškodenia, vlastné telesá aj uložený stav (na rozdiel od 🧽, ktoré pridané objekty ponecháva)',
+  'i-del':'Vymaže toto teleso zo simulácie (kláves Delete) — čisto odstránené, bez výbuchu',
   't-scale':'Prepína skutočné vzdialenosti a stlačené dráhy',
   't-text':'Prepína autorov text a krátke zhrnutie',
   't-tails':'Zapne/vypne vyparovacie chvosty (Amunet, Sekhmet)',

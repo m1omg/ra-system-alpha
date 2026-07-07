@@ -852,6 +852,8 @@ function buildInner(){
 
   setupCreateLab();   // Alpha: custom-body panel + N-body toggle
   restoreCustoms();   // Alpha: re-create this browser's saved custom worlds
+  setupStateUI();     // Alpha: 💾/📂/⬇/⬆/♻ + 🗑 delete wiring
+  restoreSystemState();  // Alpha: auto-resume the saved world, if any
 
   hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
 
@@ -2089,12 +2091,14 @@ function impRingTexture(){
   _impRingTex=new THREE.CanvasTexture(c); return _impRingTex;
 }
 function spawnFlash(wp, R, E){
+  if(impRestoring) return;                    // state restore replays outcomes, not fireworks
   const sc=R*(0.9+0.6*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
   const sp=acquireFxSprite(_flashPool, impFlashTexture());
   sp.position.copy(wp);
   impFx.push({o:sp,t:0,T:0.7,kind:'flash',sc,pool:_flashPool});
 }
 function spawnShock(wp, R, E){
+  if(impRestoring) return;
   const sc=R*(1.1+0.5*Math.min(4, Math.max(0,Math.log10(Math.max(1,E/IMP_CHICXULUB_J)))+1));
   const sp=acquireFxSprite(_shockPool, impRingTexture());
   sp.position.copy(wp);
@@ -2136,6 +2140,7 @@ function getImpPool(){
   return impPool;
 }
 function emitBurst(wp, n, dirFn, speed, sizeBase, life){
+  if(impRestoring) return;
   const P=getImpPool();
   for(let k=0;k<n;k++){
     const i=P.head; P.head=(P.head+1)%P.N;
@@ -2421,7 +2426,7 @@ const SN_SHOCK_YR_PER_AU = SN_LIGHT_YR_PER_AU/SN_SHOCK_C;
 const SN_RAD_FRAC = 0.5;   // share of a body's absorbed energy delivered by the radiation flash
                            // (rest arrives with the shock, along with the orbit kick)
 const impBlastQueue=[];
-function impBlastDamage(source, blastE, states, skipOrbitKicks){
+function impBlastDamage(source, blastE, states){
   const sourceState=states.get(source)||raStateOf(source);
   const kicks=new Map();
   for(const rec of bodies.slice()){
@@ -2671,7 +2676,7 @@ function shatterStellar(rec){
   makeStellarBlast(rec,blastE);
   // queue the outward-sweeping damage wave (arrivals staggered by distance);
   // survivors of a star death are unbound NOW — their kick lands with the wave
-  impBlastDamage(rec,blastE,states,rec.data.kind==='star');
+  impBlastDamage(rec,blastE,states);
   if(nbodyOn){
     // real gravity: survivors unbind on their own once the star sheds its mass
     if(rec.nb) rec.nb.gm*=0.2;                 // supernova ejects ~80% of the star into the blast
@@ -3207,6 +3212,9 @@ function impHeal(){
       } else removeDebrisField(rec);   // resurrect the world
     }
     impHealExtinct(rec);               // the biosphere comes back with the crust
+    // N-body: healed mass gravitates at full strength again (undoes the
+    // supernova's 80% mass shedding AND any boil-off mass loss)
+    if(rec.nb) rec.nb.gm=NB_GMK*impBodyMassKg(rec);
   }
   if(!realScale) applySizes();                  // deflated giants: reapply compressed-mode scales
   // undo impact-momentum orbit changes (liberated moons were restored above)
@@ -3284,6 +3292,7 @@ function sfxImpact(rec,E){
   sfxBoom(sfxDistGain(rec)*(0.35+0.65*k), k, sfxAC.currentTime);
 }
 function sfxShatter(rec){
+  if(impRestoring) return;
   if(!sfxReady()) return;
   const t=sfxAC.currentTime, g0=Math.max(0.5,sfxDistGain(rec));
   sfxBoom(g0*1.2, 1, t);
@@ -4168,11 +4177,16 @@ function createCustomBody(p, fromSave){
     rec.aDisp=distDisp(el.a);
     if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
     positionBody(rec);
+    rec._nbStateSaved={r,v};                  // exact vector for a running N-body sim (below)
   }
   rec._newUntil=performance.now()+2600;
   if(nbodyOn){
-    // join the running N-body sim with the exact state of its Kepler orbit
-    const st=keplerStateAU(p.a, p.e, rec.q, rec.M%(Math.PI*2), MU_RA);
+    // join the running N-body sim — with the SAVED exact vector when one
+    // exists (a launched/hyperbolic body must not snap back to an ellipse),
+    // otherwise with the exact state of its Kepler orbit
+    const st=rec._nbStateSaved
+      ? {r:rec._nbStateSaved.r.clone(), v:rec._nbStateSaved.v.clone()}
+      : keplerStateAU(p.a, p.e, rec.q, rec.M%(Math.PI*2), MU_RA);
     const star=nbStar(), sr=star&&star.nb?star.nb:null;
     if(sr){ st.r.add(sr.r); st.v.add(sr.v); }
     rec._preNb={parentHolder:rec.parentHolder, helio:true, isMoon:false, helioA:null,
@@ -4199,7 +4213,10 @@ function restoreCustoms(){
 }
 function clearCustoms(){
   for(const rec of bodies.filter(b=>b._custom)){
+    if(crPendingLaunch===rec) crSetPlaceArmed(false);      // a half-aimed launch dies with its body
     if(rec.destroyed) removeDebrisField(rec);
+    if(rec._trail){ sunHolder.remove(rec._trail.line);     // N-body trail would orphan in the scene
+      rec._trail.g.dispose(); rec._trail.line.material.dispose(); rec._trail=null; }
     if(rec.orbitLine){ rec.orbitLine.parent&&rec.orbitLine.parent.remove(rec.orbitLine);
       rec.orbitLine.geometry.dispose(); rec.orbitLine.material.dispose(); }
     rec.holder.parent&&rec.holder.parent.remove(rec.holder);
@@ -4216,6 +4233,249 @@ function clearCustoms(){
   }
   try{ localStorage.removeItem(crStoreKey()); }catch(_){}
   refreshNav();
+}
+
+/* ============================================================
+   DELETE (Alpha) — cleanly REMOVE a body from the simulation.
+   No explosion: the world simply ceases to exist. Everything
+   except the star is fair game; a deleted planet's moons are
+   liberated onto heliocentric orbits (the same physics as when
+   their parent dies to bombardment). Deleting an authored body
+   persists only via 💾 Save; ♻ Reset restores everything.
+   ============================================================ */
+let deletedKeys=[];
+function removeBody(rec, fromRestore){
+  if(!rec || rec.data.kind==='star') return false;   // scene/lighting/engines are star-centred
+  // sever every live system that might be pointing at it
+  if(typeof crPendingLaunch!=='undefined' && crPendingLaunch===rec) crSetPlaceArmed(false);
+  if(impBeam && impBeam.rec===rec) stopBeam();
+  if(surfaceView && surfaceRec===rec) exitSurfaceView();
+  for(let i=impAsteroids.length-1;i>=0;i--) if(impAsteroids[i].rec===rec){
+    releaseAstRig(impAsteroids[i].rig); impAsteroids.splice(i,1); }
+  for(let i=impBlastQueue.length-1;i>=0;i--)
+    if(impBlastQueue[i].rec===rec || impBlastQueue[i].source===rec) impBlastQueue.splice(i,1);
+  // its moons sail on around Ra rather than orbiting a void
+  if(rec.destroyed){
+    // deleting a corpse: the moons were already liberated at shatter — cut
+    // their re-capture snapshots so removeDebrisField doesn't re-attach them
+    for(const m of bodies) if(m._preLib && m._preLib.parentRec===rec) m._preLib=null;
+    removeDebrisField(rec);                          // retires debris, ring, rump, moonlets
+  } else if(!nbodyOn) liberateMoons(rec);
+  if(nbodyOn) for(const m of bodies){                // nb moons are independent; fix their restore snapshot
+    if(m._preNb && m._preNb.parentHolder===rec.holder){
+      m._preNb.parentHolder=sunHolder; m._preNb.helio=true; m._preNb.isMoon=false;
+    }
+  }
+  // evaporation tails (Amunet, Sekhmet) + heat-driven tails
+  for(let i=evapTails.length-1;i>=0;i--) if(evapTails[i].rec===rec){
+    const t=evapTails[i];
+    if(t.points.parent) t.points.parent.remove(t.points);
+    t.g&&t.g.dispose&&t.g.dispose(); t.points.material.dispose();
+    evapTails.splice(i,1);
+  }
+  rec._puffTail=null;                                // shared entry already removed above
+  if(rec._trail){ sunHolder.remove(rec._trail.line);
+    rec._trail.g.dispose(); rec._trail.line.material.dispose(); rec._trail=null; }
+  if(rec.orbitLine){ rec.orbitLine.parent&&rec.orbitLine.parent.remove(rec.orbitLine);
+    rec.orbitLine.geometry.dispose(); rec.orbitLine.material.dispose(); }
+  rec.holder.parent&&rec.holder.parent.remove(rec.holder);
+  const pi=pickables.indexOf(rec.mesh); if(pi>=0) pickables.splice(pi,1);
+  const si=impScarred.indexOf(rec); if(si>=0) impScarred.splice(si,1);
+  const le=labelEls[rec.data.key]; if(le){ le.remove(); delete labelEls[rec.data.key]; }
+  const bi=bodies.indexOf(rec); if(bi>=0) bodies.splice(bi,1);
+  if(selected===rec.data.key) selected=null;
+  if(follow===rec) follow=null;
+  if(tween.body===rec) tween.active=false;
+  if(APP.currentData && APP.currentData.key===rec.data.key){
+    document.getElementById('info').classList.remove('open'); syncInfoBtn(); APP.currentData=null;
+  }
+  if(rec._custom) saveCustoms();
+  else if(!rec._generated && !fromRestore) deletedKeys.push(rec.data.key);
+  refreshNav();
+  return true;
+}
+function deleteSelected(){
+  const rec=bodies.find(b=>b.data.key===selected);
+  if(!rec || rec.data.kind==='star') return;         // star: refused (its 🗑 button is hidden too)
+  removeBody(rec);
+}
+
+/* ============================================================
+   SYSTEM STATE (Alpha) — 💾 Save / 📂 Load / ⬇⬆ file / ♻ Reset.
+   Hybrid snapshot: scalars + orbital elements + state vectors are
+   serialized; scars replay from scar.log via impReplayScarBase;
+   melt/ocean/steam/puff/extinction all re-derive from dmgJ via
+   impUpdateMelt. Saved per edition+system (localStorage is shared
+   across the three GitHub Pages sites). Auto-restores on load.
+   ============================================================ */
+const ST_VER=1, ST_ED='alpha';
+function stateKey(){ return 'ra-alpha-state:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+let impRestoring=false;
+const _ST_STYLES=[['C',IMP_CHAR],['CS',IMP_CHAR_SOFT],['L',IMP_LAVA],['LS',IMP_LAVA_SOFT]];
+function stStyleName(st){ const e=_ST_STYLES.find(x=>x[1]===st); return e?e[0]:st; }
+function stStyleFromName(n){ const e=_ST_STYLES.find(x=>x[0]===n); return e?e[1]:n; }
+function saveSystemState(){
+  const out={v:ST_VER, ed:ST_ED, sys:SYS, t:Date.now(),
+    elapsedYears:+elapsedYears.toFixed(6), nbodyOn:!!nbodyOn,
+    deleted:deletedKeys.slice(), bodies:{}};
+  for(const rec of bodies){
+    if(rec._generated || rec._custom) continue;      // customs live in their own store; rumps re-evolve
+    const b={M:+(rec.M%(Math.PI*2)).toFixed(6)};
+    if(rec.dmgJ>0) b.dmg=rec.dmgJ;
+    if(rec.shattered) b.shat=1;
+    if(rec.destroyed) b.dest=1;
+    if(rec._impWaterKg>0) b.waterKg=rec._impWaterKg;
+    if(rec.orbitPerturbed && !rec.freeState && !rec.destroyed)
+      b.orb={helioA:rec.helioA, physA:rec._physA, e:rec.e, q:rec.q.toArray(), period:rec.period};
+    if(rec.freeState) b.free={r:rec.freeState.r.toArray(), v:rec.freeState.v.toArray()};
+    if(rec.nb) b.nb={r:rec.nb.r.toArray(), v:rec.nb.v.toArray(), gm:rec.nb.gm};
+    if(rec.scar && rec.scar.log && rec.scar.log.length)
+      b.log=rec.scar.log.map(L=>[L.l, +L.u.toFixed(4), +L.v.toFixed(4), Math.round(L.r),
+        stStyleName(L.s), L.a==null?null:+L.a.toFixed(3)]);
+    out.bodies[rec.data.key]=b;
+  }
+  try{ localStorage.setItem(stateKey(), JSON.stringify(out)); }catch(_){ return false; }
+  return true;
+}
+function restoreSystemState(){
+  let st=null;
+  try{ st=JSON.parse(localStorage.getItem(stateKey())||'null'); }catch(_){}
+  if(!st || st.v!==ST_VER || st.sys!==SYS) return;
+  impRestoring=true;
+  try{
+    // 1. deletions (authored bodies removed cleanly, no liberation re-run needed
+    //    beyond what removeBody does)
+    deletedKeys=(st.deleted||[]).slice();
+    for(const key of deletedKeys){
+      const rec=bodies.find(b=>b.data.key===key);
+      if(rec) removeBody(rec, true);
+    }
+    // 2. phases, perturbed orbits, damage scalars + scar replay
+    const destroyed=[];
+    for(const key in st.bodies){
+      const rec=bodies.find(b=>b.data.key===key); if(!rec) continue;
+      const b=st.bodies[key];
+      if(b.M!=null) rec.M=b.M;
+      if(b.orb){
+        // snapshot the pristine orbit FIRST so 🧽 Heal can still undo it
+        if(!rec._origOrbit) rec._origOrbit=rec.helio
+          ? {helio:true, helioA:rec.helioA, e:rec.e, q:rec.q.clone(), period:rec.period}
+          : {helio:false, _physA:rec._physA||null, e:rec.e, q:rec.q.clone(),
+             period:rec.period, aDispReal:rec.aDispReal, aDispCompressed:rec.aDispCompressed};
+        rec.e=b.orb.e; rec.q=new THREE.Quaternion().fromArray(b.orb.q); rec.period=b.orb.period;
+        if(rec.helio && b.orb.helioA!=null){ rec.helioA=b.orb.helioA; rec.aDisp=distDisp(b.orb.helioA); }
+        else if(b.orb.physA!=null){
+          const ratio=b.orb.physA/(rec._physA!=null?rec._physA:rec.data.dist);
+          rec._physA=b.orb.physA;
+          if(rec.aDispReal) rec.aDispReal*=ratio;
+          if(rec.aDispCompressed) rec.aDispCompressed*=ratio;
+          rec.aDisp=realScale?rec.aDispReal:rec.aDispCompressed;
+        }
+        rec.orbitPerturbed=true;
+        if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+      }
+      if(b.dmg>0){
+        rec.dmgJ=b.dmg;
+        const s=getScars(rec);
+        if(b.log){ s.log=b.log.map(L=>({l:L[0],u:L[1],v:L[2],r:L[3],s:stStyleFromName(L[4]),a:L[5]==null?undefined:L[5]}));
+          impReplayScarBase(s);
+          s.meltT.needsUpdate=true; s.glowT.needsUpdate=true; }
+        impUpdateMelt(rec);        // regenerates melt/ocean/steam/puff/extinction from dmgJ
+      }
+      if(b.waterKg>0) rec._impWaterKg=b.waterKg;
+      if(b.dest) destroyed.push(rec);
+      positionBody(rec);
+    }
+    // 3. shatter the dead quietly — planets first, then a dead star (its blast
+    //    wave already did its work: every consequence is in the saved fields)
+    destroyed.sort((a,b2)=>(a.data.kind==='star'?1:0)-(b2.data.kind==='star'?1:0));
+    for(const rec of destroyed){ if(!rec.destroyed) shatterBody(rec); }
+    impBlastQueue.length=0;
+    for(const B of stellarBlasts){ finishStellarBlast(B); }
+    if(destroyed.some(r=>r.data.kind==='star') && sunLight) sunLight.intensity=0;
+    // 4. supernova survivors fly their saved straight lines, exactly
+    for(const key in st.bodies){
+      const rec=bodies.find(b2=>b2.data.key===key); if(!rec) continue;
+      const b=st.bodies[key];
+      if(!b.free || rec.destroyed) continue;
+      if(!rec._preFree) rec._preFree={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:rec.isMoon,
+        helioA:rec.helioA, _physA:rec._physA, aDisp:rec.aDisp, aDispReal:rec.aDispReal,
+        aDispCompressed:rec.aDispCompressed, e:rec.e, q:rec.q.clone(), M:rec.M,
+        period:rec.period, orbitLine:rec.orbitLine};
+      if(rec.orbitLine) rec.orbitLine.visible=false;
+      rec.parentHolder=sunHolder; sunHolder.add(rec.holder);
+      rec.helio=false; rec.isMoon=false; rec.aDisp=0;
+      rec.freeState={r:new THREE.Vector3().fromArray(b.free.r), v:new THREE.Vector3().fromArray(b.free.v)};
+      rec.orbitPerturbed=true;
+      positionFreeBody(rec);
+    }
+    // 5. N-body resumes exactly where it was saved
+    if(st.nbodyOn){
+      nbEnable();
+      for(const key in st.bodies){
+        const rec=bodies.find(b2=>b2.data.key===key); if(!rec||!rec.nb) continue;
+        const b=st.bodies[key];
+        if(b.nb){ rec.nb.r.fromArray(b.nb.r); rec.nb.v.fromArray(b.nb.v); rec.nb.gm=b.nb.gm; }
+      }
+      nbSyncHolders();
+    }
+    if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
+  } finally { impRestoring=false; }
+}
+function exportSystemState(){
+  saveSystemState();                                   // export exactly what Load would restore
+  const bundle={ state:JSON.parse(localStorage.getItem(stateKey())||'null'),
+                 customs:JSON.parse(localStorage.getItem(crStoreKey())||'[]') };
+  const blob=new Blob([JSON.stringify(bundle)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=ST_ED+'-'+SYS+'-state.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function importSystemState(file){
+  const rd=new FileReader();
+  rd.onload=function(){
+    try{
+      const bundle=JSON.parse(rd.result);
+      const s=bundle.state;
+      if(!s || s.v!==ST_VER || s.ed!==ST_ED) throw new Error('wrong edition/version');
+      localStorage.setItem('ra-system', s.sys);        // a sol save switches the app to sol
+      localStorage.setItem('ra-alpha-state:'+s.sys, JSON.stringify(s));
+      localStorage.setItem('ra-alpha-custom:'+s.sys, JSON.stringify(bundle.customs||[]));
+      location.reload();
+    }catch(err){ alert('Not a valid '+ST_ED+' state file ('+err.message+')'); }
+  };
+  rd.readAsText(file);
+}
+function resetSystem(){
+  const sk=(LANG==='sk');
+  if(!confirm(sk?'Obnoviť sústavu do pôvodného stavu? Odstráni VŠETKY poškodenia, vlastné telesá aj uložený stav.'
+               :'Reset the system to its pristine original state? Removes ALL damage, custom bodies and the saved state.')) return;
+  try{ localStorage.removeItem(crStoreKey()); localStorage.removeItem(stateKey()); }catch(_){}
+  location.reload();
+}
+function setupStateUI(){
+  const g=id=>document.getElementById(id);
+  const flash=(btn,txt)=>{ const t0=btn.textContent; btn.textContent=txt;
+    setTimeout(()=>{ btn.textContent=t0; },900); };
+  if(g('t-save')) g('t-save').onclick=function(){ flash(this, saveSystemState()?'💾 ✓':'💾 ✗'); };
+  if(g('t-load')) g('t-load').onclick=function(){
+    if(localStorage.getItem(stateKey())) location.reload();
+    else flash(this,'📂 —'); };
+  if(g('t-export')) g('t-export').onclick=exportSystemState;
+  if(g('t-import')) g('t-import').onclick=()=>g('t-import-file').click();
+  if(g('t-import-file')) g('t-import-file').onchange=function(){
+    if(this.files && this.files[0]) importSystemState(this.files[0]); this.value=''; };
+  if(g('t-sysreset')) g('t-sysreset').onclick=resetSystem;
+  if(g('i-del')) g('i-del').onclick=deleteSelected;
+  window.addEventListener('keydown',e=>{
+    if(e.key!=='Delete') return;
+    const el=document.activeElement;
+    if(el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)) return;
+    if(flying) return;
+    deleteSelected();
+  });
 }
 function crUpdateUI(){
   const kd=CR_KINDS[crKindI];
@@ -5118,22 +5378,23 @@ function generatedFor(key){
 }
 function buildNav(){
   const nav=document.getElementById('nav');
+  const alive=k=>bodies.some(b=>b.data.key===k);      // deleted bodies vanish from the nav
   const h=document.createElement('h3'); h.textContent=SYS==='sol'?T('nav-sol'):T('nav-ra'); nav.appendChild(h);
   nav.appendChild(navItem(DS.STAR));
   for(const p of DS.PLANETS){
-    nav.appendChild(navItem(p));
+    if(alive(p.key)) nav.appendChild(navItem(p));
     for(const g of generatedFor(p.key)) nav.appendChild(navItem(g.data, true));
     for(const m of DS.MOONS.filter(x=>x.parent===p.key)){
-      nav.appendChild(navItem(m,true));
+      if(alive(m.key)) nav.appendChild(navItem(m,true));
       for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
     }
   }
   if(DS.HORUS){
     const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
-    nav.appendChild(navItem(DS.HORUS));
+    if(alive(DS.HORUS.key)) nav.appendChild(navItem(DS.HORUS));
     for(const g of generatedFor(DS.HORUS.key)) nav.appendChild(navItem(g.data, true));
     for(const m of DS.HORUS_MOONS){
-      nav.appendChild(navItem(m,true));
+      if(alive(m.key)) nav.appendChild(navItem(m,true));
       for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
     }
   }
@@ -5188,6 +5449,8 @@ function openInfo(d){
   // author's-text edition shows only the author's words, so hide my own tagline there
   const authorOnly = USE_VERBATIM && !!verbatim;
   document.getElementById('i-type').textContent=typeLabelFor(d);
+  const delBtn=document.getElementById('i-del');
+  if(delBtn) delBtn.style.display = d.kind==='star' ? 'none' : '';
   document.getElementById('i-name').innerHTML=locName(d)+(d.alt?`<span>${d.alt}</span>`:'');
   // tagline is my own line — hide it only when showing the author's own words alone
   const tagEl=document.getElementById('i-tag');
@@ -5273,6 +5536,8 @@ function openInfoDestroyed(rec){
   const field=debrisFields.find(x=>x.rec===rec);
   const stellar=impIsStellar(rec);
   document.getElementById('i-type').textContent=T('debris-type');
+  const delBtn2=document.getElementById('i-del');
+  if(delBtn2) delBtn2.style.display = d.kind==='star' ? 'none' : '';   // deleting a corpse clears its debris
   document.getElementById('i-name').innerHTML=locName(d)+'<span>'+T('debris-name-span')+'</span>';
   const tagEl=document.getElementById('i-tag');
   tagEl.textContent=T('debris-tag'); tagEl.style.display='block';

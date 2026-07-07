@@ -128,6 +128,9 @@
   #close{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
     background:transparent;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;transition:.15s}
   #close:hover{background:rgba(255,120,120,.16);color:#ffb0b0;border-color:rgba(255,120,120,.4)}
+  #i-del{position:absolute;top:14px;right:52px;height:30px;padding:0 9px;border-radius:8px;border:1px solid var(--line);
+    background:transparent;color:var(--dim);cursor:pointer;font-size:12px;line-height:1;transition:.15s}
+  #i-del:hover{background:rgba(255,120,120,.16);color:#ffb0b0;border-color:rgba(255,120,120,.4)}
   #info .body{overflow-y:auto;padding:16px 20px 22px}
   #info .gallery{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
   #info .gallery figure{border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#000}
@@ -313,7 +316,13 @@
   <button id="t-nbody" class="btn" title="Real N-body gravity — every world attracts every other with true masses (forces Real scale; moons run on physical orbits)">🌌 N-body: OFF</button>
   <button id="t-create" class="btn" title="Create a custom planet — pick mass, size and orbit, then watch it perturb the system under N-body gravity">➕ Create</button>
   <button id="t-sfx" class="btn" title="Sound effects — not realistic (space is silent), but rule of cool">🔊 SFX</button>
+  <button id="t-save" class="btn" title="Save the current system state (damage, orbits, destroyed worlds, custom bodies) in this browser">💾 Save</button>
+  <button id="t-load" class="btn" title="Reload the last saved state">📂 Load</button>
+  <button id="t-export" class="btn" title="Download the saved state as a file">⬇</button>
+  <button id="t-import" class="btn" title="Load a state file">⬆</button>
+  <button id="t-sysreset" class="btn" title="Reset the system to its pristine original state — removes ALL damage, custom bodies and saves (unlike 🧽 Heal, which keeps added objects)">♻ Reset system</button>
   <button id="t-system" class="btn" title="Switch between the fictional Ra system and our real Solar System">⇄ 🌍 Solar System</button>
+  <input id="t-import-file" type="file" accept=".json,application/json" style="display:none">
   <button id="t-lang" class="btn" title="Slovenčina / English">🌐 SK</button>
 </div>
 
@@ -352,6 +361,7 @@
 <div id="info" class="panel">
   <div class="hd">
     <button id="close">×</button>
+    <button id="i-del" title="Delete this body from the simulation (Delete key) — removed cleanly, no explosion">🗑 Delete</button>
     <span class="type" id="i-type"></span>
     <h2 id="i-name"></h2>
     <div class="tagline" id="i-tag"></div>
