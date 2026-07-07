@@ -4302,7 +4302,9 @@ function crClickAU(e){                        // screen click -> ecliptic point 
   const dScene=hit.length();
   const au=realScale ? dScene/AU_UNIT : Math.pow(dScene/DIST_K, 1/DIST_P);
   if(!(au>0.005 && au<90)){                   // inside the star / deep interstellar
-    crMissFeedback((LANG==='sk'?'mimo rozsahu 0.005–90 AU (klik: ':'outside the 0.005–90 AU range (click: ')+
+    const star=locName(DS.STAR);
+    crMissFeedback((LANG==='sk'?'mimo rozsahu 0.005–90 AU od hviezdy '+star+' (klik: '
+                               :'outside 0.005–90 AU from '+star+' (click: ')+
       (au<1?au.toFixed(3):Math.round(au))+' AU)');
     return null;
   }
