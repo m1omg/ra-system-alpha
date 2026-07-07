@@ -1503,7 +1503,7 @@ function getScars(rec){
     overlayMat(glowT,{blending:THREE.AdditiveBlending}));
   mM.renderOrder=2; mG.renderOrder=4;
   rec.mesh.add(mM); rec.mesh.add(mG);
-  const HW=(MOBILE_UI||generated)?64:128, HH=HW/2;
+  const HW=(MOBILE_UI||generated)?64:192, HH=HW/2;   // finer grid = smoother heat fronts (desktop)
   rec.scar={glowC,meltC,baseC,glowT,meltT,mM,mG,coolT:0,hot:0,ocean:null,oceanM:0,log:[],dirty:false,upT:0,
     heatW:HW,heatH:HH,heat:new Float32Array(HW*HH),heatTmp:new Float32Array(HW*HH),
     heatT:0,heatPaintT:0,heatMax:0,heatActive:false,heatDirty:false,laserLogT:0};
@@ -2041,14 +2041,16 @@ function impPaintHeat(rec, s, force){
     any=true;
     if(q>0.18) hotArea+=Math.min(1,(q-0.18)/0.82);
     const a=Math.pow(q,0.72), white=Math.pow(q,1.7);
+    // alpha ramps run CONTINUOUSLY to 0 — the old constant floors (42/28) made
+    // every cell above threshold snap on at once, drawing a hard jaggy front
     md[p]=255;
     md[p+1]=Math.round(64+142*q+38*white);
     md[p+2]=Math.round(12+32*q+140*white);
-    md[p+3]=Math.round(42+170*a);
+    md[p+3]=Math.round(212*a);
     gd[p]=255;
     gd[p+1]=Math.round(92+118*q+45*white);
     gd[p+2]=Math.round(22+34*q+160*white);
-    gd[p+3]=Math.round(28+218*Math.pow(q,0.58));
+    gd[p+3]=Math.round(246*Math.pow(q,0.58));
   }
   s.heatMeltFrac=Math.min(1, hotArea/(W*H));
   const hmc=s.heatMeltC.getContext('2d'), hgc=s.heatGlowC.getContext('2d');
@@ -2062,8 +2064,13 @@ function impPaintHeat(rec, s, force){
   if(any){
     const oldMS=mc.imageSmoothingEnabled, oldGS=gc.imageSmoothingEnabled;
     mc.imageSmoothingEnabled=true; gc.imageSmoothingEnabled=true;
+    // a slight blur on the upscale melts the grid cells into a smooth front
+    // (GPU-accelerated canvas filter; harmless no-op where unsupported)
+    const blur='blur('+(s.meltC.width/W*0.55).toFixed(1)+'px)';
+    if(mc.filter!==undefined){ mc.filter=blur; gc.filter=blur; }
     if(rec.data.kind!=='gasgiant' && !impIsStellar(rec)) mc.drawImage(s.heatMeltC,0,0,s.meltC.width,s.meltC.height);
     gc.drawImage(s.heatGlowC,0,0,s.glowC.width,s.glowC.height);
+    if(mc.filter!==undefined){ mc.filter='none'; gc.filter='none'; }
     mc.imageSmoothingEnabled=oldMS; gc.imageSmoothingEnabled=oldGS;
   }
   s.heatDirty=false; s.dirty=false; s.upT=0;
@@ -3360,6 +3367,15 @@ function impSurfaceRate(){
   return Math.max(1, Math.min(IMP_SURFACE_RATE_MAX, YEARS_PER_SEC*timeScale*SEC_PER_YEAR));
 }
 function impToolDt(dt){ return dt*impSurfaceRate(); }
+/* heat diffusion/cooling ride the TIME WARP everywhere (not just surface view):
+   at real-time (1 s/s, the default) this is exactly the old pace; crank the
+   slider and the glow spreads and fades correspondingly faster, capped so the
+   fixed-step diffusion stays stable and cheap. Pause freezes the surface. */
+const IMP_HEAT_RATE_MAX=16;   // fast enough to read as time-warped, slow enough to still see the glow
+function impHeatRate(){
+  if(!playing) return 0;
+  return Math.max(1, Math.min(IMP_HEAT_RATE_MAX, YEARS_PER_SEC*timeScale*SEC_PER_YEAR));
+}
 
 function launchAsteroid(rec, hit){
   const u=hit.uv?hit.uv.x:0.5, v=hit.uv?hit.uv.y:0.5;
@@ -3677,7 +3693,7 @@ function updateImpacts(dt){
         }
       }
     }
-    impStepHeat(s,surfaceDt);
+    impStepHeat(s, surfaceView?surfaceDt:dt*impHeatRate());
     if(s.heat && (s.heatDirty || s.heatActive)){
       s.heatPaintT+=dt;
       if(s.heatDirty && (s.heatPaintT>0.12 || !s.heatActive)) _heatPaintQ.push(rec);
@@ -4265,17 +4281,46 @@ function crSetPlaceArmed(v){
   crUpdateUI();
 }
 const _crPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+function crMissFeedback(msg){                 // a failed click must SAY so, not silently eat the click
+  const hint=document.getElementById('cr-hint');
+  if(!hint) return;
+  hint.textContent='⚠ '+msg;
+  hint.style.color='#ffb08a';
+  clearTimeout(crMissFeedback._t);
+  crMissFeedback._t=setTimeout(function(){ hint.style.color=''; crUpdateUI(); }, 2200);
+}
 function crClickAU(e){                        // screen click -> ecliptic point in AU (star-relative)
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
   ray.setFromCamera(mouse,camera);
   const hit=new THREE.Vector3();
-  if(!ray.ray.intersectPlane(_crPlane,hit)) return null;
+  if(!ray.ray.intersectPlane(_crPlane,hit)){  // edge-on / skyward view: the ray never meets the ecliptic
+    crMissFeedback(LANG==='sk'?'klik minul rovinu dráh — pozri viac zhora':'click missed the orbital plane — try a more top-down view');
+    return null;
+  }
   const dScene=hit.length();
   const au=realScale ? dScene/AU_UNIT : Math.pow(dScene/DIST_K, 1/DIST_P);
-  if(!(au>0.005 && au<90)) return null;       // inside the star / deep interstellar: ignore
+  if(!(au>0.005 && au<90)){                   // inside the star / deep interstellar
+    crMissFeedback((LANG==='sk'?'mimo rozsahu 0.005–90 AU (klik: ':'outside the 0.005–90 AU range (click: ')+
+      (au<1?au.toFixed(3):Math.round(au))+' AU)');
+    return null;
+  }
   return hit.multiplyScalar(au/dScene);       // scene direction, AU magnitude
+}
+/* never spawn INSIDE an existing world — the collision pass would vaporize the
+   newborn on frame one ("it didn't spawn"). Nudge the point out to a safe gap. */
+function crAvoidOverlap(rec){
+  if(!rec.nb) return;
+  for(const b of nbList()){
+    if(b===rec || b.destroyed) continue;
+    const rSum=((b.data.radiusKm||1000)+(rec.data.radiusKm||1000))/KM_PER_AU;
+    const safe=rSum*2.2;
+    const dr=rec.nb.r.clone().sub(b.nb.r), d=dr.length();
+    if(d>=safe) continue;
+    const dir=d>1e-9?dr.divideScalar(d):new THREE.Vector3(1,0,0);
+    rec.nb.r.copy(b.nb.r).addScaledVector(dir,safe);
+  }
 }
 function crPlaceAt(e){
   const mode=CR_MODES[crModeI];
@@ -4299,6 +4344,7 @@ function crPlaceAt(e){
   if(!rec.nb) return;
   const star=nbStar(), sv=star&&star.nb?star.nb:{r:new THREE.Vector3(),v:new THREE.Vector3()};
   rec.nb.r.copy(pAU).add(sv.r);               // EXACT click point, no element roundtrip
+  crAvoidOverlap(rec);                        // …but never inside a world (instant vaporization)
   if(mode.id==='still'){
     rec.nb.v.copy(sv.v);                      // 0 relative to the star: free-fall
   } else if(mode.id==='orbit'){
@@ -4720,6 +4766,13 @@ function pickHit(e){   // full first intersection (object, point, uv) — uv dri
   ray.setFromCamera(mouse,camera);
   ray.params.Points={threshold:1};
   const hits=ray.intersectObjects(pickables,false);
+  // a shattered world's mesh stays pickable (for the epitaph) but is INVISIBLE —
+  // don't let that ghost sphere shadow the rump/moonlets living inside it:
+  // prefer the nearest hit on a live body, fall back to the nearest hit at all
+  for(const h of hits){
+    const rec=bodies.find(b=>b.data.key===h.object.userData.bodyKey);
+    if(rec && !rec.destroyed) return h;
+  }
   return hits.length? hits[0] : null;
 }
 function pick(e){
