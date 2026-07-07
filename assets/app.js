@@ -352,6 +352,7 @@ const UI_EN={
   'debris-type':'Debris field','debris-name-span':'destroyed','debris-tag':'A debris field.',
   'st-status':'Status','st-destroyed':'☠ Destroyed','st-cause':'Cause','st-cause-v':'Bombardment (impact lab)',
   'st-cause-col':'Collision with {name}','st-cause-sn':'Supernova of {name}',
+  'orb-edit':'Orbit (a · e)','orb-apply':'Set',
   'st-eabs':'Energy absorbed','st-ebind':'Binding energy',
   'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, incandescent fragments and still-cooling ejecta drift apart — and Kepler shear is smearing them along the old orbit into a glittering debris ring. Speed up time to watch the arc close into a full ring.',
   'debris-overkill':'The final energy input was far above the re-accretion window: the debris is expanding too fast to settle into a new spherical remnant or moonlets.',
@@ -2416,6 +2417,11 @@ function impApplyBlastEnergy(rec, E, source, states){
   rec.dmgJ=(rec.dmgJ||0)+E;
   rec._lastHit={u:uv.u,v:uv.v};
   if(source && source.data) rec._lastHitBy={name:locName(source.data), sn:impIsStellar(source)};
+  // rolling forensics log (console: impDmgLog) — every non-lab energy hit
+  const L=(window.impDmgLog||(window.impDmgLog=[]));
+  L.push({t:+elapsedYears.toFixed(4), to:rec.data.key, by:source&&source.data?source.data.key:null,
+    E:+E.toExponential(2)});
+  if(L.length>60) L.splice(0,20);
   impUpdateMelt(rec);
   if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
 }
@@ -3971,6 +3977,66 @@ function nbLiveOrbitTxt(rec){
   const pTxt=P>=1 ? (+P.toPrecision(3))+' '+T('e-yr') : (+(P*365.25).toPrecision(3))+' d';
   return name+' · a='+aTxt+' · e='+e.toFixed(3)+' · P='+pTxt;
 }
+/* ---- ✎ orbit editing: current {a,e} of any body's orbit + apply new values.
+   Kepler mode rewrites the elements (heal-able via _origOrbit); N-body mode
+   rebuilds the state vector about the current dominant attractor, keeping the
+   orbital plane and phase. ---- */
+function orbCurrent(rec){
+  if(!rec || rec.destroyed || rec.data.kind==='star' || rec._absorbedGone) return null;
+  if(nbodyOn && rec.nb){
+    let parent=null, acc=0;
+    for(const b of nbList()){ if(b===rec || b.destroyed) continue;
+      const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
+      if(b.nb.gm/d2>acc){ acc=b.nb.gm/d2; parent=b; } }
+    if(!parent) return null;
+    const mu=parent.nb.gm+rec.nb.gm;
+    const el=stateToElements(rec.nb.r.clone().sub(parent.nb.r),
+                             rec.nb.v.clone().sub(parent.nb.v), mu);
+    return {a:el.a, e:el.e, q:el.q, M:el.M, mu, parent};
+  }
+  if(rec.helio)  return {a:rec.helioA!=null?rec.helioA:rec.data.dist, e:rec.e};
+  if(rec.isMoon) return {a:rec._physA!=null?rec._physA:rec.data.dist, e:rec.e};
+  return null;                                   // free-drifting survivor: no ellipse to edit
+}
+function applyOrbitEdit(rec, a, e){
+  if(!rec || rec.destroyed || rec.data.kind==='star') return false;
+  if(!(a>0) || !(e>=0 && e<=0.95)) return false;
+  if(nbodyOn && rec.nb){
+    const cur=orbCurrent(rec); if(!cur || !cur.parent) return false;
+    const st=keplerStateAU(a, e, cur.q, cur.M%(Math.PI*2), cur.mu);
+    rec.nb.r.copy(cur.parent.nb.r).add(st.r);
+    rec.nb.v.copy(cur.parent.nb.v).add(st.v);
+    crAvoidOverlap(rec);                         // never rewrite INTO a body
+    _nbH=Math.max(2e-5, Math.min(_nbH, 2*Math.PI*Math.sqrt(a*a*a/cur.mu)/45));
+    nbSyncHolders();
+  } else if(rec.helio || rec.isMoon){
+    // snapshot the pristine orbit FIRST so 🧽 Heal can still undo the edit
+    if(!rec._origOrbit) rec._origOrbit=rec.helio
+      ? {helio:true, helioA:rec.helioA, e:rec.e, q:rec.q.clone(), period:rec.period}
+      : {helio:false, _physA:rec._physA||null, e:rec.e, q:rec.q.clone(),
+         period:rec.period, aDispReal:rec.aDispReal, aDispCompressed:rec.aDispCompressed};
+    rec.e=e;
+    if(rec.helio){
+      const star=bodies.find(b=>b.data.kind==='star');
+      const mu=4*Math.PI*Math.PI*(impBodyMassKg(star)/SUN_KG);
+      rec.helioA=a; rec.aDisp=distDisp(a);
+      rec.period=2*Math.PI*Math.sqrt(a*a*a/mu);
+    } else {
+      const p=bodies.find(b=>b.holder===rec.parentHolder);
+      const ratio=a/(rec._physA!=null?rec._physA:rec.data.dist);
+      rec._physA=a; rec.aDispReal=a*AU_UNIT;
+      if(rec.aDispCompressed) rec.aDispCompressed*=ratio;
+      rec.aDisp=realScale?rec.aDispReal:rec.aDispCompressed;
+      const mu=4*Math.PI*Math.PI*(impBodyMassKg(p||rec)/SUN_KG);
+      rec.period=2*Math.PI*Math.sqrt(a*a*a/mu);
+    }
+    rec.orbitPerturbed=true;                     // persists via 💾 Save's orb block
+    if(rec.orbitLine){ rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q); }
+    positionBody(rec);
+  } else return false;
+  if(rec._custom){ rec._crParams.a=a; rec._crParams.e=e; saveCustoms(); }
+  return true;
+}
 let _nbInfoT=0;
 function nbInfoTick(){
   if(!nbodyOn || !APP.currentData) return;
@@ -4299,6 +4365,37 @@ let crKindI=0, _crN=0;
 const crMassKg=v=>1e20*Math.pow(10,v/100*10.3);          // 1e20 .. ~2e30 kg
 const crRadKm =v=>Math.round(200*Math.pow(10,v/100*2.9)); // 200 .. ~159,000 km
 const crAAU   =v=>0.02*Math.pow(10,v/100*3.6);           // 0.02 .. ~80 AU
+/* ---- parent-aware distance scale: orbiting a planet, AU sliders are useless —
+   the range runs from just above the surface to the edge of the planet's
+   gravitational dominance instead ---- */
+let crParentKey=null;                                    // null = the star
+function crParentList(){                                 // star + every live planet-grade body
+  const star=bodies.find(b=>b.data.kind==='star');
+  return [star].concat(bodies.filter(b=>b!==star && !b.destroyed && !b._generated &&
+    !b._absorbedGone && !b.isMoon && !b.freeState && b.data.kind!=='star')).filter(Boolean);
+}
+function crParentRec(){
+  if(!crParentKey) return null;
+  const rec=bodies.find(b=>b.data.key===crParentKey && !b.destroyed && !b._absorbedGone);
+  if(!rec){ crParentKey=null; return null; }             // parent died: fall back to the star
+  return rec;
+}
+function crARange(){
+  const p=crParentRec();
+  if(!p) return {min:0.02, max:80};                      // heliocentric: the original range
+  const el=document.getElementById('cr-rad');
+  const rNew=el?crRadKm(+el.value):2000;
+  const star=bodies.find(b=>b.data.kind==='star');
+  const aP=p.helioA!=null?p.helioA:p.data.dist;
+  const min=2.2*((p.data.radiusKm||1000)+rNew)/KM_PER_AU;
+  const dom=aP*Math.sqrt(impBodyMassKg(p)/Math.max(1,impBodyMassKg(star)))*0.6;
+  return {min, max:Math.max(dom, min*8)};
+}
+function crAOf(v){ const R=crARange(); return R.min*Math.pow(R.max/R.min, v/100); }
+function crAInv(au){ const R=crARange();
+  return Math.max(0, Math.min(100, 100*Math.log(au/R.min)/Math.log(R.max/R.min))); }
+function fmtAAU(au){ return au<0.02 ? Math.round(au*KM_PER_AU).toLocaleString()+' km'
+                                    : (+au.toPrecision(3))+' AU'; }
 function crStoreKey(){ return 'ra-alpha-custom:'+(typeof SYS!=='undefined'?SYS:'ra'); }
 function fmtMassE(kg){
   if(kg>=1.5e29) return (kg/1.989e30).toFixed(2)+' M☉';
@@ -4363,6 +4460,10 @@ function createCustomBody(p, fromSave){
     rec._preNb={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:!!rec.isMoon, helioA:rec.helioA,
       _physA:rec._physA, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(), M:rec.M, period:rec.period, wasFree:false};
     rec.nb={r:st.r, v:st.v, gm:NB_GMK*impBodyMassKg(rec)};
+    // a tight fast moon joining MID-SIM needs finer substeps than the enable-time
+    // tuning — integrating a 0.4-day orbit at Io-tuned h pumps energy until the
+    // body is flung across the system (the "unrelated worlds explode" bug)
+    _nbH=Math.max(2e-5, Math.min(_nbH, (rec.period||1)/45));
     if(rec.orbitLine) rec.orbitLine.visible=false;
     nbSyncHolders();
   }
@@ -4671,7 +4772,10 @@ function crUpdateUI(){
   g('cr-kind').textContent=kd.icon+' '+kd.label;
   g('cr-mass-v').textContent=fmtMassE(crMassKg(+g('cr-mass').value));
   g('cr-rad-v').textContent=crRadKm(+g('cr-rad').value).toLocaleString()+' km';
-  g('cr-a-v').textContent=crAAU(+g('cr-a').value).toFixed(2)+' AU';
+  g('cr-a-v').textContent=fmtAAU(crAOf(+g('cr-a').value));
+  const pbn=g('cr-parent');
+  if(pbn){ const pr=crParentRec();
+    pbn.textContent=pr?'🪐 '+locName(pr.data):'☀ '+locName(DS.STAR); }
   g('cr-e-v').textContent=(+g('cr-e').value/100).toFixed(2);
   g('cr-i-v').textContent=g('cr-i').value+'°';
   // placement-mode rows: only meaningful while 🎯 armed
@@ -4890,6 +4994,9 @@ function crPlaceAt(e){
     if(!parent) parent=star;
     const rel=rec.nb.r.clone().sub(parent.nb.r), r=Math.max(1e-9,rel.length());
     const mu=parent.nb.gm+rec.nb.gm, ecc=base.e;
+    // the REAL orbit is parent-relative (its period can be a fraction of a day
+    // beside a giant) — retune the substep for it, rec.period is heliocentric
+    _nbH=Math.max(2e-5, Math.min(_nbH, 2*Math.PI*Math.sqrt(r*r*r/mu)/45));
     const vp=Math.sqrt(mu*(1+ecc)/r);         // placed at periapsis of the requested ellipse
     const tan=rel.clone().divideScalar(r).cross(new THREE.Vector3(0,1,0)).negate().normalize();
     // (rhat × ŷ negated ≡ ŷ-frame prograde: matches keplerStateAU's orbital sense)
@@ -4997,8 +5104,17 @@ function setupCreateLab(){
   g('cr-add').onclick=()=>{
     createCustomBody({ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
       massKg:crMassKg(+g('cr-mass').value), radiusKm:crRadKm(+g('cr-rad').value),
-      a:crAAU(+g('cr-a').value), e:+g('cr-e').value/100, incl:+g('cr-i').value });
+      a:crAOf(+g('cr-a').value), e:+g('cr-e').value/100, incl:+g('cr-i').value,
+      parent:crParentKey||undefined });
     g('cr-name').value='';
+  };
+  const parB=g('cr-parent');
+  if(parB) parB.onclick=()=>{
+    const L=crParentList();
+    const i=L.findIndex(b=>crParentKey ? b.data.key===crParentKey : b.data.kind==='star');
+    const nxt=L[(i+1)%L.length];
+    crParentKey=nxt.data.kind==='star'?null:nxt.data.key;
+    crUpdateUI();
   };
   const pb=g('cr-place'); if(pb) pb.onclick=()=>crSetPlaceArmed(!crPlaceArmed);
   const mb=g('cr-mode');
@@ -5017,7 +5133,7 @@ function setupCreateLab(){
   makeTypable('cr-mass-v','cr-mass', n=>{           // plain numbers are Earth masses; huge ones are kg
     const kg=n>1e6?n:n*5.972e24; return 100*Math.log10(kg/1e20)/10.3; }, crUpdateUI);
   makeTypable('cr-rad-v','cr-rad', n=>100*Math.log10(n/200)/2.9, crUpdateUI);
-  makeTypable('cr-a-v','cr-a',     n=>100*Math.log10(n/0.02)/3.6, crUpdateUI);
+  makeTypable('cr-a-v','cr-a',     n=>crAInv(n>500?n/KM_PER_AU:n), crUpdateUI);  // big numbers are km
   makeTypable('cr-e-v','cr-e',     n=>n*100, crUpdateUI);
   makeTypable('cr-i-v','cr-i',     n=>n, crUpdateUI);
   const nb=g('t-nbody'); if(nb) nb.onclick=toggleNbody;
@@ -5035,7 +5151,13 @@ function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05);
   if(surfaceView && (!surfaceRec || bodies.indexOf(surfaceRec)<0 || surfaceRec.destroyed)) exitSurfaceView();
-  const simDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
+  let simDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
+  // N-body can only integrate NB_MAXSTEPS substeps per frame — consuming more
+  // sim time would silently stretch the substep past the stability limit and
+  // moons would pump + grind into their planets (the high-warp "unrelated
+  // worlds explode" bug: Enceladus ⇄ Saturn). Cap the frame's sim time instead:
+  // an effective max time-warp while real gravity is on.
+  if(nbodyOn && simDtYears>NB_MAXSTEPS*_nbH) simDtYears=NB_MAXSTEPS*_nbH;
 
   if(playing && !surfaceView){
     if(nbodyOn) nbStep(simDtYears);            // real gravity: integrates + positions rec.nb bodies
@@ -5778,6 +5900,26 @@ function openInfo(d){
     const tr=document.createElement('tr');
     tr.innerHTML='<td>⚠ '+T('st-water-now')+'</td><td>'+fmtKg(prec._impWaterKg)+'</td>';
     t.appendChild(tr);
+  }
+  // ✎ every orbit is editable: semi-major axis (AU, or km for big numbers) + eccentricity
+  const curOrb=prec?orbCurrent(prec):null;
+  if(curOrb){
+    const aTxt=curOrb.a<0.02 ? Math.round(curOrb.a*KM_PER_AU) : +curOrb.a.toPrecision(4);
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>✎ '+T('orb-edit')+'</td><td style="white-space:nowrap">'+
+      'a <input id="i-orb-a" type="text" inputmode="decimal" value="'+aTxt+'" '+
+        'title="Semi-major axis — plain numbers are AU, big numbers (>500) are km"> '+
+      'e <input id="i-orb-e" type="text" inputmode="decimal" value="'+(+curOrb.e.toFixed(3))+'"> '+
+      '<button id="i-orb-set">'+T('orb-apply')+'</button></td>';
+    t.appendChild(tr);
+    document.getElementById('i-orb-set').onclick=function(){
+      const av=parseFloat(document.getElementById('i-orb-a').value);
+      const evl=parseFloat(document.getElementById('i-orb-e').value);
+      const btn=this;
+      if(applyOrbitEdit(prec, av>500?av/KM_PER_AU:av, evl)){
+        btn.textContent='✓'; setTimeout(()=>openInfo(d), 650);
+      } else { btn.textContent='✗'; setTimeout(()=>{ btn.textContent=T('orb-apply'); }, 900); }
+    };
   }
   // a sterilized biosphere overrides the book's life claims
   if(prec && !prec.destroyed && (prec.extinct||prec.sterile)){

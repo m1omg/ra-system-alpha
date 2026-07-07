@@ -131,6 +131,12 @@
   #i-del{position:absolute;top:14px;right:52px;height:30px;padding:0 9px;border-radius:8px;border:1px solid var(--line);
     background:transparent;color:var(--dim);cursor:pointer;font-size:12px;line-height:1;transition:.15s}
   #i-del:hover{background:rgba(255,120,120,.16);color:#ffb0b0;border-color:rgba(255,120,120,.4)}
+  #i-orb-a,#i-orb-e{width:66px;background:#0d1526;border:1px solid #2a3a5a;border-radius:6px;color:#dce6ff;
+    padding:2px 6px;font:inherit;font-size:12px}
+  #i-orb-e{width:46px}
+  #i-orb-set{background:#16233c;border:1px solid #2a3a5a;border-radius:6px;color:#dce6ff;cursor:pointer;
+    padding:2px 8px;font:inherit;font-size:12px;transition:.15s}
+  #i-orb-set:hover{background:#1e2f52}
   #info .body{overflow-y:auto;padding:16px 20px 22px}
   #info .gallery{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
   #info .gallery figure{border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#000}
@@ -337,6 +343,7 @@
 <div id="createlab" class="panel">
   <div class="improw"><b id="cr-title">➕ Create a body</b><button id="cr-kind" class="btn sm">🪨 Rocky</button><button id="cr-clear" class="btn sm" title="Remove every custom body">🗑 Clear</button><button id="cr-exit" class="btn sm" title="Close (Esc)">✕</button></div>
   <div class="improw"><label>Name</label><input id="cr-name" type="text" maxlength="24" placeholder="New world" style="flex:1;min-width:60px;background:#0d1526;border:1px solid #2a3a5a;border-radius:6px;color:#dce6ff;padding:3px 8px;font:inherit"></div>
+  <div class="improw"><label id="lbl-cr-parent">Orbits</label><button id="cr-parent" class="btn sm" title="Which body the new world orbits — click to cycle through the star and every planet; the distance scale adapts to the choice">☀ —</button></div>
   <div class="improw"><label id="lbl-cr-mass">Mass</label><input id="cr-mass" type="range" min="0" max="100" value="52"><span class="val" id="cr-mass-v">—</span></div>
   <div class="improw"><label id="lbl-cr-rad">Radius</label><input id="cr-rad" type="range" min="0" max="100" value="50"><span class="val" id="cr-rad-v">—</span></div>
   <div class="improw cr-slider-a"><label id="lbl-cr-a">Orbit a</label><input id="cr-a" type="range" min="0" max="100" value="42"><span class="val" id="cr-a-v">—</span></div>
