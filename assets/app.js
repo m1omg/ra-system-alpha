@@ -1323,10 +1323,11 @@ function acquireFxSprite(pool, tex){
 const impRC=new THREE.Raycaster();
 const _impV1=new THREE.Vector3(), _impV2=new THREE.Vector3(), _impV3=new THREE.Vector3();
 
-function impBodyMassKg0(rec){                               // original (undamaged) mass
+function impBaseMassKg(rec){                                // book/custom mass before damage or accretion
   if(rec.data.massKg) return rec.data.massKg;               // exact, from the author's .ubox
   const R=(rec.data.radiusKm||1000)*1000;
   return (impDensityByKind[rec.data.kind]||3500)*(4/3)*Math.PI*R*R*R; }
+function impBodyMassKg0(rec){ return impBaseMassKg(rec)+(rec._accretedKg||0); }
 /* ---- mass loss: once a world is superheated, further energy boils material
    off into space (the escaping tail). Stateless, from cumulative dmgJ:
    rocky worlds lose mass past the whole-body melt budget, paying vaporization
@@ -1361,12 +1362,16 @@ function impMassLostKg(rec){
   return Math.min(0.5*M0, over/eKg);                        // ≥ that and breakup wins anyway
 }
 function impBodyMassKg(rec){ return impBodyMassKg0(rec)-impMassLostKg(rec); }
-function impMassNowTxt(rec){                                // "1.98 M⊕ (−3.2 %)" for the info panel
-  const M0=impBodyMassKg0(rec), M=impBodyMassKg(rec), lf=1-M/M0;
+function impMassChangedFrac(rec){
+  const M0=impBaseMassKg(rec), M=impBodyMassKg(rec);
+  return M0>0 ? Math.abs(M/M0-1) : 0;
+}
+function impMassNowTxt(rec){                                // "1.98 M⊕ (+0.3 %)" for the info panel
+  const M0=impBaseMassKg(rec), M=impBodyMassKg(rec), df=M0>0?M/M0-1:0;
   const me=M/5.972e24;
   const mtxt = me>=0.01 ? (+me.toPrecision(3))+' M⊕' : M.toExponential(2).replace('e+','e')+' kg';
-  const p = lf<0.10 ? (lf*100).toFixed(1) : String(Math.round(lf*100));
-  return mtxt+' (−'+p+' %)';
+  const p = Math.abs(df)<0.10 ? (Math.abs(df)*100).toFixed(1) : String(Math.round(Math.abs(df)*100));
+  return mtxt+' ('+(df>=0?'+':'−')+p+' %)';
 }
 function impBodyRho(rec){ const R=(rec.data.radiusKm||1000)*1000;
   return impBodyMassKg0(rec)/((4/3)*Math.PI*R*R*R); }       // bulk density of the surviving body
@@ -3190,7 +3195,7 @@ function impHeal(){
     s.meltTarget=0; s.oceanHotTarget=0; s.waterTarget=0; s.steamTarget=0;
     rec._impWaterKg=0;
     const wasDestroyed=rec.destroyed;
-    rec.dmgJ=0; rec.shattered=false;
+    rec.dmgJ=0; rec.shattered=false; rec._accretedKg=0;
     // deflate a puffed-up giant and calm its boosted/created escape tail
     rec.puffTarget=1; rec.puffK=1;
     if(rec._baseEmissive && rec.mesh.material.emissive){
@@ -3230,6 +3235,7 @@ function impHeal(){
     positionBody(rec);
   }
   for(const t of evapTails) t.points.visible=showTails;
+  if(bodies.some(r=>r._custom)) saveCustoms();
   if(APP.currentData && document.getElementById('info').classList.contains('open'))
     openInfo(APP.currentData);
   sfxChime();
@@ -3734,7 +3740,7 @@ function updateImpacts(dt){
     for(let i=0;i<n;i++){ const r=_heatPaintQ[i]; impPaintHeat(r,r.scar,false); r.scar.heatPaintT=0; }
     _heatPaintQ.length=0;
   }
-  // keep an open info panel's live mass row current while material boils off
+  // keep an open info panel's live mass row current while material boils off or accretes
   impInfoT+=dt;
   if(impInfoT>0.5){
     impInfoT=0;
@@ -3743,7 +3749,7 @@ function updateImpacts(dt){
       if(rec && !rec.destroyed){
         const cell=document.getElementById('i-mass-now');
         if(cell) cell.textContent=impMassNowTxt(rec);
-        else if(impMassLostKg(rec)/impBodyMassKg0(rec)>0.001) openInfo(rec.data);  // first crossing: add the row
+        else if(impMassChangedFrac(rec)>0.001) openInfo(rec.data);  // first crossing: add the row
       }
     }
   }
@@ -4062,6 +4068,7 @@ function nbStep(dt){
   if(dt>0){
     if(!_nbF || _nbF.cap<n){
       _nbF={cap:n, x:new Float64Array(n),y:new Float64Array(n),z:new Float64Array(n),
+        px:new Float64Array(n),py:new Float64Array(n),pz:new Float64Array(n),
         vx:new Float64Array(n),vy:new Float64Array(n),vz:new Float64Array(n),
         ax:new Float64Array(n),ay:new Float64Array(n),az:new Float64Array(n),
         gm:new Float64Array(n), rad:new Float64Array(n)};
@@ -4074,6 +4081,7 @@ function nbStep(dt){
     const K=Math.max(1, Math.min(NB_MAXSTEPS, Math.ceil(dt/_nbH)));
     const h=dt/K, h2=h*0.5, EPS2=1e-12;
     const hits=[];                         // contact pairs caught INSIDE the substep loop (no tunnelling)
+    const markHit=(i,j)=>{ const key=i*8192+j; if(hits.indexOf(key)<0) hits.push(key); };
     const accel=()=>{
       F.ax.fill(0,0,n); F.ay.fill(0,0,n); F.az.fill(0,0,n);
       for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
@@ -4082,15 +4090,29 @@ function nbStep(dt){
         const fi=F.gm[j]*inv, fj=F.gm[i]*inv;
         F.ax[i]+=dx*fi; F.ay[i]+=dy*fi; F.az[i]+=dz*fi;
         F.ax[j]-=dx*fj; F.ay[j]-=dy*fj; F.az[j]-=dz*fj;
+      }
+    };
+    const sweptHits=()=>{
+      for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+        if(list[i].destroyed || list[j].destroyed) continue;
         const s=(F.rad[i]+F.rad[j])*0.9;
-        if(d2<s*s){ const key=i*8192+j;
-          if(hits.indexOf(key)<0) hits.push(key); }
+        const s2=s*s;
+        const dx0=F.px[j]-F.px[i], dy0=F.py[j]-F.py[i], dz0=F.pz[j]-F.pz[i];
+        const dx1=F.x[j]-F.x[i], dy1=F.y[j]-F.y[i], dz1=F.z[j]-F.z[i];
+        const mx=dx1-dx0, my=dy1-dy0, mz=dz1-dz0;
+        const mm=mx*mx+my*my+mz*mz;
+        let u=0;
+        if(mm>1e-24) u=Math.max(0, Math.min(1, -(dx0*mx+dy0*my+dz0*mz)/mm));
+        const cx=dx0+mx*u, cy=dy0+my*u, cz=dz0+mz*u;
+        if(cx*cx+cy*cy+cz*cz < s2) markHit(i,j);
       }
     };
     accel();
     for(let s=0;s<K;s++){
-      for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
+      for(let i=0;i<n;i++){ F.px[i]=F.x[i]; F.py[i]=F.y[i]; F.pz[i]=F.z[i];
+        F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
         F.x[i]+=F.vx[i]*h; F.y[i]+=F.vy[i]*h; F.z[i]+=F.vz[i]*h; }
+      sweptHits();
       accel();
       for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2; }
     }
@@ -4100,10 +4122,59 @@ function nbStep(dt){
   }
   nbSyncHolders();
 }
+function nbDisposeTrail(rec){
+  if(!rec || !rec._trail) return;
+  sunHolder.remove(rec._trail.line);
+  rec._trail.g.dispose(); rec._trail.line.material.dispose();
+  rec._trail=null;
+}
+function nbAccreteImpactMass(survivor, impactorMassKg, E){
+  if(!survivor || survivor.destroyed || !(impactorMassKg>0)) return 0;
+  const R=Math.max(1, (survivor.data.radiusKm||1000)*1000);
+  const escJkg=IMP_G*Math.max(1, impBodyMassKg0(survivor))/R;
+  const violent=E/Math.max(1, impactorMassKg*escJkg);
+  const retained=Math.max(0, Math.min(0.98, 1/(1+0.22*violent)));
+  const gain=impactorMassKg*retained;
+  if(!(gain>0)) return 0;
+  survivor._accretedKg=(survivor._accretedKg||0)+gain;
+  if(survivor.nb) survivor.nb.gm=NB_GMK*impBodyMassKg(survivor);
+  if(survivor._custom) saveCustoms();
+  return gain;
+}
+function nbAbsorbDestroyedImpact(dead, survivor){
+  if(!dead || !survivor || !dead.destroyed || survivor.destroyed) return;
+  const D=debrisFields.find(x=>x.rec===dead);
+  const oldNb=dead.nb?{r:dead.nb.r.clone(), v:dead.nb.v.clone(), gm:dead.nb.gm}:null;
+  dead._absorbedImpact={survivorKey:survivor.data.key, holderParent:dead.holder.parent,
+    parentHolder:dead.parentHolder, holderPos:dead.holder.position.clone(), nb:oldNb};
+  let dir=new THREE.Vector3(1,0,0);
+  if(oldNb && survivor.nb) dir.copy(oldNb.r).sub(survivor.nb.r);
+  else dir.copy(worldPosOf(dead)).sub(worldPosOf(survivor));
+  if(dir.lengthSq()<1e-12) dir.set(1,0,0);
+  dir.normalize();
+  const surf=Math.max(realRadiusScene(survivor.data.radiusKm||1000)*1.02,
+    survivor.radius*(survivor.mesh.scale.x||1)*0.92);
+  survivor.holder.add(dead.holder);
+  dead.holder.position.copy(dir.multiplyScalar(surf));
+  dead.parentHolder=survivor.holder;
+  dead.nb=null;                              // the wreck is accreted, not a second projectile
+  nbDisposeTrail(dead);
+  if(D){
+    D.absorbed=true; D.allowRemnant=false; D.GM=0;
+    D.fadeT=Math.min(D.fadeT||4, 4); D.op0=Math.min(D.op0||0.4, 0.22);
+    if(D.hazeMat){ D.hazeMat.opacity=Math.min(D.hazeMat.opacity,0.20); D.hazeMat.depthTest=true; D.hazeMat.needsUpdate=true; }
+    for(const c of D.chunks){
+      if(c.cap) continue;
+      c.cap=true; c.dissT0=1.3+0.8*Math.random(); c.dissT=c.dissT0;
+      c.baseScale=c.m.scale.x||1;
+      c.vel.multiplyScalar(0.25);
+    }
+  }
+}
 /* touching worlds collide: momentum-conserving merge of velocities + the
    full impact energy routed into the existing damage/shatter machinery */
 function nbCollidePair(a,b){
-  if(!a.nb || !b.nb || (a.destroyed && b.destroyed)) return;
+  if(!a.nb || !b.nb || a.destroyed || b.destroyed) return;
   const rA=(a.data.radiusKm||1000)/KM_PER_AU, rB=(b.data.radiusKm||1000)/KM_PER_AU;
   const dr=_nbV.copy(b.nb.r).sub(a.nb.r); let d=dr.length();
   if(d<1e-12){ dr.set(1,0,0); d=1e-12; }
@@ -4117,9 +4188,14 @@ function nbCollidePair(a,b){
   dr.multiplyScalar(1/d);
   const push=Math.max(0,(rA+rB)-d);
   const small=mA<=mB?a:b, big=small===a?b:a;
+  const mSmall=mA<=mB?mA:mB;
   small.nb.r.addScaledVector(dr, small===b?push:-push);
   if(!small.destroyed) impApplyBlastEnergy(small, E, big, null);
   if(!big.destroyed)   impApplyBlastEnergy(big, E*0.25, small, null);
+  if(small.destroyed && !big.destroyed){
+    nbAccreteImpactMass(big, mSmall, E);
+    nbAbsorbDestroyedImpact(small, big);
+  }
   impShake=Math.min(0.06, impShake+0.03);
 }
 
@@ -4192,6 +4268,7 @@ function createCustomBody(p, fromSave){
     positionBody(rec);
     rec._nbStateSaved={r,v};                  // exact vector for a running N-body sim (below)
   }
+  if(p.accretedKg>0) rec._accretedKg=p.accretedKg;
   rec._newUntil=performance.now()+2600;
   if(nbodyOn){
     // join the running N-body sim — with the SAVED exact vector when one
@@ -4204,7 +4281,7 @@ function createCustomBody(p, fromSave){
     if(sr){ st.r.add(sr.r); st.v.add(sr.v); }
     rec._preNb={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:!!rec.isMoon, helioA:rec.helioA,
       _physA:rec._physA, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(), M:rec.M, period:rec.period, wasFree:false};
-    rec.nb={r:st.r, v:st.v, gm:NB_GMK*p.massKg};
+    rec.nb={r:st.r, v:st.v, gm:NB_GMK*impBodyMassKg(rec)};
     if(rec.orbitLine) rec.orbitLine.visible=false;
     nbSyncHolders();
   }
@@ -4214,7 +4291,11 @@ function createCustomBody(p, fromSave){
 }
 function saveCustoms(){
   try{
-    const arr=bodies.filter(b=>b._custom).map(b=>Object.assign({}, b._crParams, {M:b.M}));
+    const arr=bodies.filter(b=>b._custom).map(b=>{
+      const out=Object.assign({}, b._crParams, {M:b.M});
+      if(b._accretedKg>0) out.accretedKg=b._accretedKg;
+      return out;
+    });
     localStorage.setItem(crStoreKey(), JSON.stringify(arr));
   }catch(_){}
 }
@@ -4333,6 +4414,7 @@ function saveSystemState(){
     if(rec._generated || rec._custom) continue;      // customs live in their own store; rumps re-evolve
     const b={M:+(rec.M%(Math.PI*2)).toFixed(6)};
     if(rec.dmgJ>0) b.dmg=rec.dmgJ;
+    if(rec._accretedKg>0) b.accr=rec._accretedKg;
     if(rec.shattered) b.shat=1;
     if(rec.destroyed) b.dest=1;
     if(rec._impWaterKg>0) b.waterKg=rec._impWaterKg;
@@ -4367,6 +4449,7 @@ function restoreSystemState(){
       const rec=bodies.find(b=>b.data.key===key); if(!rec) continue;
       const b=st.bodies[key];
       if(b.M!=null) rec.M=b.M;
+      if(b.accr>0) rec._accretedKg=b.accr;
       if(b.orb){
         // snapshot the pristine orbit FIRST so 🧽 Heal can still undo it
         if(!rec._origOrbit) rec._origOrbit=rec.helio
@@ -4521,9 +4604,9 @@ function crUpdateUI(){
     hint.textContent = !crPlaceArmed
       ? (LANG==='sk'?'Vlastné svety ostávajú v prehliadači · kliknutím na hodnotu ju napíšeš · zapni 🌌 N-body, nech pôsobia gravitáciou'
                     :'Custom worlds persist in this browser · click any value to type it · turn on 🌌 N-body to let them pull on everything else')
-      : mode.id==='still' ? (LANG==='sk'?'⏸ klikni (aj na/pri telese) — padá voľným pádom na to, čo v mieste kliku dominuje':'⏸ click (on/near a body works too) — free-falls into whatever dominates the click point')
-      : mode.id==='orbit' ? (LANG==='sk'?'🔄 klik pri telese = jeho mesiac · klik do prázdna = dráha okolo hviezdy':'🔄 click near a body to orbit IT (as a moon) · empty space orbits the star')
-      : (LANG==='sk'?'🚀 JEDEN klik — vyletí z miesta kliku v smere tvojho pohľadu (rýchlosť z posuvníka)':'🚀 ONE click — flies from the click point along your line of sight (speed from the slider)');
+      : mode.id==='still' ? (LANG==='sk'?'⏸ klikaj opakovane — padá voľným pádom na to, čo v mieste kliku dominuje':'⏸ click repeatedly — free-falls into whatever dominates the click point')
+      : mode.id==='orbit' ? (LANG==='sk'?'🔄 klikaj opakovane · pri telese = jeho mesiac · prázdno = okolo hviezdy':'🔄 click repeatedly · near a body orbits it · empty space orbits the star')
+      : (LANG==='sk'?'🚀 klikaj pre opakované štarty — 🎯 vedie na vybraný cieľ':'🚀 click repeatedly to launch — 🎯 leads the selected target');
   }
 }
 /* ---- 🎯 place-by-click, Universe-Sandbox style. Clicks near a world snap to
@@ -4536,10 +4619,10 @@ function crUpdateUI(){
               applied at periapsis. In Kepler mode a click near a planet
               creates a real MOON of it; empty space orbits the star.
    🚀 Launch — the physical alternative to the Impact lab's scripted rocks:
-              ONE click — the body spawns at the click point and flies along
-              the camera→click line at the Speed slider's velocity. 🎯 Auto-aim
-              launches at the currently selected body instead. N-body only —
-              a launched world can miss, slingshot, or hit. ---- */
+              each click spawns a body at the click point and flies along the
+              camera→click line at the Speed slider's velocity. 🎯 Auto-aim
+              leads the currently selected body instead. N-body only — a
+              launched world can miss, slingshot, or hit. ---- */
 let crPlaceArmed=false, crModeI=1, crAutoAim=false;
 const CR_MODES=[
   {id:'still',  icon:'⏸', label:'Still',  needsNb:true},
@@ -4684,7 +4767,7 @@ function crPlaceAt(e){
     }
     createCustomBody(base);
     g('cr-name').value='';
-    crSetPlaceArmed(false);
+    crUpdateUI();
     return;
   }
   const rec=createCustomBody(base);
@@ -4722,12 +4805,12 @@ function crPlaceAt(e){
     let tgt=null;                             //    point, flying along your line of sight
     if(crAutoAim) tgt=bodies.find(b=>b.data.key===selected&&b!==rec&&b.nb) ||
                       (follow&&follow.nb&&follow!==rec?follow:null);
-    if(tgt) crLaunchToward(rec, tgt.nb.r.clone());
+    if(tgt) crLaunchAtTarget(rec, tgt);
     else crLaunchDir(rec, ck.dir);            // (🎯 with nothing selected falls back to aim-by-view)
   }
   crSaveState(rec);
   nbSyncHolders();
-  crSetPlaceArmed(false);
+  crUpdateUI();
 }
 function crSaveState(rec){                    // persist the exact star-relative state vector
   if(!rec.nb || !rec._crParams) return;
@@ -4745,8 +4828,27 @@ function crLaunchDir(rec, dir){               // velocity = direction × Speed s
   spawnFlash(worldPosOf(rec), Math.max(1,rec.radius*rec.mesh.scale.x*3), IMP_CHICXULUB_J);
   sfxWhoosh(1.2);
 }
-function crLaunchToward(rec, tgtAbsAU){
-  crLaunchDir(rec, tgtAbsAU.sub(rec.nb.r));
+function crLaunchAtTarget(rec, tgt){
+  if(!rec.nb || !tgt || !tgt.nb) return;
+  const star=nbStar(), baseV=star&&star.nb?star.nb.v:new THREE.Vector3();
+  const speed=crSpdKms(+document.getElementById('cr-spd').value)/KMS_PER_AUYR;
+  const rel=tgt.nb.r.clone().sub(rec.nb.r);
+  const v=tgt.nb.v.clone().sub(baseV);
+  const A=v.lengthSq()-speed*speed, B=2*rel.dot(v), C=rel.lengthSq();
+  let t=0;
+  if(Math.abs(A)<1e-12){
+    if(Math.abs(B)>1e-12) t=-C/B;
+  } else {
+    const disc=B*B-4*A*C;
+    if(disc>=0){
+      const q=Math.sqrt(disc), t1=(-B-q)/(2*A), t2=(-B+q)/(2*A);
+      t=Math.min(t1>0?t1:Infinity, t2>0?t2:Infinity);
+      if(!isFinite(t)) t=0;
+    }
+  }
+  const aim=rel.clone();
+  if(t>0) aim.addScaledVector(v,t);
+  crLaunchDir(rec, aim);
 }
 /* ---- click a slider's value readout to TYPE the number instead ---- */
 function makeTypable(valId, sliderId, invFn, refreshFn){
@@ -5551,8 +5653,8 @@ function openInfo(d){
     const tr=document.createElement('tr');
     tr.innerHTML='<td>⚠ '+T('st-orbit-now')+'</td><td>'+val+'</td>'; t.appendChild(tr);
   }
-  // mass boiled off by superheating overrides the book value — show what's left
-  if(prec && !prec.destroyed && impMassLostKg(prec)/impBodyMassKg0(prec)>0.001){
+  // impacts can add retained material or boil it away — show the current mass
+  if(prec && !prec.destroyed && impMassChangedFrac(prec)>0.001){
     const tr=document.createElement('tr');
     tr.innerHTML='<td>⚠ '+T('st-mass-now')+'</td><td id="i-mass-now">'+impMassNowTxt(prec)+'</td>';
     t.appendChild(tr);
