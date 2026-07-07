@@ -36,6 +36,7 @@ ui: {
   'no-desc':'(Zdrojový dokument tento svet zatiaľ neopisuje — zobrazené je zhrnutie.)',
   'debris-type':'Pole trosiek','debris-name-span':'zničený svet','debris-tag':'Pole trosiek.',
   'st-status':'Stav','st-destroyed':'☠ Zničený','st-cause':'Príčina','st-cause-v':'Bombardovanie (impaktné laboratórium)',
+  'st-cause-col':'Zrážka s telesom {name}','st-cause-sn':'Supernova hviezdy {name}',
   'st-eabs':'Pohltená energia','st-ebind':'Väzbová energia',
   'debris-epitaph':'{name} už neexistuje. Nahromadené bombardovanie prekročilo gravitačnú väzbovú energiu a svet sa rozpadol. Tam, kde bol {name}, sa teraz rozlietavajú rozžeravené úlomky a chladnúci vyvrhnutý materiál — a Keplerov strih ich rozmazáva pozdĺž pôvodnej dráhy do trblietavého prstenca trosiek. Zrýchlite čas a sledujte, ako sa oblúk uzavrie do celého prstenca.',
   'debris-overkill':'Posledný prísun energie bol ďaleko nad oknom opätovnej akrécie: trosky sa rozpínajú príliš rýchlo na to, aby sa usadili do nového guľového zvyšku alebo mesiačikov.',

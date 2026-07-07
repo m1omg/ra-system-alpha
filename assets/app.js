@@ -351,6 +351,7 @@ const UI_EN={
   'no-desc':'(No description in the source document yet — summary shown.)',
   'debris-type':'Debris field','debris-name-span':'destroyed','debris-tag':'A debris field.',
   'st-status':'Status','st-destroyed':'☠ Destroyed','st-cause':'Cause','st-cause-v':'Bombardment (impact lab)',
+  'st-cause-col':'Collision with {name}','st-cause-sn':'Supernova of {name}',
   'st-eabs':'Energy absorbed','st-ebind':'Binding energy',
   'debris-epitaph':'{name} is gone. Its accumulated bombardment exceeded its gravitational binding energy and the world came apart. Where {name} once was, incandescent fragments and still-cooling ejecta drift apart — and Kepler shear is smearing them along the old orbit into a glittering debris ring. Speed up time to watch the arc close into a full ring.',
   'debris-overkill':'The final energy input was far above the re-accretion window: the debris is expanding too fast to settle into a new spherical remnant or moonlets.',
@@ -2167,6 +2168,7 @@ function impConeDir(normal, spread){
 /* ---- the strike itself: flash + shockwave + ejecta + painted crater + damage.
    imp (optional, asteroids): {mKg, vKms, dir} — the momentum kick that nudges the orbit ---- */
 function applyStrike(rec, u, v, E, imp){
+  rec._lastHitBy=null;                       // a lab strike reclaims the default epitaph cause
   const wp=uvToWorld(rec,u,v);
   const R=impRenderRadius(rec);
   const normal=_impV1.copy(wp).sub(worldPosOf(rec)).normalize().clone();
@@ -2413,6 +2415,7 @@ function impApplyBlastEnergy(rec, E, source, states){
   impPaintHeat(rec,s,true);
   rec.dmgJ=(rec.dmgJ||0)+E;
   rec._lastHit={u:uv.u,v:uv.v};
+  if(source && source.data) rec._lastHitBy={name:locName(source.data), sn:impIsStellar(source)};
   impUpdateMelt(rec);
   if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
 }
@@ -3195,7 +3198,7 @@ function impHeal(){
     s.meltTarget=0; s.oceanHotTarget=0; s.waterTarget=0; s.steamTarget=0;
     rec._impWaterKg=0;
     const wasDestroyed=rec.destroyed;
-    rec.dmgJ=0; rec.shattered=false; rec._accretedKg=0;
+    rec.dmgJ=0; rec.shattered=false; rec._accretedKg=0; rec._lastHitBy=null;
     // deflate a puffed-up giant and calm its boosted/created escape tail
     rec.puffTarget=1; rec.puffK=1;
     if(rec._baseEmissive && rec.mesh.material.emissive){
@@ -3218,6 +3221,11 @@ function impHeal(){
     }
     if(rec._absorbedImpact){           // un-glue a wreck that was accreted onto a survivor
       const A=rec._absorbedImpact; rec._absorbedImpact=null;
+      if(rec._absorbedGone){           // fully swallowed: rejoin picking/nav (label re-grows via ensureLabels)
+        rec._absorbedGone=false;
+        if(pickables.indexOf(rec.mesh)<0) pickables.push(rec.mesh);
+        refreshNav();
+      }
       rec.parentHolder=A.parentHolder||sunHolder; rec.parentHolder.add(rec.holder);
       rec.holder.position.copy(A.holderPos);
       rec.helio=A.helio; rec.isMoon=A.isMoon; rec.helioA=A.helioA; rec._physA=A._physA;
@@ -3648,7 +3656,13 @@ function updateImpacts(dt){
         hp.needsUpdate=true;
       }
     }
+    // an absorbed wreck's shards have all sunk in: flag it for full teardown
+    if(D.absorbed && !D._swallowDone && D.t>2.5 && D.chunks.every(c=>c.cap&&c.dissT<=0))
+      D._swallowDone=true;
   }
+  // teardown outside the iteration — retiring splices debrisFields
+  for(let i=debrisFields.length-1;i>=0;i--)
+    if(debrisFields[i]._swallowDone) retireAbsorbedWreck(debrisFields[i].rec);
   for(const B of stellarBlasts){
     if(B.done) continue;                       // only the tiny remnant core is left
     // the whole show runs on SIM time at physical speed: light front at c,
@@ -4196,6 +4210,47 @@ function nbAbsorbDestroyedImpact(dead, survivor){
       else c.vel.multiplyScalar(0.15);
     }
   }
+  if(dead._custom) saveCustoms();            // persist the swallow (sw flag) for reloads
+}
+/* the planet swallowed the wreck whole: once the shards finish sinking, dispose
+   every polygon (debris, haze, ring) and drop the body from the nav, labels and
+   picking. The rec stays in bodies[] — inert and invisible — purely so 🧽 Heal
+   can still resurrect it onto its own orbit. */
+function retireAbsorbedWreck(rec){
+  if(!rec || !rec._absorbedImpact || rec._absorbedGone) return;
+  removeDebrisField(rec);                    // disposes chunks/haze/ring — and "resurrects"…
+  rec.destroyed=true;                        // …so put the corpse state back
+  rec.mesh.material.visible=false;
+  for(const ch of rec.mesh.children) ch.visible=false;
+  rec._absorbedGone=true;
+  const pi=pickables.indexOf(rec.mesh); if(pi>=0) pickables.splice(pi,1);
+  const le=labelEls[rec.data.key]; if(le){ le.remove(); delete labelEls[rec.data.key]; }
+  if(selected===rec.data.key) selected=null;
+  if(follow===rec) follow=null;
+  if(tween.body===rec) tween.active=false;
+  if(APP.currentData && APP.currentData.key===rec.data.key){
+    document.getElementById('info').classList.remove('open'); syncInfoBtn(); APP.currentData=null;
+  }
+  refreshNav();
+}
+/* restore-time twin of the absorb+retire pair: mark a body as swallowed inside
+   a planet — pristine-orbit snapshot for 🧽 Heal, then vanish quietly (no
+   shatter, no debris, no nav/label/pick presence). */
+function stMarkSwallowed(rec){
+  rec._absorbedImpact={survivorKey:null, parentHolder:rec.parentHolder,
+    holderPos:rec.holder.position.clone(), nb:null,
+    helio:rec.helio, isMoon:rec.isMoon, helioA:rec.helioA, _physA:rec._physA,
+    aDisp:rec.aDisp, aDispReal:rec.aDispReal, aDispCompressed:rec.aDispCompressed,
+    orbitLine:rec.orbitLine};
+  if(rec.orbitLine){ if(rec.orbitLine.parent) rec.orbitLine.parent.remove(rec.orbitLine); rec.orbitLine=null; }
+  rec.helio=false; rec.isMoon=false; rec.aDisp=0;
+  rec.destroyed=true; rec.shattered=true;
+  rec.mesh.material.visible=false;
+  for(const ch of rec.mesh.children) ch.visible=false;
+  rec._absorbedGone=true;
+  const pi=pickables.indexOf(rec.mesh); if(pi>=0) pickables.splice(pi,1);
+  const le=labelEls[rec.data.key]; if(le){ le.remove(); delete labelEls[rec.data.key]; }
+  updateNavStatus(rec); refreshNav();
 }
 /* touching worlds collide: momentum-conserving merge of velocities + the
    full impact energy routed into the existing damage/shatter machinery */
@@ -4312,6 +4367,11 @@ function createCustomBody(p, fromSave){
     nbSyncHolders();
   }
   refreshNav();
+  if(fromSave && p.sw){                        // it ended inside a planet last session
+    rec.dmgJ=p.dmgJ||impBindingJ(rec)*1.05;    // register with the scar/heal machinery
+    getScars(rec);
+    stMarkSwallowed(rec);
+  }
   if(!fromSave){ saveCustoms(); if(!p.noFocus) focusBody(key,true); }
   return rec;
 }
@@ -4319,7 +4379,9 @@ function saveCustoms(){
   try{
     const arr=bodies.filter(b=>b._custom).map(b=>{
       const out=Object.assign({}, b._crParams, {M:b.M});
-      if(b._accretedKg>0) out.accretedKg=b._accretedKg;
+      if(b._accretedKg>0) out.accretedKg=b._accretedKg; else delete out.accretedKg;
+      if(b._absorbedImpact){ out.sw=1; out.dmgJ=b.dmgJ||0; }  // swallowed by a planet: restore as gone
+      else { delete out.sw; delete out.dmgJ; }
       return out;
     });
     localStorage.setItem(crStoreKey(), JSON.stringify(arr));
@@ -4446,6 +4508,7 @@ function saveSystemState(){
     if(rec._accretedKg>0) b.accr=rec._accretedKg;
     if(rec.shattered) b.shat=1;
     if(rec.destroyed) b.dest=1;
+    if(rec._absorbedImpact) b.swal=1;        // swallowed by a survivor: restore as gone, not as debris
     if(rec._impWaterKg>0) b.waterKg=rec._impWaterKg;
     if(rec.orbitPerturbed && !rec.freeState && !rec.destroyed)
       b.orb={helioA:rec.helioA, physA:rec._physA, e:rec.e, q:rec.q.toArray(), period:rec.period};
@@ -4506,6 +4569,7 @@ function restoreSystemState(){
         impUpdateMelt(rec);        // regenerates melt/ocean/steam/puff/extinction from dmgJ
       }
       if(b.waterKg>0) rec._impWaterKg=b.waterKg;
+      if(b.swal){ stMarkSwallowed(rec); continue; }   // it's inside a planet: no shatter, no debris
       if(b.dest) destroyed.push(rec);
       positionBody(rec);
     }
@@ -5048,6 +5112,7 @@ function worldPos(rec){ return worldPosOf(rec); }
 const labelEls={};
 function ensureLabels(){
   for(const rec of bodies){
+    if(rec._absorbedGone) continue;          // swallowed wreck: no label until healed
     if(labelEls[rec.data.key]) continue;
     const el=document.createElement('div');
     el.className='lbl '+(rec.data.parent===DS.STAR.key||rec.data.kind==='star'?'major':'');
@@ -5580,31 +5645,52 @@ function generatedFor(key){
 }
 function buildNav(){
   const nav=document.getElementById('nav');
-  const alive=k=>bodies.some(b=>b.data.key===k);      // deleted bodies vanish from the nav
+  const alive=k=>bodies.some(b=>b.data.key===k && !b._absorbedGone);  // deleted/swallowed bodies vanish from the nav
+  // custom worlds live under their gravitational parent, ordered by distance:
+  // heliocentric ones woven into the planet list, moons into their planet's list
+  const customs=bodies.filter(b=>b._custom && !b._absorbedGone);
+  const aHelio=b=>b.helioA!=null?b.helioA:(b.data.dist||0);
+  const customPlanets=customs.filter(b=>!b.isMoon).sort((x,y)=>aHelio(x)-aHelio(y));
+  const customMoonsOf=key=>customs.filter(b=>b.isMoon && b._crParams && b._crParams.parent===key)
+    .sort((x,y)=>(x.data.dist||0)-(y.data.dist||0));
+  let cpi=0;
+  const flushCustomPlanets=upTo=>{           // append customs closer than the next built-in planet
+    while(cpi<customPlanets.length && (upTo==null || aHelio(customPlanets[cpi])<upTo)){
+      const cp=customPlanets[cpi++];
+      nav.appendChild(navItem(cp.data));
+      for(const g of generatedFor(cp.data.key)) nav.appendChild(navItem(g.data, true));
+      for(const cm of customMoonsOf(cp.data.key)) nav.appendChild(navItem(cm.data, true));
+    }
+  };
+  const moonRows=key=>{                      // built-in + custom moons, sorted by distance
+    const rows=DS.MOONS.filter(x=>x.parent===key && alive(x.key)).map(m=>({d:m.dist||0, data:m}));
+    for(const c of customMoonsOf(key)) rows.push({d:c.data.dist||0, data:c.data});
+    rows.sort((x,y)=>x.d-y.d);
+    return rows;
+  };
   const h=document.createElement('h3'); h.textContent=SYS==='sol'?T('nav-sol'):T('nav-ra'); nav.appendChild(h);
   nav.appendChild(navItem(DS.STAR));
   for(const p of DS.PLANETS){
+    flushCustomPlanets(p.dist);
     if(alive(p.key)) nav.appendChild(navItem(p));
     for(const g of generatedFor(p.key)) nav.appendChild(navItem(g.data, true));
-    for(const m of DS.MOONS.filter(x=>x.parent===p.key)){
-      if(alive(m.key)) nav.appendChild(navItem(m,true));
-      for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
+    for(const row of moonRows(p.key)){
+      nav.appendChild(navItem(row.data,true));
+      for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
     }
   }
+  flushCustomPlanets(null);                  // customs beyond the last planet
   if(DS.HORUS){
     const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
     if(alive(DS.HORUS.key)) nav.appendChild(navItem(DS.HORUS));
     for(const g of generatedFor(DS.HORUS.key)) nav.appendChild(navItem(g.data, true));
-    for(const m of DS.HORUS_MOONS){
-      if(alive(m.key)) nav.appendChild(navItem(m,true));
-      for(const g of generatedFor(m.key)) nav.appendChild(navItem(g.data, true));
+    const hRows=DS.HORUS_MOONS.filter(m=>alive(m.key)).map(m=>({d:m.dist||0, data:m}));
+    for(const c of customMoonsOf(DS.HORUS.key)) hRows.push({d:c.data.dist||0, data:c.data});
+    hRows.sort((x,y)=>x.d-y.d);
+    for(const row of hRows){
+      nav.appendChild(navItem(row.data,true));
+      for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
     }
-  }
-  const customs=bodies.filter(b=>b._custom);          // Alpha: user-created worlds
-  if(customs.length){
-    const h3=document.createElement('h3'); h3.textContent=LANG==='sk'?'Vlastné svety':'Custom worlds';
-    nav.appendChild(h3);
-    for(const c of customs) nav.appendChild(navItem(c.data));
   }
 }
 function setActiveNav(key){
@@ -5745,8 +5831,11 @@ function openInfoDestroyed(rec){
   tagEl.textContent=T('debris-tag'); tagEl.style.display='block';
   document.getElementById('i-gallery').innerHTML='';
   const t=document.getElementById('i-stats'); t.innerHTML='';
+  const cause=rec._lastHitBy
+    ? T(rec._lastHitBy.sn?'st-cause-sn':'st-cause-col').replace('{name}', rec._lastHitBy.name)
+    : T('st-cause-v');
   const rows=[[T('st-status'),T('st-destroyed')],
-   [T('st-cause'),T('st-cause-v')],
+   [T('st-cause'),cause],
    [T('st-eabs'), (rec.dmgJ||0).toExponential(2).replace('e+','e')+' J'],
    [T('st-ebind'), impBindingJ(rec).toExponential(2).replace('e+','e')+' J']];
   rows.push(stellar?[T('st-blast'),T('st-blast-v')]:[T('st-ring'), T('st-ring-v')]);
