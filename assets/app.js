@@ -4040,7 +4040,6 @@ function nbDisable(){
     positionBody(rec);
   }
   nbTrailsDispose();
-  crPendingLaunch=null;                        // a half-aimed launch dies with the gravity
   nbBtnState();
   if(typeof crUpdateUI==='function') crUpdateUI();   // Still/Launch modes just lost their gravity
 }
@@ -4153,7 +4152,12 @@ function createCustomBody(p, fromSave){
   _crN++;
   const kd=CR_KINDS.find(k=>k.kind===p.kind)||CR_KINDS[0];
   const key=p.key||('custom'+Date.now().toString(36)+_crN);
-  const period=Math.sqrt(p.a*p.a*p.a/1.139);
+  // orbiting a PLANET (p.parent): p.a is the relative distance, the period is
+  // physical from the parent's true mass. Orbiting the star: real Kepler years.
+  let parentRec=p.parent?bodies.find(b=>b.data.key===p.parent && !b.destroyed):null;
+  if(p.parent && !parentRec){ p=Object.assign({},p); delete p.parent; p.a=Math.max(p.a,0.05); }
+  const muP=parentRec?4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG):MU_RA;
+  const period=2*Math.PI*Math.sqrt(p.a*p.a*p.a/muP);
   const data=Object.assign({ key, name:p.name||('Custom '+_crN), kind:p.kind, custom:true,
     radiusKm:p.radiusKm, massKg:p.massKg, dist:p.a, ecc:p.e, period,
     rotationPeriod:18, color:kd.color, navTag:'custom' }, kd.tex);
@@ -4161,12 +4165,21 @@ function createCustomBody(p, fromSave){
     desc:'A custom world created in the Alpha physics sandbox. It obeys the same rules as every other body — strike it, melt it, or let N-body gravity decide its fate.',
     stats:[ ['Radius', p.radiusKm.toLocaleString()+' km'],
             ['Mass', fmtMassE(p.massKg)],
-            ['Semi-major axis', p.a.toFixed(2)+' AU'],
+            ['Semi-major axis', p.a.toFixed(p.a<0.1?4:2)+' AU'+(parentRec?' ('+locName(parentRec.data)+')':'')],
             ['Eccentricity', p.e.toFixed(2)],
             ['Orbital period', period<1?(period*365.25).toFixed(1)+' days':period.toFixed(2)+' yr'],
             ['Origin', 'created in the sandbox'] ] });
-  const rec=addBody(data, sunHolder, { aDisp:distDisp(p.a), incl:p.incl||0,
-    node:(p.node!=null?p.node:Math.random()*360) });
+  let rec;
+  if(parentRec){
+    const aDispReal=p.a*AU_UNIT;
+    const aDispCompressed=parentRec.radius*1.7+Math.max(2.2,parentRec.radius*0.95);
+    rec=addBody(data, parentRec.holder, { aDisp:realScale?aDispReal:aDispCompressed,
+      incl:p.incl||0, node:(p.node!=null?p.node:Math.random()*360), orbitOpacity:0.22 });
+    rec.isMoon=true; rec.aDispReal=aDispReal; rec.aDispCompressed=aDispCompressed;
+  } else {
+    rec=addBody(data, sunHolder, { aDisp:distDisp(p.a), incl:p.incl||0,
+      node:(p.node!=null?p.node:Math.random()*360) });
+  }
   rec._custom=true; rec._crParams=Object.assign({}, p, {key, node:p.node});
   if(p.M!=null) rec.M=p.M;
   if(p.nbState){                              // mode-placed body: restore its exact state vector
@@ -4186,11 +4199,11 @@ function createCustomBody(p, fromSave){
     // otherwise with the exact state of its Kepler orbit
     const st=rec._nbStateSaved
       ? {r:rec._nbStateSaved.r.clone(), v:rec._nbStateSaved.v.clone()}
-      : keplerStateAU(p.a, p.e, rec.q, rec.M%(Math.PI*2), MU_RA);
+      : raStateOf(rec);                       // star-relative; moon-aware
     const star=nbStar(), sr=star&&star.nb?star.nb:null;
     if(sr){ st.r.add(sr.r); st.v.add(sr.v); }
-    rec._preNb={parentHolder:rec.parentHolder, helio:true, isMoon:false, helioA:null,
-      _physA:null, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(), M:rec.M, period:rec.period, wasFree:false};
+    rec._preNb={parentHolder:rec.parentHolder, helio:rec.helio, isMoon:!!rec.isMoon, helioA:rec.helioA,
+      _physA:rec._physA, aDisp:rec.aDisp, e:rec.e, q:rec.q.clone(), M:rec.M, period:rec.period, wasFree:false};
     rec.nb={r:st.r, v:st.v, gm:NB_GMK*p.massKg};
     if(rec.orbitLine) rec.orbitLine.visible=false;
     nbSyncHolders();
@@ -4213,7 +4226,6 @@ function restoreCustoms(){
 }
 function clearCustoms(){
   for(const rec of bodies.filter(b=>b._custom)){
-    if(crPendingLaunch===rec) crSetPlaceArmed(false);      // a half-aimed launch dies with its body
     if(rec.destroyed) removeDebrisField(rec);
     if(rec._trail){ sunHolder.remove(rec._trail.line);     // N-body trail would orphan in the scene
       rec._trail.g.dispose(); rec._trail.line.material.dispose(); rec._trail=null; }
@@ -4247,7 +4259,6 @@ let deletedKeys=[];
 function removeBody(rec, fromRestore){
   if(!rec || rec.data.kind==='star') return false;   // scene/lighting/engines are star-centred
   // sever every live system that might be pointing at it
-  if(typeof crPendingLaunch!=='undefined' && crPendingLaunch===rec) crSetPlaceArmed(false);
   if(impBeam && impBeam.rec===rec) stopBeam();
   if(surfaceView && surfaceRec===rec) exitSurfaceView();
   for(let i=impAsteroids.length-1;i>=0;i--) if(impAsteroids[i].rec===rec){
@@ -4506,27 +4517,30 @@ function crUpdateUI(){
   if(sv){ const k=crSpdKms(+g('cr-spd').value);
     sv.textContent=k<100?(+k.toPrecision(2))+' km/s':Math.round(k).toLocaleString()+' km/s'; }
   const hint=g('cr-hint');
-  if(hint && !crPendingLaunch){
+  if(hint){
     hint.textContent = !crPlaceArmed
       ? (LANG==='sk'?'Vlastné svety ostávajú v prehliadači · kliknutím na hodnotu ju napíšeš · zapni 🌌 N-body, nech pôsobia gravitáciou'
                     :'Custom worlds persist in this browser · click any value to type it · turn on 🌌 N-body to let them pull on everything else')
-      : mode.id==='still' ? (LANG==='sk'?'⏸ klikni na rovinu dráh — teleso padá voľným pádom (0 rýchlosť voči hviezde)':'⏸ click the orbital plane — the body free-falls (0 velocity relative to the star)')
-      : mode.id==='orbit' ? (LANG==='sk'?'🔄 klikni na rovinu dráh — obehne gravitačne dominantné teleso v mieste kliku':'🔄 click the orbital plane — orbits whatever body gravitationally dominates the click point')
-      : (LANG==='sk'?'🚀 1. klik umiestni · 2. klik zamieri (rýchlosť podľa posuvníka)':'🚀 first click places · second click aims (speed from the slider)');
+      : mode.id==='still' ? (LANG==='sk'?'⏸ klikni (aj na/pri telese) — padá voľným pádom na to, čo v mieste kliku dominuje':'⏸ click (on/near a body works too) — free-falls into whatever dominates the click point')
+      : mode.id==='orbit' ? (LANG==='sk'?'🔄 klik pri telese = jeho mesiac · klik do prázdna = dráha okolo hviezdy':'🔄 click near a body to orbit IT (as a moon) · empty space orbits the star')
+      : (LANG==='sk'?'🚀 JEDEN klik — vyletí z miesta kliku v smere tvojho pohľadu (rýchlosť z posuvníka)':'🚀 ONE click — flies from the click point along your line of sight (speed from the slider)');
   }
 }
-/* ---- 🎯 place-by-click, Universe-Sandbox style. Three placement modes:
-   ⏸ Still  — drops the body at 0 velocity relative to the star; real gravity
-              takes it from there (usually straight into something). N-body only.
+/* ---- 🎯 place-by-click, Universe-Sandbox style. Clicks near a world snap to
+   TRUE 3D (ray's closest approach — off-plane, inclined orbits OK); empty-space
+   clicks fall back to the ecliptic plane for depth. Three placement modes:
+   ⏸ Still  — drops the body at 0 velocity relative to the LOCALLY dominant
+              body (beside a giant → falls into the giant). N-body only.
    🔄 Orbit — orbits the gravitationally dominant body AT the click point
               (a click beside a gas giant orbits the giant), panel eccentricity
-              applied at periapsis. Works in Kepler mode too (around Ra).
+              applied at periapsis. In Kepler mode a click near a planet
+              creates a real MOON of it; empty space orbits the star.
    🚀 Launch — the physical alternative to the Impact lab's scripted rocks:
-              first click places, second click AIMS (velocity = direction to
-              the aim point × the Speed slider). 🎯 Auto-aim instead launches
-              at the currently selected body in one click. N-body only —
+              ONE click — the body spawns at the click point and flies along
+              the camera→click line at the Speed slider's velocity. 🎯 Auto-aim
+              launches at the currently selected body instead. N-body only —
               a launched world can miss, slingshot, or hit. ---- */
-let crPlaceArmed=false, crModeI=1, crAutoAim=false, crPendingLaunch=null;
+let crPlaceArmed=false, crModeI=1, crAutoAim=false;
 const CR_MODES=[
   {id:'still',  icon:'⏸', label:'Still',  needsNb:true},
   {id:'orbit',  icon:'🔄', label:'Orbit',  needsNb:false},
@@ -4535,7 +4549,6 @@ const CR_MODES=[
 const crSpdKms=v=>0.1*Math.pow(10,v/100*4.5);        // 0.1 – ~3,160 km/s, log
 function crSetPlaceArmed(v){
   crPlaceArmed=v;
-  if(!v) crPendingLaunch=null;
   const b=document.getElementById('cr-place'); if(b) b.classList.toggle('on',v);
   if(renderer) renderer.domElement.style.cursor=v?'crosshair':'';
   crUpdateUI();
@@ -4549,26 +4562,60 @@ function crMissFeedback(msg){                 // a failed click must SAY so, not
   clearTimeout(crMissFeedback._t);
   crMissFeedback._t=setTimeout(function(){ hint.style.color=''; crUpdateUI(); }, 2200);
 }
-function crClickAU(e){                        // screen click -> ecliptic point in AU (star-relative)
+/* screen click -> {p: point in AU (star-relative), near: body rec|null, dir: view ray}.
+   Clicking on/near a world (within ~40px) places in TRUE 3D at the ray's closest
+   approach to that world — no ecliptic projection, works for inclined orbits and
+   tilted cameras. Empty-space clicks still fall back to the ecliptic plane: a 2D
+   mouse needs SOME depth cue, and the plane is the only honest one. */
+function crClickPointAU(e){
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
   ray.setFromCamera(mouse,camera);
+  const dir=ray.ray.direction.clone();
+  // nearest live body within ~40px of the click (same forgiveness as pickNear)
+  let near=null, bd=40*40; const _sp=new THREE.Vector3();
+  for(const rec of bodies){
+    if(rec.destroyed || rec.external || rec.data.kind==='star') continue;
+    const wp=worldPosOf(rec);
+    _sp.copy(wp).project(camera);
+    if(_sp.z>1) continue;                     // behind the camera
+    const sx=rect.left+(_sp.x*0.5+0.5)*rect.width, sy=rect.top+(-_sp.y*0.5+0.5)*rect.height;
+    const dd=(sx-e.clientX)**2+(sy-e.clientY)**2;
+    if(dd<bd){ bd=dd; near=rec; }
+  }
   const hit=new THREE.Vector3();
-  if(!ray.ray.intersectPlane(_crPlane,hit)){  // edge-on / skyward view: the ray never meets the ecliptic
-    crMissFeedback(LANG==='sk'?'klik minul rovinu dráh — pozri viac zhora':'click missed the orbital plane — try a more top-down view');
+  if(near){                                   // snap: closest point on the view ray to the world
+    ray.ray.closestPointToPoint(worldPosOf(near), hit);
+  } else if(!ray.ray.intersectPlane(_crPlane,hit)){  // edge-on / skyward view: the ray never meets the ecliptic
+    crMissFeedback(LANG==='sk'?'klik minul rovinu dráh — klikni bližšie k telesu alebo pozri viac zhora'
+                              :'click missed the orbital plane — click nearer a body or use a more top-down view');
     return null;
   }
   const dScene=hit.length();
   const au=realScale ? dScene/AU_UNIT : Math.pow(dScene/DIST_K, 1/DIST_P);
-  if(!(au>0.005 && au<90)){                   // inside the star / deep interstellar
+  if(!near && !(au>0.005 && au<90)){          // inside the star / deep interstellar
     const star=locName(DS.STAR);
     crMissFeedback((LANG==='sk'?'mimo rozsahu 0.005–90 AU od hviezdy '+star+' (klik: '
                                :'outside 0.005–90 AU from '+star+' (click: ')+
       (au<1?au.toFixed(3):Math.round(au))+' AU)');
     return null;
   }
-  return hit.multiplyScalar(au/dScene);       // scene direction, AU magnitude
+  const p=hit.multiplyScalar(dScene>1e-12?au/dScene:0);
+  if(near){
+    // clicking near a world MEANS that world: keep the point inside its sphere of
+    // gravitational dominance (from far away a few px is 0.1 AU — clamp it back)
+    const nAU=raStateOf(near).r;
+    const star=nbStar();
+    const mStar=star?impBodyMassKg(star):SUN_KG;
+    const rDom=Math.max(1e-6, nAU.length()*Math.sqrt(impBodyMassKg(near)/mStar)*0.6);
+    const rel=p.clone().sub(nAU);
+    if(rel.length()>rDom){
+      if(rel.lengthSq()<1e-18) rel.set(1,0,0);
+      p.copy(nAU).addScaledVector(rel.normalize(), rDom);
+    }
+  }
+  return { p, near, dir };
 }
 /* never spawn INSIDE an existing world — the collision pass would vaporize the
    newborn on frame one ("it didn't spawn"). Nudge the point out to a safe gap. */
@@ -4584,18 +4631,40 @@ function crAvoidOverlap(rec){
     rec.nb.r.copy(b.nb.r).addScaledVector(dir,safe);
   }
 }
+/* dominant attractor at a star-relative AU point (Kepler mode — real masses) */
+function crDomAttractor(pAU){
+  let best=null, acc=0;
+  for(const b of bodies){
+    if(b.destroyed || b.freeState) continue;
+    const r=b.data.kind==='star'?new THREE.Vector3():raStateOf(b).r;
+    const d2=r.distanceToSquared(pAU)+1e-12;
+    const g=impBodyMassKg(b)/d2;
+    if(g>acc){ acc=g; best=b; }
+  }
+  return best;
+}
 function crPlaceAt(e){
   const mode=CR_MODES[crModeI];
-  const pAU=crClickAU(e);
-  if(!pAU) return;
+  const ck=crClickPointAU(e);
+  if(!ck) return;
+  const pAU=ck.p;
   const g=id=>document.getElementById(id);
   const au=pAU.length(), theta=Math.atan2(pAU.z,pAU.x);
   const base={ name:g('cr-name').value.trim()||undefined, kind:CR_KINDS[crKindI].kind,
     massKg:crMassKg(+g('cr-mass').value), radiusKm:crRadKm(+g('cr-rad').value),
     a:au, e:+g('cr-e').value/100, incl:+g('cr-i').value, node:0, M:theta,
-    noFocus:true };                           // don't yank the camera mid-placement/aim
+    noFocus:true };                           // don't yank the camera mid-placement
   if(!nbodyOn){
-    // Kepler mode: only Orbit placements exist — a real ellipse around Ra
+    // Kepler mode: Orbit only — around whatever body dominates the click point.
+    // A click beside a giant makes a MOON of it; empty space orbits the star.
+    const parent=ck.near||crDomAttractor(pAU);
+    if(parent && parent.data.kind!=='star'){
+      const rel=pAU.clone().sub(raStateOf(parent).r);
+      const minR=((parent.data.radiusKm||1000)+base.radiusKm)*2.2/KM_PER_AU;
+      base.parent=parent.data.key;
+      base.a=Math.max(rel.length(), minR);
+      base.M=Math.atan2(rel.z,rel.x);
+    }
     createCustomBody(base);
     g('cr-name').value='';
     crSetPlaceArmed(false);
@@ -4608,11 +4677,19 @@ function crPlaceAt(e){
   rec.nb.r.copy(pAU).add(sv.r);               // EXACT click point, no element roundtrip
   crAvoidOverlap(rec);                        // …but never inside a world (instant vaporization)
   if(mode.id==='still'){
-    rec.nb.v.copy(sv.v);                      // 0 relative to the star: free-fall
+    // 0 velocity relative to the LOCALLY dominant body — dropped beside a giant
+    // it free-falls INTO the giant instead of watching it sweep past at 13 km/s
+    let dom=(ck.near&&ck.near.nb&&!ck.near.destroyed)?ck.near:null, acc=0;
+    if(!dom) for(const b of nbList()){
+      if(b===rec || b.destroyed) continue;
+      const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
+      if(b.nb.gm/d2>acc){ acc=b.nb.gm/d2; dom=b; }
+    }
+    rec.nb.v.copy(dom?dom.nb.v:sv.v);
   } else if(mode.id==='orbit'){
     // dominant attractor AT the click point decides who it orbits
-    let parent=null, acc=0;
-    for(const b of nbList()){
+    let parent=(ck.near&&ck.near.nb&&!ck.near.destroyed)?ck.near:null, acc=0;
+    if(!parent) for(const b of nbList()){
       if(b===rec || b.destroyed) continue;
       const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
       if(b.nb.gm/d2>acc){ acc=b.nb.gm/d2; parent=b; }
@@ -4624,19 +4701,12 @@ function crPlaceAt(e){
     const tan=rel.clone().divideScalar(r).cross(new THREE.Vector3(0,1,0)).negate().normalize();
     // (rhat × ŷ negated ≡ ŷ-frame prograde: matches keplerStateAU's orbital sense)
     rec.nb.v.copy(parent.nb.v).addScaledVector(tan,vp);
-  } else {                                    // launch: hold Still, wait for the aim click
-    rec.nb.v.copy(sv.v);
-    if(crAutoAim){
-      const tgt=bodies.find(b=>b.data.key===selected&&b!==rec&&b.nb) ||
-                (follow&&follow.nb&&follow!==rec?follow:null);
-      if(tgt){ crLaunchToward(rec, tgt.nb.r.clone()); nbSyncHolders(); return; }
-    }
-    crPendingLaunch=rec;
-    rec._newUntil=performance.now()+60000;    // keep the label pulsing while it waits for aim
-    const hint=document.getElementById('cr-hint');
-    if(hint) hint.textContent=LANG==='sk'?'🚀 klikni na CIEĽ — smer letu':'🚀 click the TARGET to aim the launch';
-    nbSyncHolders();
-    return;                                   // stay armed for the aim click
+  } else {                                    // 🚀 launch: ONE click — spawns at the click
+    let tgt=null;                             //    point, flying along your line of sight
+    if(crAutoAim) tgt=bodies.find(b=>b.data.key===selected&&b!==rec&&b.nb) ||
+                      (follow&&follow.nb&&follow!==rec?follow:null);
+    if(tgt) crLaunchToward(rec, tgt.nb.r.clone());
+    else crLaunchDir(rec, ck.dir);            // (🎯 with nothing selected falls back to aim-by-view)
   }
   crSaveState(rec);
   nbSyncHolders();
@@ -4649,32 +4719,17 @@ function crSaveState(rec){                    // persist the exact star-relative
                           v:rec.nb.v.clone().sub(sv.v).toArray() };
   saveCustoms();
 }
-function crLaunchToward(rec, tgtAbsAU){
-  const dir=tgtAbsAU.sub(rec.nb.r);
-  if(dir.lengthSq()<1e-12) return;
-  dir.normalize();
+function crLaunchDir(rec, dir){               // velocity = direction × Speed slider, star-frame
+  if(!dir || dir.lengthSq()<1e-12) return;
   const star=nbStar(), sv=star&&star.nb?star.nb.v:new THREE.Vector3();
   const kms=crSpdKms(+document.getElementById('cr-spd').value);
-  rec.nb.v.copy(sv).addScaledVector(dir, kms/KMS_PER_AUYR);
+  rec.nb.v.copy(sv).addScaledVector(dir.clone().normalize(), kms/KMS_PER_AUYR);
   rec._newUntil=performance.now()+2600;
-  crSaveState(rec);
   spawnFlash(worldPosOf(rec), Math.max(1,rec.radius*rec.mesh.scale.x*3), IMP_CHICXULUB_J);
   sfxWhoosh(1.2);
 }
-function crAimAt(e){
-  const rec=crPendingLaunch;
-  crPendingLaunch=null;
-  if(!rec || !rec.nb){ crSetPlaceArmed(false); return; }
-  let tgt=null;
-  const k=(typeof pickNear==='function'&&pickNear(e))||pick(e);   // aiming AT a body beats the plane point
-  if(k){ const tr=bodies.find(b=>b.data.key===k); if(tr&&tr.nb&&tr!==rec) tgt=tr.nb.r.clone(); }
-  if(!tgt){
-    const pAU=crClickAU(e);
-    if(!pAU){ crSetPlaceArmed(false); return; }                   // bad aim click: stays Still
-    const star=nbStar(); tgt=pAU.add(star&&star.nb?star.nb.r:new THREE.Vector3());
-  }
-  crLaunchToward(rec, tgt);
-  crSetPlaceArmed(false);
+function crLaunchToward(rec, tgtAbsAU){
+  crLaunchDir(rec, tgtAbsAU.sub(rec.nb.r));
 }
 /* ---- click a slider's value readout to TYPE the number instead ---- */
 function makeTypable(valId, sliderId, invFn, refreshFn){
@@ -4911,7 +4966,6 @@ function setupInteraction(){
   dom.addEventListener('pointerup',e=>{ pdown=false;
     if(impBeam){ stopBeam(); return; }         // release = stop the burn (don't also focus/fire)
     if(moved) return;
-    if(crPendingLaunch && !flying && e.button===0){ crAimAt(e); return; }  // 🚀 second click = aim
     if(crPlaceArmed && !flying && e.button===0){ crPlaceAt(e); return; }   // 🎯 place a custom body
     if(flying){ setFlyTarget(pickNear(e)); }   // tap a world (tiny dots too) to target it
     else if(impacting){                        // impact mode: a left-click strikes instead of focusing
