@@ -3216,6 +3216,19 @@ function impHeal(){
         const el=labelEls[rec.data.key]; if(el) el.textContent=locName(rec.data);
       } else removeDebrisField(rec);   // resurrect the world
     }
+    if(rec._absorbedImpact){           // un-glue a wreck that was accreted onto a survivor
+      const A=rec._absorbedImpact; rec._absorbedImpact=null;
+      rec.parentHolder=A.parentHolder||sunHolder; rec.parentHolder.add(rec.holder);
+      rec.holder.position.copy(A.holderPos);
+      rec.helio=A.helio; rec.isMoon=A.isMoon; rec.helioA=A.helioA; rec._physA=A._physA;
+      rec.aDispReal=A.aDispReal; rec.aDispCompressed=A.aDispCompressed;
+      rec.aDisp=A.helio ? distDisp(A.helioA!=null?A.helioA:rec.data.dist)
+              : A.isMoon ? (realScale?A.aDispReal:A.aDispCompressed) : A.aDisp;
+      if(A.orbitLine){ rec.orbitLine=A.orbitLine; rec.parentHolder.add(rec.orbitLine);
+        rec.orbitLine.visible=showOrbits&&!nbodyOn; }
+      if(nbodyOn && A.nb) rec.nb={r:A.nb.r.clone(), v:A.nb.v.clone(), gm:A.nb.gm};
+      if(!rec.nb) positionBody(rec);
+    }
     impHealExtinct(rec);               // the biosphere comes back with the crust
     // N-body: healed mass gravitates at full strength again (undoes the
     // supernova's 80% mass shedding AND any boil-off mass loss)
@@ -4146,7 +4159,10 @@ function nbAbsorbDestroyedImpact(dead, survivor){
   const D=debrisFields.find(x=>x.rec===dead);
   const oldNb=dead.nb?{r:dead.nb.r.clone(), v:dead.nb.v.clone(), gm:dead.nb.gm}:null;
   dead._absorbedImpact={survivorKey:survivor.data.key, holderParent:dead.holder.parent,
-    parentHolder:dead.parentHolder, holderPos:dead.holder.position.clone(), nb:oldNb};
+    parentHolder:dead.parentHolder, holderPos:dead.holder.position.clone(), nb:oldNb,
+    helio:dead.helio, isMoon:dead.isMoon, helioA:dead.helioA, _physA:dead._physA,
+    aDisp:dead.aDisp, aDispReal:dead.aDispReal, aDispCompressed:dead.aDispCompressed,
+    orbitLine:dead.orbitLine};
   let dir=new THREE.Vector3(1,0,0);
   if(oldNb && survivor.nb) dir.copy(oldNb.r).sub(survivor.nb.r);
   else dir.copy(worldPosOf(dead)).sub(worldPosOf(survivor));
@@ -4158,16 +4174,26 @@ function nbAbsorbDestroyedImpact(dead, survivor){
   dead.holder.position.copy(dir.multiplyScalar(surf));
   dead.parentHolder=survivor.holder;
   dead.nb=null;                              // the wreck is accreted, not a second projectile
+  // with nb gone the animate loop would fall through to the KEPLER branch and
+  // resume the old heliocentric ellipse — relative to the SURVIVOR's holder now,
+  // teleporting the wreck + its whole debris shell AU away. Kill the drive:
+  dead.helio=false; dead.isMoon=false; dead.aDisp=0;
+  if(dead.orbitLine){ if(dead.orbitLine.parent) dead.orbitLine.parent.remove(dead.orbitLine); dead.orbitLine=null; }
   nbDisposeTrail(dead);
   if(D){
     D.absorbed=true; D.allowRemnant=false; D.GM=0;
     D.fadeT=Math.min(D.fadeT||4, 4); D.op0=Math.min(D.op0||0.4, 0.22);
     if(D.hazeMat){ D.hazeMat.opacity=Math.min(D.hazeMat.opacity,0.20); D.hazeMat.depthTest=true; D.hazeMat.needsUpdate=true; }
+    dead.holder.updateMatrixWorld(true);     // re-parent just happened: refresh before worldToLocal
+    const ctr=dead.mesh.worldToLocal(worldPosOf(survivor));  // survivor centre, chunk-local frame
     for(const c of D.chunks){
       if(c.cap) continue;
       c.cap=true; c.dissT0=1.3+0.8*Math.random(); c.dissT=c.dissT0;
       c.baseScale=c.m.scale.x||1;
-      c.vel.multiplyScalar(0.25);
+      // shards fall INTO the planet while they dissolve, not away from it
+      const sink=ctr.clone().sub(c.m.position);
+      if(sink.lengthSq()>1e-12) c.vel.copy(sink.normalize().multiplyScalar(D.Rloc*(0.3+0.25*Math.random())));
+      else c.vel.multiplyScalar(0.15);
     }
   }
 }
@@ -4346,6 +4372,9 @@ function removeBody(rec, fromRestore){
     releaseAstRig(impAsteroids[i].rig); impAsteroids.splice(i,1); }
   for(let i=impBlastQueue.length-1;i>=0;i--)
     if(impBlastQueue[i].rec===rec || impBlastQueue[i].source===rec) impBlastQueue.splice(i,1);
+  // any wreck accreted onto THIS body goes down with it
+  for(const b of bodies.slice())
+    if(b!==rec && b._absorbedImpact && b.parentHolder===rec.holder) removeBody(b, true);
   // its moons sail on around Ra rather than orbiting a void
   if(rec.destroyed){
     // deleting a corpse: the moons were already liberated at shatter — cut
