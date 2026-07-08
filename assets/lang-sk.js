@@ -70,6 +70,21 @@ ui: {
   'imp-hint-las':'Stlač a drž pre paľbu · ťahaním vedieš lúč po svetoch · pustením končíš',
   'mat-0':'🧊 Ľad','mat-1':'🪨 Hornina','mat-2':'⛓ Železo',
   'fly-notarget':'◎ žiadny cieľ — ťukni na svet',
+  // ➕ Vytvor teleso / 🌌 N-body — dynamické reťazce písané z app.js
+  'nb-on':'ZAP','nb-off':'VYP',
+  'k-rocky':'Kamenný','k-terran':'Pozemský','k-iceworld':'Ľadový','k-gasgiant':'Plynný obor',
+  'm-still':'Pokoj','m-orbit':'Dráha','m-launch':'Štart',
+  'cr-name-ph':'Nový svet',
+  'cr-orbits':'Obieha','cr-dominant':'Dominantné teleso','cr-orbitparent':'Rodič dráhy',
+  'cr-target':'Cieľ','cr-ref':'Referenčné teleso',
+  'cr-parent-t':'Ktoré teleso nový svet obieha — klikaním cyklíš cez hviezdu a všetky planéty; mierka vzdialenosti sa prispôsobí výberu',
+  'cr-parent-still-t':'Predvolená lokálna gravitačná sústava. Skutočný pád použije to, čo dominuje v mieste kliknutia.',
+  'cr-parent-orbit-t':'Predvolený rodič dráhy. Kliknutím na svet alebo blízko neho sa daný svet stane rodičom dráhy.',
+  'cr-parent-aim-t':'Cieľ auto-zamerania. Štartovacia rýchlosť je relatívna k tomuto telesu.',
+  'cr-parent-ref-t':'Predvolené referenčné teleso štartu. Kliknutím na svet alebo blízko neho sa daný svet použije ako referenčné teleso.',
+  'cr-mode-t':'Prepni režim umiestnenia',
+  'cr-mode-off-t':'Pokoj a Štart vyžadujú zapnuté 🌌 N-body',
+  'cr-autoaim-t':'Automaticky zameriava na vybrané/sledované teleso; rýchlosť štartu je relatívna k tomuto cieľu',
   'doc-title':'Sústava Ra — interaktívna 3D simulácia'
 },
 
@@ -95,7 +110,12 @@ html: {
   'fly-goto':'⤳ Leť&nbsp;k','fly-follow':'⛓ Sleduj','fly-orient':'◎ Zorientuj','fly-brake':'⏹ Brzda',
   'fly-hint':'W/S alebo ↑↓ let · A/D alebo ←→ úkrok · PgUp/PgDn alebo R = hore·dole · ťahanie = rozhliadanie · Q/E náklon · koliesko = rýchlosť · F = sledovanie · klik na svet (znova = leť k) · Esc koniec',
   'imp-title':'💥 Impaktné laboratórium','imp-surface':'▣ Povrch','imp-heal':'🧽 Uzdraviť',
-  'lbl-imp-dia':'Priemer','lbl-imp-spd':'Rýchlosť','lbl-imp-mat':'Materiál','lbl-imp-pow':'Výkon'
+  'lbl-imp-dia':'Priemer','lbl-imp-spd':'Rýchlosť','lbl-imp-mat':'Materiál','lbl-imp-pow':'Výkon',
+  't-create':'➕ Vytvoriť',
+  'cr-title':'➕ Vytvoriť teleso','cr-clear':'🗑 Vyčistiť',
+  'lbl-cr-mass':'Hmotnosť','lbl-cr-rad':'Polomer','lbl-cr-a':'Dráha a','lbl-cr-e':'Excentr.','lbl-cr-i':'Sklon',
+  'lbl-cr-mode':'Umiestnenie','lbl-cr-spd':'Rýchlosť','cr-autoaim':'🎯 Auto-cieľ',
+  'cr-add':'➕ Pridať teleso','cr-place':'🎯 Umiestniť klikom'
 },
 
 titles: {
@@ -123,7 +143,12 @@ titles: {
   'fly-exit':'Ukončiť let (Esc)',
   'fly-auto':'Rýchlosť sa automaticky prispôsobuje okolitým telesám — kliknutím prepneš na ručnú (neobmedzenú)',
   'fly-follow':'Sleduj cieľ na jeho obežnej dráhe (F)',
-  'fly-fwd':'Ťah vpred (podrž)','fly-back':'Spätný ťah (podrž)'
+  'fly-fwd':'Ťah vpred (podrž)','fly-back':'Spätný ťah (podrž)',
+  't-nbody':'Skutočná N-telesová gravitácia — každý svet priťahuje každý iný svojou skutočnou hmotnosťou (vynúti reálnu mierku; mesiace bežia po fyzikálnych dráhach)',
+  't-create':'Vytvor vlastnú planétu — zvoľ hmotnosť, veľkosť a dráhu a sleduj, ako pod N-telesovou gravitáciou rozkmitá sústavu',
+  'cr-clear':'Odstráni všetky vlastné telesá',
+  'cr-exit':'Zavrieť (Esc)',
+  'cr-place':'Aktivuj, potom klikni — na svet alebo blízko neho umiestni v skutočnom 3D vedľa neho; prázdny priestor použije rovinu dráh'
 },
 
 data: {

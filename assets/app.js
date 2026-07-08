@@ -388,6 +388,21 @@ const UI_EN={
   'imp-hint-las':'Press & hold to fire · drag to sweep the beam across worlds · release to stop',
   'mat-0':'🧊 Ice','mat-1':'🪨 Rock','mat-2':'⛓ Iron',
   'fly-notarget':'◎ no target — tap a world',
+  // ➕ Create a body / 🌌 N-body — dynamic strings written from app.js
+  'nb-on':'ON','nb-off':'OFF',
+  'k-rocky':'Rocky','k-terran':'Terran','k-iceworld':'Ice world','k-gasgiant':'Gas giant',
+  'm-still':'Still','m-orbit':'Orbit','m-launch':'Launch',
+  'cr-name-ph':'New world',
+  'cr-orbits':'Orbits','cr-dominant':'Dominant body','cr-orbitparent':'Orbit parent',
+  'cr-target':'Target','cr-ref':'Reference body',
+  'cr-parent-t':'Which body the new world orbits — click to cycle through the star and every planet; the distance scale adapts to the choice',
+  'cr-parent-still-t':'Default local gravity frame. The actual drop uses whatever dominates the click point.',
+  'cr-parent-orbit-t':'Default orbit parent. Clicking on/near a world makes that world the orbit parent.',
+  'cr-parent-aim-t':'Auto-aim target. Launch velocity is relative to this body.',
+  'cr-parent-ref-t':'Default launch reference. Clicking on/near a world uses that world as the reference body.',
+  'cr-mode-t':'Cycle placement mode',
+  'cr-mode-off-t':'Still & Launch need 🌌 N-body ON',
+  'cr-autoaim-t':'Auto-aim toward the selected/followed body; launch speed is relative to that target',
   'doc-title':'The Ra System — Interactive 3D Simulation'
 };
 function T(k){
@@ -455,6 +470,8 @@ function setLang(l){
   for(const r of bodies){ const el=labelEls[r.data.key];
     if(el) el.textContent=locName(r.data)+(r.destroyed?' ☠':''); }
   if(typeof updateImpactUI==='function') updateImpactUI();
+  if(typeof nbBtnState==='function') nbBtnState();
+  if(typeof crUpdateUI==='function') crUpdateUI();
   if(APP.currentData && document.getElementById('info').classList.contains('open')) openInfo(APP.currentData);
 }
 const bodies=[];           // every animated body
@@ -4116,7 +4133,7 @@ function nbEnable(){
 function nbBtnState(){
   const btn=document.getElementById('t-nbody'); if(!btn) return;
   btn.classList.toggle('on', nbodyOn);
-  btn.textContent='🌌 N-body: '+(nbodyOn?'ON':'OFF');
+  btn.textContent='🌌 N-body: '+T(nbodyOn?'nb-on':'nb-off');
 }
 function nbDisable(){
   if(!nbodyOn) return;
@@ -4914,7 +4931,8 @@ function crUpdateUI(){
   const kd=CR_KINDS[crKindI];
   const g=id=>document.getElementById(id);
   if(!g('createlab')) return;
-  g('cr-kind').textContent=kd.icon+' '+kd.label;
+  g('cr-kind').textContent=kd.icon+' '+T('k-'+kd.kind);
+  { const nm=g('cr-name'); if(nm) nm.placeholder=T('cr-name-ph'); }
   g('cr-mass-v').textContent=fmtMassE(crMassKg(+g('cr-mass').value));
   g('cr-rad-v').textContent=crRadKm(+g('cr-rad').value).toLocaleString()+' km';
   g('cr-a-v').textContent=fmtAAU(crAOf(+g('cr-a').value));
@@ -4929,19 +4947,19 @@ function crUpdateUI(){
     const pr=target||crParentRec();
     const childMass=crMassKg(+g('cr-mass').value);
     const parentTooLight=!target && pr && pr.data.kind!=='star' && !crCanOrbitParent(childMass, pr);
-    if(plab) plab.textContent = !crPlaceArmed ? 'Orbits'
-      : mode.id==='still' ? 'Dominant body'
-      : mode.id==='orbit' ? 'Orbit parent'
-      : crAutoAim ? 'Target' : 'Reference body';
+    if(plab) plab.textContent = !crPlaceArmed ? T('cr-orbits')
+      : mode.id==='still' ? T('cr-dominant')
+      : mode.id==='orbit' ? T('cr-orbitparent')
+      : crAutoAim ? T('cr-target') : T('cr-ref');
     if(target) pbn.textContent='🎯 '+locName(target.data);
     else if(parentTooLight) pbn.textContent='⚠ '+locName(pr.data);
     else pbn.textContent=pr?'🪐 '+locName(pr.data):'☀ '+locName(DS.STAR);
     pbn.title = parentTooLight ? crParentRejectMsg(pr) : !crPlaceArmed
-      ? 'Which body the new world orbits — click to cycle through the star and every planet; the distance scale adapts to the choice'
-      : mode.id==='still' ? 'Default local gravity frame. The actual drop uses whatever dominates the click point.'
-      : mode.id==='orbit' ? 'Default orbit parent. Clicking on/near a world makes that world the orbit parent.'
-      : crAutoAim ? 'Auto-aim target. Launch velocity is relative to this body.'
-                  : 'Default launch reference. Clicking on/near a world uses that world as the reference body.';
+      ? T('cr-parent-t')
+      : mode.id==='still' ? T('cr-parent-still-t')
+      : mode.id==='orbit' ? T('cr-parent-orbit-t')
+      : crAutoAim ? T('cr-parent-aim-t')
+                  : T('cr-parent-ref-t');
   }
   const mrow=document.querySelector('#createlab .cr-placerow');
   const srow=document.querySelector('#createlab .cr-speedrow');
@@ -4954,12 +4972,12 @@ function crUpdateUI(){
   if(erow) erow.style.display=(!crPlaceArmed||mode.id==='orbit')?'flex':'none';
   if(irow) irow.style.display=crPlaceArmed?'none':'flex';
   const mb=g('cr-mode');
-  if(mb){ mb.textContent=mode.icon+' '+mode.label;
-    mb.title=nbodyOn?'Cycle placement mode':'Still & Launch need 🌌 N-body ON'; }
+  if(mb){ mb.textContent=mode.icon+' '+T('m-'+mode.id);
+    mb.title=nbodyOn?T('cr-mode-t'):T('cr-mode-off-t'); }
   const ab=g('cr-autoaim');
   if(ab){ ab.style.display=(crPlaceArmed&&mode.id==='launch')?'':'none';
     ab.classList.toggle('on',crAutoAim);
-    ab.title='Auto-aim toward the selected/followed body; launch speed is relative to that target'; }
+    ab.title=T('cr-autoaim-t'); }
   const sv=g('cr-spd-v');
   if(sv){ const k=crSpdKms(+g('cr-spd').value);
     sv.textContent=k<100?(+k.toPrecision(2))+' km/s':Math.round(k).toLocaleString()+' km/s'; }
