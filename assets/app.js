@@ -4889,26 +4889,45 @@ function crUpdateUI(){
   g('cr-mass-v').textContent=fmtMassE(crMassKg(+g('cr-mass').value));
   g('cr-rad-v').textContent=crRadKm(+g('cr-rad').value).toLocaleString()+' km';
   g('cr-a-v').textContent=fmtAAU(crAOf(+g('cr-a').value));
-  const pbn=g('cr-parent');
-  if(pbn){ const pr=crParentRec();
-    pbn.textContent=pr?'🪐 '+locName(pr.data):'☀ '+locName(DS.STAR); }
   g('cr-e-v').textContent=(+g('cr-e').value/100).toFixed(2);
   g('cr-i-v').textContent=g('cr-i').value+'°';
   // placement-mode rows: only meaningful while 🎯 armed
   if(!nbodyOn && CR_MODES[crModeI].needsNb) crModeI=1;         // Still/Launch need real gravity
   const mode=CR_MODES[crModeI];
+  const pbn=g('cr-parent'), plab=g('lbl-cr-parent');
+  if(pbn){
+    const target=(crPlaceArmed&&mode.id==='launch'&&crAutoAim)?crLaunchTargetRec():null;
+    const pr=target||crParentRec();
+    if(plab) plab.textContent = !crPlaceArmed ? 'Orbits'
+      : mode.id==='still' ? 'Dominant body'
+      : mode.id==='orbit' ? 'Orbit parent'
+      : crAutoAim ? 'Target' : 'Reference body';
+    if(target) pbn.textContent='🎯 '+locName(target.data);
+    else pbn.textContent=pr?'🪐 '+locName(pr.data):'☀ '+locName(DS.STAR);
+    pbn.title = !crPlaceArmed
+      ? 'Which body the new world orbits — click to cycle through the star and every planet; the distance scale adapts to the choice'
+      : mode.id==='still' ? 'Default local gravity frame. The actual drop uses whatever dominates the click point.'
+      : mode.id==='orbit' ? 'Default orbit parent. Clicking on/near a world makes that world the orbit parent.'
+      : crAutoAim ? 'Auto-aim target. Launch velocity is relative to this body.'
+                  : 'Default launch reference. Clicking on/near a world uses that world as the reference body.';
+  }
   const mrow=document.querySelector('#createlab .cr-placerow');
   const srow=document.querySelector('#createlab .cr-speedrow');
   const arow=document.querySelector('#createlab .cr-slider-a');
+  const erow=g('cr-e')&&g('cr-e').closest('.improw');
+  const irow=g('cr-i')&&g('cr-i').closest('.improw');
   if(mrow) mrow.style.display=crPlaceArmed?'flex':'none';
   if(srow) srow.style.display=(crPlaceArmed&&mode.id==='launch')?'flex':'none';
   if(arow) arow.style.display=crPlaceArmed?'none':'flex';      // radius comes from the click
+  if(erow) erow.style.display=(!crPlaceArmed||mode.id==='orbit')?'flex':'none';
+  if(irow) irow.style.display=crPlaceArmed?'none':'flex';
   const mb=g('cr-mode');
   if(mb){ mb.textContent=mode.icon+' '+mode.label;
     mb.title=nbodyOn?'Cycle placement mode':'Still & Launch need 🌌 N-body ON'; }
   const ab=g('cr-autoaim');
   if(ab){ ab.style.display=(crPlaceArmed&&mode.id==='launch')?'':'none';
-    ab.classList.toggle('on',crAutoAim); }
+    ab.classList.toggle('on',crAutoAim);
+    ab.title='Auto-aim toward the selected/followed body; launch speed is relative to that target'; }
   const sv=g('cr-spd-v');
   if(sv){ const k=crSpdKms(+g('cr-spd').value);
     sv.textContent=k<100?(+k.toPrecision(2))+' km/s':Math.round(k).toLocaleString()+' km/s'; }
@@ -4919,7 +4938,7 @@ function crUpdateUI(){
                     :'Custom worlds persist in this browser · click any value to type it · turn on 🌌 N-body to let them pull on everything else')
       : mode.id==='still' ? (LANG==='sk'?'⏸ klikaj opakovane — padá voľným pádom na to, čo v mieste kliku dominuje':'⏸ click repeatedly — free-falls into whatever dominates the click point')
       : mode.id==='orbit' ? (LANG==='sk'?'🔄 klikaj opakovane · pri telese = jeho mesiac · prázdno = okolo hviezdy':'🔄 click repeatedly · near a body orbits it · empty space orbits the star')
-      : (LANG==='sk'?'🚀 klikaj pre opakované štarty — 🎯 vedie na vybraný cieľ':'🚀 click repeatedly to launch — 🎯 leads the selected target');
+      : (LANG==='sk'?'🚀 rýchlosť je relatívna k cieľu/referenčnému telesu':'🚀 speed is relative to the target/reference body');
   }
 }
 /* ---- 🎯 place-by-click, Universe-Sandbox style. Clicks near a world snap to
@@ -4932,10 +4951,9 @@ function crUpdateUI(){
               applied at periapsis. In Kepler mode a click near a planet
               creates a real MOON of it; empty space orbits the star.
    🚀 Launch — the physical alternative to the Impact lab's scripted rocks:
-              each click spawns a body at the click point and flies along the
-              camera→click line at the Speed slider's velocity. 🎯 Auto-aim
-              leads the currently selected body instead. N-body only — a
-              launched world can miss, slingshot, or hit. ---- */
+              each click spawns a body at the click point and adds the Speed
+              slider as a RELATIVE velocity on top of the target/reference body.
+              N-body only — a launched world can miss, slingshot, or hit. ---- */
 let crPlaceArmed=false, crModeI=1, crAutoAim=false;
 const CR_MODES=[
   {id:'still',  icon:'⏸', label:'Still',  needsNb:true},
@@ -5131,12 +5149,11 @@ function crPlaceAt(e){
     const tan=rel.clone().divideScalar(r).cross(new THREE.Vector3(0,1,0)).negate().normalize();
     // (rhat × ŷ negated ≡ ŷ-frame prograde: matches keplerStateAU's orbital sense)
     rec.nb.v.copy(parent.nb.v).addScaledVector(tan,vp);
-  } else {                                    // 🚀 launch: ONE click — spawns at the click
-    let tgt=null;                             //    point, flying along your line of sight
-    if(crAutoAim) tgt=bodies.find(b=>b.data.key===selected&&b!==rec&&b.nb) ||
-                      (follow&&follow.nb&&follow!==rec?follow:null);
-    if(tgt) crLaunchAtTarget(rec, tgt);
-    else crLaunchDir(rec, ck.dir);            // (🎯 with nothing selected falls back to aim-by-view)
+  } else {                                    // 🚀 launch: relative to target/clicked body/star
+    const tgt=crAutoAim?crLaunchTargetRec(rec):null;
+    const frame=crLaunchFrameRec(ck,tgt);
+    if(tgt) crLaunchAtTarget(rec, tgt, frame);
+    else crLaunchDir(rec, ck.dir, frame);     // (🎯 with nothing selected falls back to aim-by-view)
   }
   crSaveState(rec);
   nbSyncHolders();
@@ -5149,18 +5166,35 @@ function crSaveState(rec){                    // persist the exact star-relative
                           v:rec.nb.v.clone().sub(sv.v).toArray() };
   saveCustoms();
 }
-function crLaunchDir(rec, dir){               // velocity = direction × Speed slider, star-frame
+function crLaunchTargetRec(exclude){
+  const rec=bodies.find(b=>b.data.key===selected && b!==exclude && b.nb && !b.destroyed && !b._absorbedGone);
+  if(rec) return rec;
+  return (follow && follow!==exclude && follow.nb && !follow.destroyed && !follow._absorbedGone) ? follow : null;
+}
+function crLaunchFrameRec(ck, tgt){
+  if(tgt && tgt.nb && !tgt.destroyed) return tgt;
+  if(ck && ck.near && ck.near.nb && !ck.near.destroyed) return ck.near;
+  const star=nbStar();
+  return star&&star.nb?star:null;
+}
+function crLaunchBaseVelocity(frameRec){
+  if(frameRec && frameRec.nb) return frameRec.nb.v;
+  const star=nbStar();
+  return star&&star.nb?star.nb.v:new THREE.Vector3();
+}
+function crLaunchDir(rec, dir, frameRec){     // velocity = frame velocity + direction × Speed slider
   if(!dir || dir.lengthSq()<1e-12) return;
-  const star=nbStar(), sv=star&&star.nb?star.nb.v:new THREE.Vector3();
+  const baseV=crLaunchBaseVelocity(frameRec);
   const kms=crSpdKms(+document.getElementById('cr-spd').value);
-  rec.nb.v.copy(sv).addScaledVector(dir.clone().normalize(), kms/KMS_PER_AUYR);
+  rec.nb.v.copy(baseV).addScaledVector(dir.clone().normalize(), kms/KMS_PER_AUYR);
   rec._newUntil=performance.now()+2600;
   spawnFlash(worldPosOf(rec), Math.max(1,rec.radius*rec.mesh.scale.x*3), IMP_CHICXULUB_J);
   sfxWhoosh(1.2);
 }
-function crLaunchAtTarget(rec, tgt){
+function crLaunchAtTarget(rec, tgt, frameRec){
   if(!rec.nb || !tgt || !tgt.nb) return;
-  const star=nbStar(), baseV=star&&star.nb?star.nb.v:new THREE.Vector3();
+  frameRec=frameRec||tgt;
+  const baseV=crLaunchBaseVelocity(frameRec);
   const speed=crSpdKms(+document.getElementById('cr-spd').value)/KMS_PER_AUYR;
   const rel=tgt.nb.r.clone().sub(rec.nb.r);
   const v=tgt.nb.v.clone().sub(baseV);
@@ -5178,7 +5212,7 @@ function crLaunchAtTarget(rec, tgt){
   }
   const aim=rel.clone();
   if(t>0) aim.addScaledVector(v,t);
-  crLaunchDir(rec, aim);
+  crLaunchDir(rec, aim, frameRec);
 }
 /* ---- click a slider's value readout to TYPE the number instead ---- */
 function makeTypable(valId, sliderId, invFn, refreshFn){
