@@ -4959,8 +4959,8 @@ function crMissFeedback(msg){                 // a failed click must SAY so, not
   crMissFeedback._t=setTimeout(function(){ hint.style.color=''; crUpdateUI(); }, 2200);
 }
 /* screen click -> {p: point in AU (star-relative), near: body rec|null, dir: view ray}.
-   Clicking on/near a world places in TRUE 3D at the ray's closest approach to that
-   world — no ecliptic projection, works for inclined orbits and tilted cameras.
+   Clicking on/near a world places in TRUE 3D on the visible/nearest surface of
+   that world — no ecliptic projection, works for inclined orbits and tilted cameras.
    The snap radius follows the body's apparent disk size, so far-away dots and
    close-up limbs both behave like the world you meant. Empty-space clicks still
    fall back to the ecliptic plane: a 2D mouse needs SOME depth cue, and the plane
@@ -4971,11 +4971,13 @@ function crClickPointAU(e){
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
   ray.setFromCamera(mouse,camera);
   const dir=ray.ray.direction.clone();
-  let near=null;
+  let near=null, exactPoint=null;
   const exact=pickHit(e);
   if(exact){
     const rec=bodies.find(b=>b.data.key===exact.object.userData.bodyKey);
-    if(rec && !rec.destroyed && !rec.external && rec.data.kind!=='star') near=rec;
+    if(rec && !rec.destroyed && !rec.external && rec.data.kind!=='star'){
+      near=rec; exactPoint=exact.point&&exact.point.clone?exact.point.clone():null;
+    }
   }
   // nearest live body within its apparent radius + a label-sized pad. Rank by
   // normalized distance so a small nearby moon is not shadowed by a giant disk.
@@ -4998,8 +5000,20 @@ function crClickPointAU(e){
     }
   }
   const hit=new THREE.Vector3();
-  if(near){                                   // snap: closest point on the view ray to the world
-    ray.ray.closestPointToPoint(worldPosOf(near), hit);
+  if(near){                                   // snap: front/near surface, not the centre-plane foot
+    const cScene=worldPosOf(near), surf=exactPoint||new THREE.Vector3();
+    if(!exactPoint){
+      const rScene=Math.max(1e-9, near.radius*(near.mesh.scale.x||1));
+      const sphere=new THREE.Sphere(cScene, rScene);
+      if(!ray.ray.intersectSphere(sphere, surf)) ray.ray.closestPointToPoint(cScene, surf);
+    }
+    const n=surf.sub(cScene);
+    if(n.lengthSq()<1e-12) n.copy(camera.position).sub(cScene);
+    if(n.lengthSq()<1e-12) n.set(1,0,0);
+    n.normalize();
+    const nAU=raStateOf(near).r;
+    const rAU=Math.max(1e-9, (near.data.radiusKm||1000)/KM_PER_AU);
+    return { p:nAU.clone().addScaledVector(n,rAU), near, dir };
   } else if(!ray.ray.intersectPlane(_crPlane,hit)){  // edge-on / skyward view: the ray never meets the ecliptic
     crMissFeedback(LANG==='sk'?'klik minul rovinu dráh — klikni bližšie k telesu alebo pozri viac zhora'
                               :'click missed the orbital plane — click nearer a body or use a more top-down view');
