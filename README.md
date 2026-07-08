@@ -10,30 +10,37 @@ and experimental editions keep the curated fictional-system experience.
 - **🌌 N-body gravity** — flip the toolbar toggle and the Kepler clockwork is replaced by
   real mutual gravitation: every body attracts every other with its true mass (the exact
   figures from the author's Universe Sandbox save), integrated with a leapfrog scheme whose
-  substep is sized from the shortest orbital period present, so the whole speed-slider
-  range stays stable — moons run on their *physical* orbits. Worlds that touch **collide**:
-  velocities merge conserving momentum and the full impact energy feeds the impact-lab
-  damage machinery (scars, melting, shattering, debris). Toggling back to Kepler converts
-  each planet's final state vector into exact new orbital elements, so perturbations and
-  gravitational scattering carry over.
+  substep is sized from the shortest orbital period present, with extra clamps for high
+  time-warp stability — moons run on their *physical* orbits. Worlds that touch **collide**:
+  velocities merge conserving momentum, swept contact detection catches fast impacts between
+  substeps, and the full impact energy feeds the impact-lab damage machinery (scars, melting,
+  shattering, debris). A destroyed impactor is swallowed instead of clipping through the
+  survivor; retained mass is added to the survivor unless impact energy disperses it or
+  destroys the target outright. Toggling back to Kepler converts each planet's final state
+  vector into exact new orbital elements, so perturbations and gravitational scattering carry
+  over.
 - **➕ Custom bodies** — create your own rocky / terran / ice / gas-giant worlds: pick
-  mass (up to stellar), radius and orbit, and they become first-class citizens — clickable,
-  labelled, in the sidebar, damageable, and (with N-body on) a real gravitational actor
-  that can destabilise the whole system. Custom worlds persist in your browser.
-  **🎯 Place by click** (experimental) drops the new world right where you click on the
-  orbital plane, and **every slider readout is typable** — click the value in the create
-  panel or the impact lab and enter the exact number (e-notation works).
-- **Live trails & elements** — with N-body on, ◉ Orbits shows each body's actual
-  recent path (Universe-Sandbox-style trails) instead of the stale Kepler ellipses, and
-  the info panel gains a 🌌 *Live orbit* row: current gravitational parent, osculating
-  semi-major axis, eccentricity and period, refreshed twice a second.
+  mass (up to stellar), radius and parent body, and they become first-class citizens —
+  clickable, labelled, woven into the sidebar under their live gravitational parent,
+  damageable, deletable, and (with N-body on) real gravitational actors that can destabilise
+  the whole system. The Create panel's parent row follows the focused body, custom orbits
+  can be created around planets as well as the star, and custom worlds persist in your
+  browser. **🎯 Place by click** drops the new world onto the visible surface of a clicked
+  body or the orbital plane in empty space, stays armed for repeated placement, and **every
+  slider readout is typable** — click the value in the create panel or the impact lab and
+  enter the exact number (e-notation works).
+- **Live trails, elements & editable orbits** — with N-body on, ◉ Orbits shows each body's
+  actual recent path (Universe-Sandbox-style trails) instead of stale Kepler ellipses, and
+  the info panel gains a 🌌 *Live orbit* row: current mass-aware gravitational parent,
+  osculating semi-major axis, eccentricity and period, refreshed twice a second. Focused
+  bodies expose editable orbit fields, and Save/Load/Export restores exact N-body vectors,
+  custom bodies and swallowed/destroyed state.
 - **Three placement modes** for 🎯 place-by-click: **⏸ Still** drops a body at zero
-  velocity relative to the star (real gravity takes it from there), **🔄 Orbit** puts it
-  in orbit around whatever body *gravitationally dominates the click point* (click beside
-  a gas giant and you've made it a moon), and **🚀 Launch** — the physical alternative to
-  the impact lab's scripted rocks: first click places, second click aims, the speed
-  slider sets the velocity, and gravity decides whether it hits, misses or slingshots
-  (🎯 Auto-aim launches at the selected body in one click).
+  velocity relative to the locally dominant body, **🔄 Orbit** puts it in orbit around
+  the clicked/dominant parent using the eccentricity slider, and **🚀 Launch** adds the
+  speed slider as a *relative* velocity on top of the target/reference body. With 🎯
+  Auto-aim on, Launch leads the selected/followed target; without it, clicks near a body
+  launch relative to that body, and empty-space launches use the star.
 - **Extinction tiers** — life is more fragile than crust. A living world that absorbs
   over **10²⁷ J (~239 petatons TNT)** loses all multicellular life: Satis's violet
   forests and Earth's green lands are scrubbed from the surface map and the sidebar tag
@@ -161,6 +168,10 @@ silent in reality — this is rule-of-cool only — so it's a toggle you can swi
 | Toggle orbits / labels / tails | Bottom bar |
 | Fly mode (free-roam) | "🚀 Fly" button, bottom bar |
 | Impact lab (strike a world) | "💥 Impact" button, bottom bar |
+| Create custom bodies | "➕ Create" button, bottom bar |
+| Place custom body by click | Arm "🎯 Place by click" in the Create panel |
+| Save / load browser state | "💾 Save" / "📂 Load", bottom bar |
+| Export / import state file | "⬇" / "⬆", bottom bar |
 | Sound effects on/off | "🔊 SFX" button, bottom bar |
 | Ra ↔ real Solar System | "⇄" button, bottom bar |
 | English ↔ Slovenčina | "🌐" button, bottom bar |

@@ -4489,6 +4489,27 @@ function fmtMassE(kg){
   if(kg>=1e27)   return (kg/1.898e27).toFixed(2)+' M♃';
   return (kg/5.972e24>=0.01?(kg/5.972e24).toFixed(2):(kg/5.972e24).toExponential(1))+' M⊕';
 }
+const CR_PARENT_MIN_MASS_RATIO=3;             // Kepler moons need a clearly dominant primary.
+function crCanOrbitParent(childMassKg, parentRec){
+  if(!parentRec || parentRec.destroyed || parentRec._absorbedGone) return false;
+  if(parentRec.data.kind==='star') return true;
+  return impBodyMassKg(parentRec) >= Math.max(1, childMassKg)*CR_PARENT_MIN_MASS_RATIO;
+}
+function crParentRejectMsg(parentRec){
+  const n=parentRec?locName(parentRec.data):(LANG==='sk'?'vybrané teleso':'the selected body');
+  return LANG==='sk'
+    ? n+' je príliš ľahké na taký masívny mesiac — teleso pôjde okolo hviezdy'
+    : n+' is too light to be the primary for this body — placing it around the star';
+}
+function crStarFallbackA(parentRec, p){
+  if(parentRec && parentRec.data.kind!=='star'){
+    const st=raStateOf(parentRec);
+    const a=st && st.r ? st.r.length() : (parentRec.helioA!=null?parentRec.helioA:parentRec.data.dist);
+    if(isFinite(a) && a>0) return Math.max(0.005, Math.min(90, a));
+  }
+  const a=(p && isFinite(p.a)) ? p.a : 0.05;
+  return Math.max(a,0.05);
+}
 function createCustomBody(p, fromSave){
   _crN++;
   const kd=CR_KINDS.find(k=>k.kind===p.kind)||CR_KINDS[0];
@@ -4497,6 +4518,14 @@ function createCustomBody(p, fromSave){
   // physical from the parent's true mass. Orbiting the star: real Kepler years.
   let parentRec=p.parent?bodies.find(b=>b.data.key===p.parent && !b.destroyed):null;
   if(p.parent && !parentRec){ p=Object.assign({},p); delete p.parent; p.a=Math.max(p.a,0.05); }
+  if(parentRec && !crCanOrbitParent(p.massKg, parentRec)){
+    const oldParent=parentRec;
+    p=Object.assign({},p);
+    delete p.parent;
+    p.a=crStarFallbackA(oldParent, p);
+    parentRec=null;
+    if(!fromSave) crMissFeedback(crParentRejectMsg(oldParent));
+  }
   const muP=parentRec?4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG):MU_RA;
   const period=2*Math.PI*Math.sqrt(p.a*p.a*p.a/muP);
   const data=Object.assign({ key, name:p.name||('Custom '+_crN), kind:p.kind, custom:true,
@@ -4898,13 +4927,16 @@ function crUpdateUI(){
   if(pbn){
     const target=(crPlaceArmed&&mode.id==='launch'&&crAutoAim)?crLaunchTargetRec():null;
     const pr=target||crParentRec();
+    const childMass=crMassKg(+g('cr-mass').value);
+    const parentTooLight=!target && pr && pr.data.kind!=='star' && !crCanOrbitParent(childMass, pr);
     if(plab) plab.textContent = !crPlaceArmed ? 'Orbits'
       : mode.id==='still' ? 'Dominant body'
       : mode.id==='orbit' ? 'Orbit parent'
       : crAutoAim ? 'Target' : 'Reference body';
     if(target) pbn.textContent='🎯 '+locName(target.data);
+    else if(parentTooLight) pbn.textContent='⚠ '+locName(pr.data);
     else pbn.textContent=pr?'🪐 '+locName(pr.data):'☀ '+locName(DS.STAR);
-    pbn.title = !crPlaceArmed
+    pbn.title = parentTooLight ? crParentRejectMsg(pr) : !crPlaceArmed
       ? 'Which body the new world orbits — click to cycle through the star and every planet; the distance scale adapts to the choice'
       : mode.id==='still' ? 'Default local gravity frame. The actual drop uses whatever dominates the click point.'
       : mode.id==='orbit' ? 'Default orbit parent. Clicking on/near a world makes that world the orbit parent.'
@@ -5103,12 +5135,14 @@ function crPlaceAt(e){
     // Kepler mode: Orbit only — around whatever body dominates the click point.
     // A click beside a giant makes a MOON of it; empty space orbits the star.
     const parent=ck.near||crDomAttractor(pAU);
-    if(parent && parent.data.kind!=='star'){
+    if(parent && parent.data.kind!=='star' && crCanOrbitParent(base.massKg, parent)){
       const rel=pAU.clone().sub(raStateOf(parent).r);
       const minR=((parent.data.radiusKm||1000)+base.radiusKm)*2.2/KM_PER_AU;
       base.parent=parent.data.key;
       base.a=Math.max(rel.length(), minR);
       base.M=Math.atan2(rel.z,rel.x);
+    } else if(parent && parent.data.kind!=='star'){
+      crMissFeedback(crParentRejectMsg(parent));
     }
     createCustomBody(base);
     g('cr-name').value='';
