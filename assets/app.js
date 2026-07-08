@@ -4009,6 +4009,9 @@ function nbLiveOrbitTxt(rec){
    orbital plane and phase. ---- */
 function orbCurrent(rec){
   if(!rec || rec.destroyed || rec.data.kind==='star' || rec._absorbedGone) return null;
+  if(rec.external) return null;                  // re-accretion rump/moonlets ride the debris field's
+                                                 // own softened self-gravity, not an editable Kepler
+                                                 // ellipse — and their data carries no a to read.
   if(nbodyOn && rec.nb){
     const parent=nbDominantParent(rec);      // heavier-than-me rule: see above
     if(!parent) return null;
