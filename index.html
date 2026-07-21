@@ -72,6 +72,11 @@
   /* ---------- Bottom control bar ---------- */
   #controls{bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;
     padding:10px 16px;flex-wrap:wrap;justify-content:center;max-width:94vw}
+  /* On desktop the secondary-controls wrapper is layout-transparent (its children
+     join #controls' flex row directly) and the ⋯ expander is hidden; the compact
+     phone/landscape media block below turns them into a collapsible section. */
+  #ctl-more{display:none}
+  #controls-more{display:contents}
   .btn{background:rgba(127,178,255,.10);border:1px solid var(--line2);color:var(--txt);
     padding:8px 13px;border-radius:9px;cursor:pointer;font-size:12.5px;font-family:var(--font);
     display:inline-flex;align-items:center;gap:7px;transition:.15s;white-space:nowrap}
@@ -199,8 +204,9 @@
   .scrollthin::-webkit-scrollbar-thumb{background:rgba(120,170,255,.25);border-radius:8px}
   .scrollthin::-webkit-scrollbar-track{background:transparent}
 
-  /* ---------- Tablet / phone (portrait & small landscape) ---------- */
-  @media(max-width:900px){
+  /* ---------- Tablet / phone (portrait & small landscape) ----------
+     Also fires on any short viewport (phone landscape can be >900px wide) */
+  @media (max-width:900px), (max-height:500px){
     #navbtn{display:flex}
     #title{left:72px;max-width:calc(100vw - 92px)}
     #help{width:min(320px,86vw)}
@@ -235,21 +241,33 @@
     #info .body{padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}
   }
 
-  /* ---------- Phone: slim toolbar pinned flush to the bottom ---------- */
-  @media(max-width:560px){
+  /* ---------- Phone (portrait or landscape): slim toolbar pinned flush to the
+     bottom — one always-visible row (Pause · Speed · clock · ⋯) with the rest
+     of the controls collapsed behind the ⋯ button ---------- */
+  @media (max-width:560px), (max-height:500px){
     #controls{
       left:0; right:0; bottom:0; transform:none;
       width:100%; max-width:100%;
       border-radius:14px 14px 0 0;
       gap:6px 8px;
       padding:7px 10px calc(7px + env(safe-area-inset-bottom,0px));
+      max-height:85vh; overflow-y:auto;   /* belt & braces: never clip off-screen */
     }
-    #controls .brk{flex-basis:100%;height:0;width:0;margin:0;padding:0;border:0;background:none}  /* row break after Speed */
-    #controls .sep:not(.brk){display:none}
-    #controls #speed{flex:1;width:auto;min-width:90px}
-    #controls #size{width:78px}
+    #controls .sep{display:none}   /* dividers add nothing on a phone; the ⋯ section is its own flex row-set */
+    #controls .ctl{flex:1 1 auto;min-width:0}
+    #controls #speed{flex:1;width:60px!important;min-width:60px}  /* !important: beats the inline width */
+    #controls #speedval{min-width:0}
+    #controls #size{width:78px!important}
     #controls .btn{padding:6px 9px;font-size:11.5px}
     #controls .ctl label{font-size:9px}
+    #ctl-more{display:inline-flex;margin-left:auto;min-width:34px;justify-content:center}
+    #controls-more{display:none}
+    #controls.more-open #controls-more{
+      display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+      gap:6px 8px;flex-basis:100%;
+      max-height:min(45vh,300px);overflow-y:auto;overscroll-behavior:contain;
+      padding-bottom:2px;
+    }
   }
 </style>
 </head>
@@ -305,6 +323,8 @@
     <span id="speedval">real-time</span>
   </div>
   <span id="elapsed" class="clock"></span>
+  <button id="ctl-more" class="btn" title="More controls" aria-expanded="false">⋯</button>
+  <div id="controls-more" class="scrollthin">
   <div class="sep brk"></div>
   <div class="ctl"><label id="lbl-size">Size</label>
     <input id="size" type="range" min="40" max="260" value="100" style="width:90px">
@@ -330,6 +350,7 @@
   <button id="t-system" class="btn" title="Switch between the fictional Ra system and our real Solar System">⇄ 🌍 Solar System</button>
   <input id="t-import-file" type="file" accept=".json,application/json" style="display:none">
   <button id="t-lang" class="btn" title="Slovenčina / English">🌐 SK</button>
+  </div>
 </div>
 
 <div id="flyhud" class="panel">

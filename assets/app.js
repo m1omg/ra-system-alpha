@@ -5571,6 +5571,12 @@ function setupInteraction(){
   };
   const navbtn=document.getElementById('navbtn');
   if(navbtn) navbtn.onclick=()=>document.getElementById('nav').classList.toggle('open');
+  const moreBtn=document.getElementById('ctl-more');   // phones: ⋯ expands the full toolbar
+  if(moreBtn) moreBtn.onclick=function(){
+    const open=document.getElementById('controls').classList.toggle('more-open');
+    this.classList.toggle('on',open);
+    this.setAttribute('aria-expanded',open?'true':'false');
+  };
 
   // --- impact lab controls ---
   const impBtn=document.getElementById('t-impact'); if(impBtn) impBtn.onclick=toggleImpact;

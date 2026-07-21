@@ -133,6 +133,7 @@ titles: {
   't-sfx':'Zvukové efekty — nerealistické (vesmír je tichý), ale pre efekt',
   't-system':'Prepni medzi fiktívnou sústavou Ra a našou skutočnou Slnečnou sústavou',
   't-lang':'Slovenčina / English',
+  'ctl-more':'Ďalšie ovládacie prvky',
   'imp-surface':'Zmrazí obežný pohyb a posúva iba povrch vybraného sveta',
   'imp-heal':'Odstráni všetky jazvy a vynuluje poškodenie',
   'imp-exit':'Zavrieť (Esc)',
