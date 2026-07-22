@@ -4487,23 +4487,6 @@ function crParentFollowFocus(){
   }
   if(key!==undefined && key!==crParentKey){ crParentKey=key; crUpdateUI(); }
 }
-/* Kepler orbits are clockwork — nothing ever collides — so an orbit that dips
-   into its primary must be impossible to CREATE. The floor is sized to clear
-   the RENDERED sphere even at the size slider's 2.6× exaggeration, not just
-   the true surface. Applied to the distance slider range AND (via the
-   periapsis clamp in createCustomBody) to eccentric orbits, whose a·(1−e)
-   could otherwise pass through the planet every revolution. */
-const CR_ORBIT_CLEAR=3.2;                 // min periapsis, in units of (parent+child radius)
-function crMinPeriAU(parentRec, childRadiusKm){
-  const pR=parentRec?(parentRec.data.radiusKm||1000):(DS.STAR.radiusKm||7e5);
-  return CR_ORBIT_CLEAR*(pR+(childRadiusKm||200))/KM_PER_AU;
-}
-function crOrbitClampMsg(parentRec){
-  const n=parentRec?locName(parentRec.data):locName(DS.STAR);
-  return LANG==='sk'
-    ? 'dráha by klesla pod povrch telesa '+n+' — periapsis zdvihnutý nad povrch'
-    : 'orbit would dip below '+n+"'s surface — periapsis raised to clear it";
-}
 function crARange(){
   const p=crParentRec();
   if(!p) return {min:0.02, max:80};                      // heliocentric: the original range
@@ -4511,7 +4494,7 @@ function crARange(){
   const rNew=el?crRadKm(+el.value):2000;
   const star=bodies.find(b=>b.data.kind==='star');
   const aP=p.helioA!=null?p.helioA:p.data.dist;
-  const min=crMinPeriAU(p, rNew);
+  const min=2.2*((p.data.radiusKm||1000)+rNew)/KM_PER_AU;
   const dom=aP*Math.sqrt(impBodyMassKg(p)/Math.max(1,impBodyMassKg(star)))*0.6;
   return {min, max:Math.max(dom, min*8)};
 }
@@ -4562,19 +4545,6 @@ function createCustomBody(p, fromSave){
     p.a=crStarFallbackA(oldParent, p);
     parentRec=null;
     if(!fromSave) crMissFeedback(crParentRejectMsg(oldParent));
-  }
-  // periapsis floor — the requested eccentricity is kept and a is raised until
-  // a·(1−e) clears the primary. Skipped for vector-placed bodies (🎯 in N-body
-  // mode), whose real state is set by the caller and guarded by crAvoidOverlap
-  // + the N-body collision pass.
-  if(!p.nbState && !p.nbPlaced){
-    const minPeri=crMinPeriAU(parentRec, p.radiusKm);
-    const aFloor=minPeri/(1-Math.min(Math.max(p.e||0,0),0.99));
-    if((p.a||0)<aFloor){
-      p=Object.assign({},p);
-      p.a=aFloor;
-      if(!fromSave) crMissFeedback(crOrbitClampMsg(parentRec));
-    }
   }
   const muP=parentRec?4*Math.PI*Math.PI*(impBodyMassKg(parentRec)/SUN_KG):MU_RA;
   const period=2*Math.PI*Math.sqrt(p.a*p.a*p.a/muP);
@@ -5188,8 +5158,9 @@ function crPlaceAt(e){
     const parent=ck.near||crDomAttractor(pAU);
     if(parent && parent.data.kind!=='star' && crCanOrbitParent(base.massKg, parent)){
       const rel=pAU.clone().sub(raStateOf(parent).r);
+      const minR=((parent.data.radiusKm||1000)+base.radiusKm)*2.2/KM_PER_AU;
       base.parent=parent.data.key;
-      base.a=Math.max(rel.length(), crMinPeriAU(parent, base.radiusKm));
+      base.a=Math.max(rel.length(), minR);
       base.M=Math.atan2(rel.z,rel.x);
     } else if(parent && parent.data.kind!=='star'){
       crMissFeedback(crParentRejectMsg(parent));
@@ -5199,7 +5170,6 @@ function crPlaceAt(e){
     crUpdateUI();
     return;
   }
-  base.nbPlaced=1;                            // exact vector set below — skip the periapsis clamp
   const rec=createCustomBody(base);
   g('cr-name').value='';
   if(!rec.nb) return;
