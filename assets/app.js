@@ -875,7 +875,10 @@ function buildInner(){
   setupCreateLab();   // Alpha: custom-body panel + N-body toggle
   restoreCustoms();   // Alpha: re-create this browser's saved custom worlds
   setupStateUI();     // Alpha: 💾/📂/⬇/⬆/♻ + 🗑 delete wiring
-  restoreSystemState();  // Alpha: auto-resume the saved world, if any
+  const _stRestored=restoreSystemState();  // Alpha: auto-resume the saved world, if any
+  // Alpha: N-body gravity is the default experience — turn it on for a fresh load,
+  // but never override an explicit save (which carries its own N-body on/off state).
+  if(!_stRestored && !nbodyOn) nbEnable();
 
   hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
 
@@ -4780,7 +4783,7 @@ function saveSystemState(){
 function restoreSystemState(){
   let st=null;
   try{ st=JSON.parse(localStorage.getItem(stateKey())||'null'); }catch(_){}
-  if(!st || st.v!==ST_VER || st.sys!==SYS) return;
+  if(!st || st.v!==ST_VER || st.sys!==SYS) return false;
   impRestoring=true;
   try{
     // 1. deletions (authored bodies removed cleanly, no liberation re-run needed
@@ -4874,6 +4877,7 @@ function restoreSystemState(){
     }
     if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
   } finally { impRestoring=false; }
+  return true;
 }
 function exportSystemState(){
   saveSystemState();                                   // export exactly what Load would restore

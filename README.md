@@ -7,8 +7,9 @@ and experimental editions keep the curated fictional-system experience.
 
 ## Alpha-only physics
 
-- **🌌 N-body gravity** — flip the toolbar toggle and the Kepler clockwork is replaced by
-  real mutual gravitation: every body attracts every other with its true mass (the exact
+- **🌌 N-body gravity** — **on by default now**: real mutual gravitation replaces the Kepler
+  clockwork on load (flip the toolbar toggle to fall back to Kepler). Every body attracts
+  every other with its true mass (the exact
   figures from the author's Universe Sandbox save), integrated with a leapfrog scheme whose
   substep is sized from the shortest orbital period present, with extra clamps for high
   time-warp stability — moons run on their *physical* orbits. Worlds that touch **collide**:
