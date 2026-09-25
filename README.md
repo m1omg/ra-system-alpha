@@ -7,11 +7,20 @@ and experimental editions keep the curated fictional-system experience.
 
 ## Alpha-only physics
 
-- **🌌 N-body gravity** — flip the toolbar toggle and the Kepler clockwork is replaced by
-  real mutual gravitation: every body attracts every other with its true mass (the exact
-  figures from the author's Universe Sandbox save), integrated with a leapfrog scheme whose
-  substep is sized from the shortest orbital period present, with extra clamps for high
-  time-warp stability — moons run on their *physical* orbits. Worlds that touch **collide**:
+- **🌌 N-body gravity** (on by default) — the Kepler clockwork is replaced by real mutual
+  gravitation: every body attracts every other with its true mass (the exact figures from
+  the author's Universe Sandbox save), and moons run on their *physical* orbits. The
+  integrator is the Wisdom–Holman map on hierarchical Jacobi coordinates: every orbit
+  (each planet about the star and everything inside it, each moon about its planet and
+  the moons inside it) is carried along its exact two-body path, and only what the bodies
+  do to one another is stepped, with more steps for the orbits disturbed hardest (the
+  Moon, by the Sun). It follows the true motion to parts in 10¹² for the planets over a
+  few weeks, where the leapfrog it replaced drifted Ra's innermost planet half an orbit in
+  six years. When a slow machine cannot keep full gravity up with the time warp, the
+  button says **fast**: the star, planets and loose bodies still pull on one another while
+  each moon rides its planet on its exact orbit (a body passing close enough to disturb
+  some planet's moons hands the clock back to full gravity). All tiers share the same
+  state, so switching is seamless. Worlds that touch **collide**:
   velocities merge conserving momentum, swept contact detection catches fast impacts between
   substeps, and the full impact energy feeds the impact-lab damage machinery (scars, melting,
   shattering, debris). A destroyed impactor is swallowed instead of clipping through the

@@ -72,6 +72,13 @@ ui: {
   'fly-notarget':'◎ žiadny cieľ — ťukni na svet',
   // ➕ Vytvor teleso / 🌌 N-body — dynamické reťazce písané z app.js
   'nb-on':'ZAP','nb-off':'VYP',
+  'nb-title':'Skutočná N-telesová gravitácia — každý svet priťahuje každý iný svojou skutočnou hmotnosťou (vynúti reálnu mierku; mesiace bežia po fyzikálnych dráhach)',
+  'nb-tier-A':'rýchla','nb-tier-K':'Kepler',
+  'nb-tier-F-t':'Plná gravitácia: každé teleso priťahuje každé iné.',
+  'nb-tier-A-t':'Rýchla: zrýchlenie je nad tým, čo plná gravitácia stíha. Hviezda, planéty a voľné telesá sa stále navzájom priťahujú; každý mesiac sa vezie so svojou planétou po presnej dvojtelesovej dráhe. Tesné priblíženie prepne späť na plnú gravitáciu.',
+  'nb-tier-K-t':'Kepler: geologické zrýchlenie. Každé teleso ide po svojej presnej dvojtelesovej dráhe odtiaľ, kde ho gravitácia nechala; spomaľ a plná gravitácia pokračuje odtiaľ.',
+  'nb-cap-close':'Plná N-telesová gravitácia drží čas na {r}, kým sa telesá míňajú zblízka',
+  'nb-cap-heavy':'Plná N-telesová gravitácia drží čas na {r}: pri telese ťažšom ako hviezda niet dráh, na ktoré by mohla prejsť',
   'k-rocky':'Kamenný','k-terran':'Pozemský','k-iceworld':'Ľadový','k-gasgiant':'Plynný obor',
   'm-still':'Pokoj','m-orbit':'Dráha','m-launch':'Štart',
   'cr-name-ph':'Nový svet',
