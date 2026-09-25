@@ -3940,9 +3940,9 @@ function updateImpactUI(){
 /* ============================================================
    N-BODY GRAVITY (Alpha) — every world attracts every other with
    its true mass. States live in rec.nb = {r AU, v AU/yr, gm} in a
-   near-barycentric frame (display stays star-relative). Integrator
-   is leapfrog (KDK) with substeps sized so even the innermost moon
-   stays stable across the whole speed-slider range. Toggling back
+   near-barycentric frame (display stays star-relative), integrated
+   on hierarchical Jacobi coordinates in three tiers by time warp
+   (see "Three tiers of gravity" below). Toggling back
    to Kepler recomputes each planet's elements from its final state
    vector (perturbations carry over); moons snap back to their tuned
    display orbits (or sail off free if they were ejected).
