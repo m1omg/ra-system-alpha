@@ -71,6 +71,7 @@ so. With the CPU throttled 3× (about a 2017 MacBook Air) the climate costs unde
 node tools/climatecheck.mjs           # load, stability, forcing, impacts, edits, save/restore, analysis
 node tools/climate-tune.mjs --check   # every tuned world still at its target
 node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, reset, strikes, views
+node tools/patchcheck.mjs             # the physics patches, unset, are altdev2 to the bit
 node tools/impactladder.mjs           # a measurement: what 1e23..1e30 J does to Earth and Satis, over 1 Myr
 node tools/nbodycheck.mjs             # in Chromium: the gravity tiers, their accuracy and switching
 node tools/surfacecheck.mjs           # in Chromium: ▣ Surface holds a world still while time runs on

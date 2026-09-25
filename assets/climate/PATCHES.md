@@ -3,7 +3,8 @@
 `assets/climate/physics/` is the planet-climate-sandbox's altdev2 model, copied
 verbatim. Each change below sits behind a parameter whose default reproduces
 altdev2 exactly, so it can be taken upstream as it is. Each is marked in the
-code with `[ra-climate patch]`.
+code with `[ra-climate patch]`; `node tools/patchcheck.mjs` holds the defaults
+to altdev2, bit for bit.
 
 ## weatherCapK — silicate weathering is supply-limited when hot
 
@@ -27,6 +28,49 @@ after 10 Myr instead of 0.101, so it was re-tuned under the cap (outgassing
 4.71 → 1.31, tools/climate-tune.mjs). Every documented world, Anubis
 included, now settles to the same state over a megayear with the cap and
 without it.
+
+## Life follows the climate — biosphere.js, volatiles.js
+
+Six parameters, all unset in altdev2; this edition sets every one (profiles.js,
+`STILL`). `tools/patchcheck.mjs` runs the patched model with them unset beside
+the verbatim copy from the commit that brought the physics in, and requires
+every saved field to agree to the bit.
+
+- **`originWait`** — a bug fix. `stepLife` lifts any first step of an origin
+  from below `EXTINCT` to twice it, so every origin took one step: a world
+  whose eukaryotes died had them back the next day and a third of the planet
+  a megayear later, and `PRO_ORIGIN`/`EUK_ORIGIN` were never waited. Set, the
+  population waits that long of habitable conditions (with a host, for
+  eukaryotes), then seeds and spreads.
+- **`abiogenesis: false`** — prokaryotes are never originated. A world that
+  has lost them, surface and refuge, stays dead. (The spin-up states grew them
+  on Anubis, Mars and Titan by the bug above; the ledger drops those.)
+- **`heatKillsDry`** — with no liquid water left, `habitableShare` still
+  reports how far past the ceilings the bands are. Without it an ocean that
+  boiled away took its heat excess with it, and life on a 500 °C world faded
+  over `SPREAD`, two megayears.
+- **`heatDeathFastYears`** — the die-off time constant, 20 yr at 20 K past a
+  ceiling, keeps shortening to this at 100 K past it (this edition: a day).
+  `heatShock` kills a population outright where every band is 100 K past its
+  ceiling, and the system layer calls it when a strike lands, so the verdict
+  does not wait for the next step (a day of wall clock at real time).
+- **`deepRefuge`** — prokaryotes keep a refuge 1.5 km down in the crust, 35 K
+  warmer than the surface, its temperature following the surface through the
+  half-rise time of conduction into rock (about 113 kyr for an e-folding). A
+  boiled ocean that rains back out within millennia never reaches it, and the
+  surface is recolonised from it (Sleep et al. 1989; Abramov & Mojzsis 2009);
+  a steam envelope that stays does, about 17 kyr on; a magma ocean that melts
+  down past it takes it (`meltRefuge`, called by the system layer).
+- **`lifeGatesBio`** — the photosynthetic biosphere (the oxygen source) and
+  the biological methane source are scaled by how much of the ground the
+  prokaryotes could hold they still hold. A dead planet stops making oxygen.
+
+Measured on Earth (tools/climatecheck.mjs, "Life follows the climate"): 10²⁴ J
+is a winter the complex biosphere comes through; 5×10²⁶ J kills complex life
+within a month and microbes survive below, back over the surface within
+megayears; 10²⁸ J sterilises the surface at once and the crust about 17 kyr
+later; 10²⁹ J melts through the refuge. Complex life lost on a habitable world
+is back after 8×10⁸ yr; in altdev2 it was back the next day.
 
 ## Not a patch: how the energy of a strike gets in
 

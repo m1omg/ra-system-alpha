@@ -17,6 +17,7 @@ import { captureWorld, applyWorld } from './game/snapshot.js';
 import { classify, STATES } from './physics/classify.js';
 import { NBANDS, X, DX, maxStep, setWaterInventory, update } from './physics/climate.js';
 import { partitionWater } from './physics/volatiles.js';
+import { habitableShare, meltRefuge, initRefuge, heatShock, HEAT_FAST_AT, dieOffYears, LIFE_EXTINCT, LIFE_SPREAD, REFUGE_DEPTH, REFUGE_CEILING } from './physics/biosphere.js';
 import { derive } from './physics/planet.js';
 import { clamp, smoothstep, steamOpacity, YEAR, S_EARTH } from './physics/constants.js';
 import { atmosphereLook, cloudLook, surfaceHidden, volcanoLook } from './render/atmosphere.js';
@@ -37,8 +38,42 @@ export const RS = {
   TMEAN: 72, TMIN: 73, TMAX: 74, STATE: 75, LAG: 76, TIME: 77,
   NOLIQ: 78, CLOUDMEAN: 79, INSOL: 80, AIR: 81, HASWATER: 82, TOTALWATER: 83,
   SURFT: 84, OBLQ: 85, MAGMA: 86,
-  SIZE: 88,
+  LIFE: 87, LIFECAUSE: 88, LIFESINCE: 89,
+  SIZE: 90,
 };
+
+// ---- the life ledger ------------------------------------------------------------
+// What lives on a world, as the book has it, and what the climate has since
+// done to it. The book's level is where a world starts; after that the model's
+// own populations decide (physics/biosphere.js: prokaryotes, eukaryotes and the
+// deep crust's refuge), and the ledger only reads them: complex life while
+// there are eukaryotes, microbes while there are prokaryotes at the surface or
+// below it, nothing when neither. Intelligence is the book's, and once complex
+// life has been lost it needs complex life back for INTELLIGENCE_YEARS before
+// it counts again. The level never exceeds the book's: a world documented
+// lifeless stays so, whatever the model could grow on it.
+export const LIFE_CAUSES = ['heat', 'boiled', 'cooked', 'magma', 'frozen', 'dry', 'anoxia', 'starved'];
+const LIFE_LEVEL = { intelligent: 3, complex: 2, alien: 1, seeded: 1, native: 1, microbial: 1 };
+const INTELLIGENCE_YEARS = 5e8;
+// A magma ocean melts the refuge where it reaches it: melt costs latent heat
+// plus the warming to the solidus, about 1.8 MJ per kilogram of rock.
+const ROCK_RHO = 3000;               // kg/m^3
+const MELT_J_PER_KG = 1.8e6;
+// Nephtys's life lives in its sea of sulfuric acid, not water (the book: acid
+// as solvent, siloxane biomolecules). Nearly pure acid freezes at about +3 C
+// and boils at 337 C at one atmosphere; the life is gated at 330 C. Where the
+// acid is liquid it spreads as prokaryotes do, heat kills it by the same rule,
+// and nothing originates it again.
+const ACID_FREEZE = 276, ACID_GATE = 603;   // K
+function acidRoom(w) {
+  let room = 0, over = 0;
+  for (let i = 0; i < NBANDS; i++) {
+    const T = w.T[i];
+    room += smoothstep(ACID_FREEZE - 5, ACID_FREEZE, T) * (1 - smoothstep(ACID_GATE - 10, ACID_GATE, T)) / NBANDS;
+    over += Math.max(0, T - ACID_GATE) / NBANDS;
+  }
+  return { room, over };
+}
 
 // Steps are never shorter than this unless the planet itself demands it. At a
 // real-time clock a day of simulated time is a day of wall time, and stepping
@@ -142,6 +177,14 @@ function injectHeat(r, E) {
     update(w, 0);
     if (!any && !(need > 0)) break;
   }
+  // Melt deep enough to reach the life refuge takes it with it (biosphere.js).
+  let newly = false;
+  for (let i = 0; i < NBANDS; i++) {
+    if (!(r.magma[i] / (ROCK_RHO * MELT_J_PER_KG) >= REFUGE_DEPTH)) continue;
+    if (!r.melted) r.melted = new Uint8Array(NBANDS);
+    if (!r.melted[i]) { r.melted[i] = 1; newly = true; }
+  }
+  if (newly) meltRefuge(w, sum(r.melted) / NBANDS);
   partitionWater(w, 0);
   update(w, 0);
   return spent;
@@ -200,8 +243,11 @@ export class ClimateSystem {
       lagReq: 0, lagDone: 0, lagDrop: 0, lag: 1,
       meta: profileMeta(sys, data),
       rs: new Float32Array(RS.SIZE),
+      ledger: null,
+      melted: null,               // bands molten down past the life refuge
     };
     if (opts.snapshot) this.applySnapshot(rec, opts.snapshot, params);
+    if (!rec.ledger) rec.ledger = this.freshLedger(rec);
     if (opts.flux > 0 || opts.flux === 0) {
       this.setFlux(rec, opts.flux, opts.starTemp);
       // The diagnostics must describe this starlight before the first step
@@ -240,6 +286,10 @@ export class ClimateSystem {
     rec.baseHeat = snap.baseHeat ?? p.internalHeat ?? 0;
     rec.pulse = snap.pulse ?? 0;
     rec.magma = Array.isArray(snap.magma) ? Float64Array.from(snap.magma) : null;
+    rec.melted = Array.isArray(snap.melted) ? Uint8Array.from(snap.melted) : null;
+    // a save carries its ledger; a spin-up or an older save starts one afresh
+    rec.ledger = snap.ledger ? { ...snap.ledger } : null;
+    if (rec.ledger && p.deepRefuge) initRefuge(rec.sim.world);
     rec.sim.world.params.internalHeat = snap.liveHeat
       ?? rec.baseHeat + (rec.pulse > 0 ? rec.pulse / (PULSE_TAU_YEARS * YEAR) : 0);
     rec.credit = snap.credit ?? 0;
@@ -348,6 +398,11 @@ export class ClimateSystem {
     r.credit -= dt;
     sim.stepOnce(dt);
     if (r.magma) drainMagma(r);
+    if (!r.magma && r.melted) {          // a new crust, which the refuge can fill again
+      r.melted = null;
+      if (w.params.deepRefuge) meltRefuge(w, 0);
+    }
+    this.updateLife(r, dt);
     r.lagDone += dt;
     this.stepsTaken++;
     if (r.pulse <= 0 && w.params.internalHeat !== r.baseHeat) {
@@ -374,6 +429,11 @@ export class ClimateSystem {
       for (let i = 0; i < NBANDS; i++) E[i] = J * sh[i] * NBANDS / d.area;
       r.lastInjected = injectHeat(r, E) * d.area;
       if (kind === 'asteroid' || kind === 'collision') this.aftermath(r, J, o, d);
+      // what the heat has killed outright, now rather than at the next step
+      heatShock(w);
+      const g = r.ledger;
+      if (g && g.kind === 'acid' && w.params.heatDeathFastYears > 0 && Math.min(...w.T) >= ACID_GATE + HEAT_FAST_AT) g.alien = 0;
+      this.updateLife(r, 0);
     }
     if (o.waterKg > 0) {
       const eo = o.waterKg / 1.4e21;
@@ -421,6 +481,73 @@ export class ClimateSystem {
       }
     }
     update(w, 0);
+  }
+
+  // ---- life -------------------------------------------------------------------
+
+  // A world as the book has it: its documented life present, and nothing the
+  // model grew where the book has none (the spin-up grew prokaryotes on Anubis,
+  // Mars and Titan in one step each -- the origination the originWait patch
+  // fixes). A world the model has no habitat for yet keeps its documented life
+  // in the deep crust, which is where Nu's lives until its ocean is modelled.
+  freshLedger(r) {
+    const w = r.sim.world, d = r.data || {};
+    const doc = LIFE_LEVEL[d.life] || 0, kind = d.life === 'alien' ? 'acid' : 'water';
+    if (!w.diag) update(w, 0);
+    const room = habitableShare(w);
+    const L = w.life || (w.life = { pro: 0, euk: 0 });
+    if (kind === 'water' && doc >= 1) {
+      L.pro = Math.max(L.pro ?? 0, room.pro);
+      L.euk = doc >= 2 ? Math.max(L.euk ?? 0, room.euk) : 0;
+      L.deep = 1;
+    } else if (!((w.params.biosphere ?? 0) > 0)) {
+      w.life = { pro: 0, euk: 0, deep: 0 };
+    }
+    if (w.params.deepRefuge) initRefuge(w);
+    return { doc, kind, level: doc, cause: -1, since: w.time,
+      complexSince: doc >= 2 ? -1e12 : null, alien: kind === 'acid' ? 1 : 0 };
+  }
+
+  updateLife(r, dt) {
+    const g = r.ledger; if (!g || !g.doc) return;
+    const w = r.sim.world, L = w.life || {};
+    let alive;
+    if (g.kind === 'acid') {
+      const { room, over } = acidRoom(w);
+      if (room < g.alien) g.alien += (room - g.alien) * (1 - Math.exp(-dt / dieOffYears(over, w.params.heatDeathFastYears)));
+      else if (g.alien > LIFE_EXTINCT) g.alien += (room - g.alien) * (1 - Math.exp(-dt / LIFE_SPREAD));
+      if (g.alien < LIFE_EXTINCT) g.alien = 0;
+      alive = g.alien > 0 ? 1 : 0;
+    } else {
+      alive = L.euk > LIFE_EXTINCT ? 2 : (L.pro > LIFE_EXTINCT || (L.deep ?? 0) > LIFE_EXTINCT) ? 1 : 0;
+    }
+    if (alive >= 2) { if (g.complexSince == null) g.complexSince = w.time; } else g.complexSince = null;
+    let level = Math.min(g.doc, alive);
+    if (level === 2 && g.doc >= 3 && w.time - g.complexSince >= INTELLIGENCE_YEARS) level = 3;
+    if (level !== g.level) {
+      if (level < g.level) g.cause = LIFE_CAUSES.indexOf(this.lifeCause(r, level));
+      else if (level >= g.doc) g.cause = -1;
+      g.level = level; g.since = w.time;
+    }
+  }
+
+  // What took a level away, read off the world as it is when it goes.
+  lifeCause(r, level) {
+    const w = r.sim.world, dg = w.diag, L = w.life || {}, room = habitableShare(w);
+    // the melt is the cause where most of the surface is molten, or where it
+    // reached the refuge; a few molten bands on a boiled world are the heat's
+    let molten = 0;
+    if (r.magma) for (let i = 0; i < NBANDS; i++) if (r.magma[i] > 0) molten += 1 / NBANDS;
+    if (molten >= 0.5 || (level === 0 && r.melted)) return 'magma';
+    if (r.ledger.kind === 'acid') return acidRoom(w).over > 0 ? 'heat' : 'frozen';
+    if (level === 0 && (L.Td ?? 0) > REFUGE_CEILING) return 'cooked';
+    const liquid = w.water.ocean + w.water.seaIce;
+    const hot = (level >= 1 ? room.hotEuk : room.hotPro) > 0;
+    if (hot) return liquid < 0.1 * (liquid + w.water.vapour) ? 'boiled' : 'heat';
+    if (!(liquid > 1e-4)) return 'dry';
+    if (level >= 1 && (room.carbon ?? 1) < 0.5) return 'starved';
+    if (level >= 1 && (dg.pO2 ?? 0) < 0.04 * 0.21) return 'anoxia';
+    return 'frozen';
   }
 
   // The old protocol: global heat and delivered water.
@@ -530,6 +657,10 @@ export class ClimateSystem {
     let meltShare = 0;
     if (r.magma) for (let i = 0; i < NBANDS; i++) if (r.magma[i] > 0) meltShare += 1 / NBANDS;
     o[RS.MAGMA] = meltShare;
+    const g = r.ledger;
+    o[RS.LIFE] = g ? g.level : 0;
+    o[RS.LIFECAUSE] = g ? g.cause : -1;
+    o[RS.LIFESINCE] = g ? g.since : 0;
     return o;
   }
 
@@ -569,6 +700,7 @@ export class ClimateSystem {
       openOcean: dg.openOcean ?? null, seaIce: dg.seaIceFrac ?? null, landIce: dg.landIceFrac ?? null,
       bio: dg.bio ?? 0,
       life: w.life ? { ...w.life } : null,
+      ledger: r.ledger ? { ...r.ledger, causeId: LIFE_CAUSES[r.ledger.cause] || null } : null,
       g, R: dg.d ? dg.d.R : null,
       params: {
         landAlbedo: p.landAlbedo, obliquity: p.obliquity, rotationHours: p.rotationHours,
@@ -592,6 +724,8 @@ export class ClimateSystem {
     s.baseHeat = r.baseHeat;
     s.pulse = r.pulse;
     if (r.magma) s.magma = Array.from(r.magma);
+    if (r.melted) s.melted = Array.from(r.melted);
+    if (r.ledger) s.ledger = { ...r.ledger };
     s.flux = r.flux;
     // The clock's own state, so a restored world takes the same next step: the
     // credit it has not spent, the starlight banked since its last step, and
@@ -612,6 +746,7 @@ export class ClimateSystem {
   restore(key, snap) {
     const r = this.worlds.get(key); if (!r) return false;
     this.applySnapshot(r, snap, r.sim.world.params);
+    if (!r.ledger) r.ledger = this.freshLedger(r);
     this.fillRender(r);
     return true;
   }

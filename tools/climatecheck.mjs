@@ -11,12 +11,13 @@
 // that the surface analysis finds the sea on a map that has one.
 import { loadSystems, bookInsolation } from './lib/bodies.mjs';
 import { createHost } from '../assets/climate/hostcore.js';
-import { ClimateSystem, RS } from '../assets/climate/system.js';
+import * as SYSTEM from '../assets/climate/system.js';
 import { paramsFor, climateCapable, profileOf, LUMINOUS, STILL } from '../assets/climate/profiles.js';
 import { SPINUP } from '../assets/climate/spinup.js';
 import { analyseSurface, heightForShare } from '../assets/climate/analysis.js';
 import { S_EARTH } from '../assets/climate/physics/constants.js';
 
+const { ClimateSystem, RS } = SYSTEM, LIFE_CAUSES = SYSTEM.LIFE_CAUSES || [];
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {
   if (cond) { pass++; console.log(`  ok   ${msg}${extra ? '  ' + extra : ''}`); }
@@ -26,7 +27,7 @@ const section = (s) => console.log(`\n${s}`);
 
 const systems = loadSystems();
 const trim = (d) => ({ key: d.key, kind: d.kind, massKg: d.massKg, radiusKm: d.radiusKm,
-  rotationPeriod: d.rotationPeriod, comp: d.comp, custom: !!d.custom });
+  rotationPeriod: d.rotationPeriod, comp: d.comp, custom: !!d.custom, life: d.life || null });
 
 function build(sysName) {
   const sys = new ClimateSystem();
@@ -185,6 +186,107 @@ section('Energy goes into the climate at once, and where it lands');
     sys.impact('earth', { J: 7e31, kind: 'collision', mKg: 6.4e23, vKms: 15 });
     const lost = 1 - r.sim.world.n2 / n2;
     ok(lost > 0.03 && lost < 0.2, 'a Mars-sized body at 15 km/s blows away part of the air', `${(lost * 100).toFixed(1)} %`);
+  }
+}
+
+section('Life follows the climate');
+{
+  const earth = () => { const b = build('sol'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('earth') }; };
+  const lvl = (r) => r.rs[RS.LIFE];
+  const why = (r) => LIFE_CAUSES[r.rs[RS.LIFECAUSE]] || null;
+  const DAY = 1 / 365.25;
+  {
+    const s = build('sol'), q = build('ra');
+    const L = (b, k) => b.sys.worlds.get(k).rs[RS.LIFE];
+    ok(L(s, 'earth') === 3 && L(q, 'satis') === 3 && L(q, 'uatur') === 1 && L(q, 'nu') === 1 && L(q, 'nephtys') === 1,
+      'documented life opens as documented: Earth and Satis intelligent; Uat-Ur, Nu and Nephtys microbial',
+      ['earth', 'satis', 'uatur', 'nu', 'nephtys'].map((k) => `${k} ${L(k === 'earth' ? s : q, k)}`).join(', '));
+    const none = [...s.keys.filter((k) => k !== 'earth').map((k) => [s, k]), ...q.keys.filter((k) => !['satis', 'uatur', 'nu', 'nephtys'].includes(k)).map((k) => [q, k])];
+    const wrong = none.filter(([b, k]) => L(b, k) !== 0 || b.sys.worlds.get(k).sim.world.life.pro > 0).map(([, k]) => k);
+    ok(wrong.length === 0, 'and every world without documented life opens without any', wrong.join(' ') || `${none.length} worlds`);
+  }
+  {
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 1e24, kind: 'asteroid', x: 0.3, mKg: 3e16, vKms: 20 });
+    advance(sys, 30, 2, 30, f);
+    ok(lvl(r) === 3, '1e24 J: a winter, and the complex biosphere comes through it', `level ${lvl(r)}`);
+  }
+  {
+    // an ocean boiled into the sky that rains back out within millennia
+    const { sys, f, r } = earth(), w = r.sim.world;
+    sys.impact('earth', { J: 5e26, kind: 'asteroid', x: 0 });
+    advance(sys, 30 * DAY, 30 * DAY, 30, f);
+    ok(lvl(r) === 1 && w.life.euk === 0, '5e26 J: complex life is dead within a month of the boil', `level ${lvl(r)}, euk ${w.life.euk}`);
+    advance(sys, 1e4, 500, 30, f);
+    ok(lvl(r) === 1 && (why(r) === 'heat' || why(r) === 'boiled'), '...microbes come through it in the deep crust, and the cause is the heat', `level ${lvl(r)}, ${why(r)}`);
+    advance(sys, 3e6, 1e5, 30, f);
+    ok(w.life.pro > 0.1 && w.life.euk === 0, '...recolonise the surface within megayears, and complex life has not re-evolved',
+      `pro ${w.life.pro.toFixed(3)}, euk ${w.life.euk}`);
+    ok((r.sim.world.diag.bio ?? w.bio) > 0.05, '...and photosynthesis comes back with them', `bio ${(w.bio ?? 0).toFixed(3)}`);
+  }
+  {
+    // a supercritical envelope that never clears: the heat reaches the refuge
+    const { sys, f, r } = earth(), w = r.sim.world;
+    sys.impact('earth', { J: 1e28, kind: 'collision' });
+    ok(lvl(r) === 1 && w.life.pro === 0 && why(r) === 'boiled', '1e28 J: complex life and surface microbes die the moment it lands, not at the next step',
+      `level ${lvl(r)}, ${why(r)}, coolest band ${(Math.min(...w.T) - 273.15).toFixed(0)} °C`);
+    advance(sys, 30 * DAY, 30 * DAY, 30, f);
+    ok(lvl(r) === 1 && w.life.pro === 0 && w.life.deep > 0.5, '1e28 J: the surface is sterile within a month, the deep crust not yet',
+      `level ${lvl(r)}, pro ${w.life.pro}, deep ${w.life.deep?.toFixed(3)}`);
+    advance(sys, 1e5, 2000, 30, f);
+    ok(lvl(r) === 0 && why(r) === 'cooked', '...and a hundred millennia of it cooks the crust sterile', `level ${lvl(r)}, ${why(r)}, deep ${w.life.deep}`);
+    ok((w.bio ?? 0) < 1e-3, '...with nothing left photosynthesising', `bio ${w.bio}`);
+    advance(sys, 3e6, 1e5, 30, f);
+    ok(lvl(r) === 0 && w.life.pro === 0, 'a sterilised world stays sterile');
+  }
+  {
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 1e29, kind: 'collision' });
+    advance(sys, 30 * DAY, 30 * DAY, 30, f);
+    ok(lvl(r) === 0 && why(r) === 'magma', '1e29 J: a magma ocean melts through the refuge; sterile within a month', `level ${lvl(r)}, ${why(r)}`);
+  }
+  {
+    // complex life lost on a world that stays habitable: it waits the model's
+    // own eight hundred million years to be reinvented, and intelligence waits
+    // half a billion more
+    const { sys, f, r } = earth(), w = r.sim.world;
+    w.life.euk = 0;
+    advance(sys, 1e6, 3e4, 30, f);
+    ok(w.life.euk === 0 && lvl(r) === 1, 'complex life that is gone stays gone for a megayear, not a day (altdev2: 32 % back)', `euk ${w.life.euk}`);
+    advance(sys, 7.8e8, 2e7, 30, f);
+    const early = w.life.euk;
+    advance(sys, 5e7, 2e6, 30, f);
+    ok(early === 0 && w.life.euk > 0.1 && lvl(r) === 2, '...and re-evolves after 8e8 yr: complex, not yet intelligent',
+      `euk ${early} at 7.8e8, ${w.life.euk.toFixed(3)} at 8.3e8, level ${lvl(r)}`);
+    advance(sys, 5e8, 2e7, 30, f);
+    ok(lvl(r) === 3, '...and intelligent again 5e8 yr after that', `level ${lvl(r)}`);
+  }
+  {
+    // Nephtys's life lives in its acid sea: the gate is 330 °C
+    const q = build('ra'), f = forcingOf(q.ins, q.keys), r = q.sys.worlds.get('nephtys');
+    advance(q.sys, 100, 5, 30, f);
+    ok(lvl(r) === 1, 'Nephtys\'s acid-sea life lives at its documented 231 °C', `${(r.rs[RS.TMEAN] - 273.15).toFixed(0)} °C, level ${lvl(r)}`);
+    // 1e25 J peaks at the gate and cools; 3e25 J takes the sea to 530 °C,
+    // short of melting rock (3e26 J would, and then the cause is magma)
+    q.sys.impact('nephtys', { J: 1e25, kind: 'collision' });
+    advance(q.sys, 1, 0.1, 30, f);
+    const lived = lvl(r);
+    q.sys.impact('nephtys', { J: 3e25, kind: 'collision' });
+    const peak = r.rs[RS.TMIN];
+    advance(q.sys, 1, 0.1, 30, f);
+    ok(lived === 1 && lvl(r) === 0 && why(r) === 'heat', '...comes through a strike that peaks at 330 °C, and dies of one that goes past it',
+      `level ${lived} then ${lvl(r)} at ${(peak - 273.15).toFixed(0)} °C, ${why(r)}`);
+  }
+  {
+    // the ledger is part of the save
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 5e26, kind: 'asteroid', x: 0 });
+    advance(sys, 100, 5, 30, f);
+    const snap = JSON.parse(JSON.stringify(sys.snapshot().earth));
+    const b = build('sol'); b.sys.restore('earth', snap);
+    const r2 = b.sys.worlds.get('earth');
+    ok(lvl(r2) === lvl(r) && r2.rs[RS.LIFECAUSE] === r.rs[RS.LIFECAUSE] && r2.rs[RS.LIFESINCE] === r.rs[RS.LIFESINCE],
+      'a save carries the life ledger: level, cause and when', `${lvl(r2)} ${why(r2)} at ${r2.rs[RS.LIFESINCE]?.toFixed(1)} yr`);
   }
 }
 

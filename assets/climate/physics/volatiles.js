@@ -1374,7 +1374,13 @@ export function stepVolatiles(w, dtYears) {
   // much not on a cooked one -- which used to be invisible, because nothing
   // displayed it and the ground stayed green at 800 C.
   {
-    const target = Math.max(p.biosphere ?? 0, 0) * photosynthesis(w);
+    // [ra-climate patch] lifeGatesBio: photosynthesis needs photosynthesisers.
+    // The control is how hard they work; with the parameter set, the share of
+    // the ground they could hold that they still hold (biosphere.js) scales
+    // it, so a planet whose life has died stops making oxygen, and one being
+    // recolonised makes it again as the survivors spread.
+    const alive = p.lifeGatesBio ? (w.lifeAlive ?? 1) : 1;
+    const target = Math.max(p.biosphere ?? 0, 0) * photosynthesis(w) * alive;
     if (w.bio == null) w.bio = target;
     else {
       const tau = target < w.bio ? BIO_DIE : BIO_GROW;
@@ -1510,7 +1516,8 @@ export function stepVolatiles(w, dtYears) {
       // civilisation on a frozen or sunless world is not a case this model has
       // anything to say about and letting the term through unconditionally
       // would have put methane on a planet that had boiled dry.
-      const bio = (CH4_BIO * Math.max(p.biosphere ?? 0, 0)
+      // [ra-climate patch] lifeGatesBio: the methanogens have to be alive too.
+      const bio = (CH4_BIO * Math.max(p.biosphere ?? 0, 0) * (p.lifeGatesBio ? (w.lifeAlive ?? 1) : 1)
           * (1 + (CH4_ANOX_BOOST - 1) * (1 - oxidising))
         + CH4_ANTHRO * (w.industrial ?? 0)) * wet * lit;
 

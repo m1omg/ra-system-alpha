@@ -32,7 +32,7 @@
 // climate and reports. Life that changed the climate would be the `biosphere`
 // control, and that already exists.
 
-import { clamp, smoothstep } from './constants.js';
+import { clamp, smoothstep, YEAR } from './constants.js';
 import { NBANDS } from './climate.js';
 
 // Oxygen a eukaryote needs, in bar. The lower bound is where aerobic
@@ -78,6 +78,14 @@ const SPREAD = 2.0e6;          // yr, filling ground that is already habitable
 // about how long dying takes.
 const HEAT_DEATH = 20;         // yr, once every band is well past the limit
 const HEAT_MARGIN = 20;        // K past the ceiling for the full rate
+// [ra-climate patch] heatDeathFastYears. Twenty years is how long a planet
+// twenty kelvin past the ceiling takes to die, and it was also the floor: a
+// surface a hundred kelvin past it -- an ocean boiled by an impact, a steam
+// envelope at 500 C -- took the same twenty years, where a cell there is
+// cooked in minutes and the only thing slowing a planet's worth of dying is
+// the heat reaching every habitat. With the parameter set, the time constant
+// keeps shortening past HEAT_MARGIN, to heatDeathFastYears at HEAT_FAST_AT.
+const HEAT_FAST_AT = 100;      // K past the ceiling
 
 // ...and the other half of that asymmetry: what a frozen world keeps.
 //
@@ -136,6 +144,32 @@ const CO2_AMPLE = 100e-6;      // bar, no limitation above it
 // not what a sterilised planet does.
 const EXTINCT = 1e-4;
 
+// [ra-climate patch] deepRefuge: the prokaryotes' refuge from heat.
+//
+// HEAT_DEATH says heat has no refuge, and at the surface that is right. But
+// the deep biosphere -- a kilometre and more down in the crust, living off
+// rock and water, a sizeable share of the planet's cells -- is insulated from
+// the surface by the rock itself. An ocean boiled into the sky by an impact
+// rains back out within millennia, and heat conducted into rock reaches a
+// kilometre and a half in a hundred thousand years, so the deep biosphere
+// comes through the boil and recolonises the surface afterwards (Sleep et al.
+// 1989; Abramov & Mojzsis 2009 found it survives even the Late Heavy
+// Bombardment). A surface that stays hot -- a steam envelope that never clears
+// -- does reach it, and then nothing is left. So is a magma ocean that melts
+// down past it, which the caller reports (meltRefuge).
+//
+// One refuge for the planet, at REFUGE_DEPTH, where the crust is REFUGE_GEOTHERM
+// warmer than the surface (Earth's continental gradient, ~25 K/km). Its
+// temperature follows the global mean surface temperature through a single
+// lag fitted to the half-rise time of conduction into a half-space
+// (erfc(z / 2 sqrt(kt)) = 1/2 at t = 1.1 z^2 / k), and it dies as the surface
+// populations do once it passes the prokaryote ceiling of 395 K.
+const REFUGE_DEPTH = 1500;                // m
+const REFUGE_GEOTHERM = 35;               // K warmer than the surface there
+const ROCK_DIFFUSIVITY = 1e-6;            // m^2/s, crustal rock
+const REFUGE_TAU = 1.1 * REFUGE_DEPTH * REFUGE_DEPTH / ROCK_DIFFUSIVITY / YEAR / Math.LN2;   // ~113 kyr
+const REFUGE_CEILING = 395;               // K, the prokaryote record, as in the bands
+
 // The share of the surface each could occupy right now, as it stands.
 //
 // Band by band, because habitability is local: a world whose mean is 60 C can
@@ -147,7 +181,19 @@ export function habitableShare(w) {
   // and the ocean term is whether there is any to be liquid.
   const water = smoothstep(0, 0.004, w.water.ocean + w.water.seaIce * 0.25)
               * (dg.liquidAllowed ?? 1);
-  if (!(water > 0)) return { pro: 0, euk: 0 };
+  // [ra-climate patch] heatKillsDry: a world with no liquid water left still
+  // reports how hot it is. Without it an ocean that boiled away took its
+  // excess heat with it, and life on a 500 C planet was left to fade over
+  // SPREAD, the refugia timescale, instead of dying of the heat.
+  if (!(water > 0)) {
+    if (!w.params.heatKillsDry) return { pro: 0, euk: 0 };
+    let hotPro = 0, hotEuk = 0;
+    for (let i = 0; i < NBANDS; i++) {
+      hotPro += Math.max(0, w.T[i] - 400) / NBANDS;
+      hotEuk += Math.max(0, w.T[i] - 338) / NBANDS;
+    }
+    return { pro: 0, euk: 0, hotPro, hotEuk, carbon: 0 };
+  }
 
   // Oxygen, for the eukaryotes only, and taken from the atmosphere as a whole
   // rather than band by band -- it mixes.
@@ -189,9 +235,81 @@ export function habitableShare(w) {
 // and thaws is not the same afterwards -- the prokaryotes come back from
 // refugia in a few million years and the eukaryotes, if they were lost, take
 // most of a billion to be reinvented.
+// [ra-climate patch] deepRefuge: a share of the refuge melted through (the
+// caller knows where the crust is molten, and how deep).
+// `melted` is the share of the planet molten down past the refuge so far; it
+// stays off-limits until the caller reports the crust solid again (melted 0).
+export function meltRefuge(w, melted) {
+  const L = w.life; if (!L) return;
+  L.melted = clamp(melted || 0, 0, 1);
+  L.deep = Math.max(0, Math.min(L.deep ?? 0, 1 - L.melted));
+  if (L.deep < EXTINCT) L.deep = 0;
+}
+
+// [ra-climate patch] the time constant a population dies with, `over` kelvin
+// past its ceiling: the model's own rule, plus heatDeathFastYears. Exported so
+// the system layer's acid-sea life (Nephtys) dies by the same one.
+export function dieOffYears(over, fastYears) {
+  let tau = SPREAD * Math.pow(HEAT_DEATH / SPREAD, smoothstep(0, HEAT_MARGIN, over));
+  if (fastYears > 0 && over > HEAT_MARGIN)
+    tau = HEAT_DEATH * Math.pow(fastYears / HEAT_DEATH, smoothstep(HEAT_MARGIN, HEAT_FAST_AT, over));
+  return tau;
+}
+export const LIFE_EXTINCT = EXTINCT, LIFE_SPREAD = SPREAD;
+export { REFUGE_DEPTH, REFUGE_CEILING };
+
+// [ra-climate patch] heatDeathFastYears: a surface that is past a population's
+// ceiling by HEAT_FAST_AT in every band is dead the moment it gets there. A
+// hundred kelvin past the ceiling cooks a cell in seconds, and with nowhere on
+// the surface cooler there is nothing for a planet's worth of dying to wait
+// on. Whoever moved the temperatures calls this (system.js, after a strike),
+// so the verdict does not wait for the next step -- a day of wall clock, at
+// real time. The refuge is not the surface, and is left alone.
+export function heatShock(w) {
+  const L = w.life; if (!L || !(w.params.heatDeathFastYears > 0)) return;
+  let coolest = Infinity;
+  for (let i = 0; i < NBANDS; i++) coolest = Math.min(coolest, w.T[i]);
+  if (coolest >= 338 + HEAT_FAST_AT) L.euk = 0;
+  if (coolest >= 400 + HEAT_FAST_AT) { L.pro = 0; L.euk = 0; }
+}
+export { HEAT_FAST_AT };
+
+// The refuge as it stands under a surface that has been as it is now for
+// long enough: call it where a world is loaded, before anything is done to
+// it. A refuge first seen after an impact would be taken to have always been
+// as hot as the boiled surface above it.
+export function initRefuge(w) {
+  const L = w.life; if (!L) return;
+  if (L.deep == null) L.deep = L.pro > EXTINCT ? 1 : 0;
+  if (L.Td == null) L.Td = (w.diag?.Tmean ?? 288) + REFUGE_GEOTHERM;
+}
+
+function stepRefuge(w, L, dtYears, room) {
+  const Ts = w.diag?.Tmean ?? 288;
+  if (L.deep == null) L.deep = L.pro > EXTINCT ? 1 : 0;
+  if (L.Td == null) L.Td = Ts + REFUGE_GEOTHERM;
+  L.Td += (Ts + REFUGE_GEOTHERM - L.Td) * (1 - Math.exp(-dtYears / REFUGE_TAU));
+  const over = L.Td - REFUGE_CEILING;
+  if (over > 0) {
+    if (L.deep > 0) {
+      L.deep *= Math.exp(-dtYears / dieOffYears(over, w.params.heatDeathFastYears));
+      if (L.deep < EXTINCT) L.deep = 0;
+    }
+  } else if (L.pro > EXTINCT && room.pro > EXTINCT) {
+    // a living surface keeps the crust below it inhabited, or fills it again --
+    // where there is crust, and not from a surface that is itself dying
+    const cap = 1 - (L.melted ?? 0);
+    if (cap > EXTINCT) {
+      const from = Math.max(L.deep, EXTINCT * 2);
+      L.deep = Math.min(from + (cap - from) * (1 - Math.exp(-dtYears / SPREAD)), cap);
+    }
+  }
+}
+
 export function stepLife(w, dtYears) {
   const room = habitableShare(w);
   w.lifeRoom = room;
+  const p = w.params;
   // First step on a fresh world. A preset that carries a biosphere is a planet
   // that already has one -- asking for oxygenic photosynthesis and then being
   // told there are no cells yet would be absurd -- so it starts inhabited to
@@ -204,6 +322,7 @@ export function stepLife(w, dtYears) {
   }
   const L = w.life;
   if (!(dtYears > 0)) return;
+  if (p.deepRefuge) stepRefuge(w, L, dtYears, room);
 
   for (const k of ['pro', 'euk']) {
     const target = room[k];
@@ -218,8 +337,32 @@ export function stepLife(w, dtYears) {
       const over = (k === 'pro' ? room.hotPro : room.hotEuk) || 0;
       tau = SPREAD * Math.pow(HEAT_DEATH / SPREAD,
                               smoothstep(0, HEAT_MARGIN, over));
+      // [ra-climate patch] heatDeathFastYears; unset, this is the line above
+      if (p.heatDeathFastYears > 0) tau = dieOffYears(over, p.heatDeathFastYears);
     } else if (here > EXTINCT && seeded) {
       tau = SPREAD;                             // spreading into new ground
+      if (p.originWait) L[k + 'Wait'] = 0;
+    } else if (k === 'pro' && p.deepRefuge && (L.deep ?? 0) > EXTINCT && target > EXTINCT) {
+      // [ra-climate patch] deepRefuge: not an origin but a return, from below
+      L.pro = Math.min(target, EXTINCT * 2);
+      continue;
+    } else if (seeded && p.originWait) {
+      // [ra-climate patch] originWait. The seed below turns any origination
+      // into one step: the first step lands under EXTINCT and is lifted to
+      // twice it, and from there SPREAD fills the planet -- so a world whose
+      // eukaryotes died had them back within a day, a third of the planet
+      // within a megayear, and PRO_ORIGIN and EUK_ORIGIN were never waited.
+      // With the parameter set the origin is waited for: that long of habitable
+      // conditions (with a host, for eukaryotes) and then a seed, which then
+      // spreads. `abiogenesis: false` means prokaryotes are never originated
+      // at all: a world that has lost them, surface and refuge, stays dead.
+      if (k === 'pro' && p.abiogenesis === false) continue;
+      L[k + 'Wait'] = (L[k + 'Wait'] ?? 0) + dtYears;
+      if (L[k + 'Wait'] >= (k === 'pro' ? PRO_ORIGIN : EUK_ORIGIN)) {
+        L[k] = Math.min(target, EXTINCT * 2);
+        L[k + 'Wait'] = 0;
+      }
+      continue;
     } else if (seeded) {
       tau = k === 'pro' ? PRO_ORIGIN : EUK_ORIGIN;   // starting from nothing
     } else {
@@ -234,4 +377,8 @@ export function stepLife(w, dtYears) {
   }
   // A world that loses its prokaryotes has lost everything above them too.
   if (L.pro <= 0) L.euk = 0;
+  // [ra-climate patch] lifeGatesBio: how much of the ground the prokaryotes
+  // could hold they do hold -- the photosynthesisers and methanogens the
+  // biosphere and methane sources need (volatiles.js).
+  if (p.lifeGatesBio) w.lifeAlive = clamp(L.pro / Math.max(room.pro, 0.05), 0, 1);
 }

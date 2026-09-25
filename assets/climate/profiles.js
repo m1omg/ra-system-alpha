@@ -25,6 +25,12 @@ export const STILL = {
   emissions: 0, fossilUsed: 0, fossilInfinite: false, resurfacingAge: 0,
   // silicate weathering stops speeding up above 320 K: erosion-limited (PATCHES.md)
   weatherCapK: 320,
+  // life follows the climate (PATCHES.md): origins take their time, a
+  // sterilised world stays sterile, heat kills fast and still kills on a world
+  // boiled dry, the deep crust shelters microbes from a passing boil, and only
+  // living things make oxygen and methane
+  originWait: true, abiogenesis: false, heatKillsDry: true, heatDeathFastYears: 1 / 365.25,
+  deepRefuge: true, lifeGatesBio: true,
 };
 
 // Kinds the orrery draws with a solid surface. Gas giants, brown dwarfs, stars
