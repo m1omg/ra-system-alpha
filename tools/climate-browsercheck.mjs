@@ -55,13 +55,17 @@ const section = (s) => console.log(`\n${s}`);
 const browser = await pw.chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 async function openSystem(sys) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  // everything the page asks for, so a Reset can be held to asking for none of it again
+  const asked = new Set();
+  page.on('request', (q) => asked.add(q.url()));
+  page.__asked = asked;
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   // Errors inside event handlers are caught and logged, not thrown: count them too.
   // (A missing texture is a 404 the app recovers from, not an error in the code.)
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text().split('\n')[0]); });
   await page.addInitScript((s) => { try { localStorage.setItem('ra-climate-system', s); } catch (_) {} }, sys);
-  await page.goto(BASE, { waitUntil: 'load' });
+  await page.goto(BASE, { waitUntil: 'load', timeout: 120000 });
   // every climate world reports a state
   await page.waitForFunction(() => window.RAClimate && RAClimate.ready && RAClimateView.bodies.size > 0 &&
     [...RAClimateView.bodies.keys()].every((k) => RAClimate.state(k)), null, { timeout: 60000 }).catch(() => {});
@@ -171,7 +175,10 @@ try {
       // listed at the bottom".
       const order = () => page.evaluate(() => [...document.querySelectorAll('#nav .navitem:not(.sub)')].map((e) => e.dataset.key));
       await page.evaluate(() => applyOrbitEdit(bodies.find((b) => b.data.key === 'pluto'), 0.5, 0.01));
-      await page.waitForTimeout(2500);
+      // the list looks again about once a second of frame time, which on a
+      // loaded machine at a few frames a second is several seconds of wall clock
+      await until(page, () => { const k = [...document.querySelectorAll('#nav .navitem:not(.sub)')].map((e) => e.dataset.key);
+        return k.indexOf('pluto') < k.indexOf('venus'); }, null, 30000);
       const o1 = await order();
       ok(o1.indexOf('pluto') > o1.indexOf('mercury') && o1.indexOf('pluto') < o1.indexOf('venus'),
         'Pluto moved to 0.5 AU is listed between Mercury and Venus', o1.join(' '));
@@ -209,6 +216,12 @@ try {
         .map((k) => { const r = bodies.find((b) => b.data.key === k); if (!r) return [k, null];
           const v = new THREE.Vector3(); r.mesh.getWorldPosition(v); return [k, [v.x, v.y, v.z, r.M]]; })));
       await page.evaluate(() => { const s = document.getElementById('speed'); s.value = 0; setSpeed(0); if (playing) togglePlay(); });
+      // The worker fetches each map itself for its first reading, one world at a
+      // time; on a loaded machine the last are still to come a while after the
+      // page is up, and those fetches are not the Reset's. Measure after them.
+      const read = await until(page, () => !RAClimateView.analysisBusy && [...RAClimateView.bodies.values()].every((cv) => {
+        const m = cv.rec.mesh && cv.rec.mesh.material && cv.rec.mesh.material.map; return !m || !m.image || cv.token === m.uuid; }), null, 90000);
+      ok(read, 'every climate world\'s map has had its first reading');
       // the pristine state is the one this page opened with: two Resets with
       // anything in between must land on exactly the same world
       await page.evaluate(() => { window.__stay = 1; document.getElementById('t-sysreset').click(); });
@@ -221,8 +234,12 @@ try {
         impGoExtinct(bodies.find((b) => b.data.key === 'earth'), false);
         toggleNbody(); nbStep(0.5); toggleNbody(); elapsedYears += 3; });
       await page.evaluate(() => { saveSystemState(); window.__save = localStorage.getItem(stateKey()); });
-      // a rebuilt world takes its images from memory: nothing goes over the network
-      const fetched = []; const onReq = (q) => fetched.push(q.url().replace(BASE, ''));
+      // a rebuilt world takes its images from memory: nothing the page already had
+      // goes over the network again. (A map the page had not got round to asking
+      // for yet -- on a loaded machine a few are still coming -- is its first load.)
+      const before = new Set(page.__asked);
+      const fetched = [], first = [];
+      const onReq = (q) => (before.has(q.url()) ? fetched : first).push(q.url().replace(BASE, ''));
       page.on('request', onReq);
       const t0 = Date.now();
       await page.evaluate(() => document.getElementById('t-sysreset').click());
@@ -234,7 +251,8 @@ try {
         marsA: orbCurrent(bodies.find((b) => b.data.key === 'mars')).a, earth: bodies.find((b) => b.data.key === 'earth').extinct,
         saved: !!localStorage.getItem(stateKey()) }));
       ok(r1.stay === 1 && took < 3000, 'Reset stays in the page', took + ' ms');
-      ok(fetched.length === 0, 'Reset fetches nothing', fetched.length ? fetched.slice(0, 4).join(' ') : '0 requests');
+      ok(fetched.length === 0, 'Reset fetches nothing again', (fetched.length ? fetched.slice(0, 4).join(' ') : '0 requests')
+        + (first.length ? ` (${first.length} first load${first.length > 1 ? 's' : ''} still arriving: ${first.slice(0, 3).join(' ')})` : ''));
       ok(r1.t === 0 && r1.phobos && Math.abs(r1.marsA - 1.5237) < 0.01 && !r1.earth && !r1.saved,
         'Reset puts back time, a deleted moon, an edited orbit and a dead biosphere, and clears the save', JSON.stringify(r1));
       const p1 = await pos();
