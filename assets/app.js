@@ -4263,7 +4263,7 @@ function nbBtnState(){
 }
 function nbDisable(){
   if(!nbodyOn) return;
-  nbodyOn=false; nbTier='F'; _nbEncounter=false;
+  nbodyOn=false; nbTier='F'; _nbEncounter=false; _nbCapAQuiet=0; _nbJOrder=new WeakMap();
   const star=nbStar();
   // snapshot every state first — restoring moons needs their parent's final state
   const snap=new Map();
@@ -4476,6 +4476,7 @@ let _nbEncounter=false;                  // a passer disturbing some planet's mo
 let _nbMsA=0;                            // measured cost of one tier-A substep
 let _nbCapWhy='';                        // why full N-body is holding the clock back
 const _nbCaps={F:0, A:0};                // what F and A can do now, sim years per wall second
+let _nbCapAQuiet=0;                      // what A could do the last time nothing was passing close
 const NB_TIER_DOWN=0.8;                  // step back down only well inside the lower tier's cap
 
 // What each body is bound to, for the fast tiers: the rule of nbDominantParent
@@ -4653,19 +4654,63 @@ function nbTree(H){
     X.x[i]=b.r.x; X.y[i]=b.r.y; X.z[i]=b.r.z; X.vx[i]=b.v.x; X.vy[i]=b.v.y; X.vz[i]=b.v.z;
     X.rad[i]=(list[i].data.radiusKm||1000)/KM_PER_AU; }
   nbTreeBary(T);
-  for(let i=0;i<n;i++){                          // Jacobi order: by semi-major axis about the parent
-    const ks=kids[i]; if(ks.length<2) continue;
-    const key=new Map();
-    for(const c of ks){
-      const rx=T.B.x[c]-X.x[i], ry=T.B.y[c]-X.y[i], rz=T.B.z[c]-X.z[i];
-      const o=nbAEM(rx, ry, rz, T.B.vx[c]-X.vx[i], T.B.vy[c]-X.vy[i], T.B.vz[c]-X.vz[i], T.gm[i]+T.M[c]);
-      key.set(c, o ? o.a : 1e12+Math.hypot(rx,ry,rz));
-    }
-    ks.sort((p,q)=>key.get(p)-key.get(q));
-  }
+  for(let i=0;i<n;i++) if(kids[i].length>1) nbJacobiOrder(T, i, kids[i]);   // Jacobi order: by semi-major axis
   nbToJacobi(T);
   nbTreeSteps(T);
   return T;
+}
+// The Jacobi order of a parent's children: by semi-major axis, and kept. The
+// tree is rebuilt every frame, and it used to be sorted afresh each time by the
+// orbit about the parent alone -- which past a massive companion swings with the
+// companion's phase: beyond Horus, Kauket's dipped under Yamm's for a step now
+// and then, the decomposition changed under them, and tier K, which keeps every
+// orbit exactly, went on keeping different orbits (Yamm's a moved 1.6 % in a
+// megayear). Now the order last used stands until the Jacobi orbits in that
+// order -- which tier K leaves exactly as they were -- put two neighbours out of
+// place by more than NB_JORDER_SLACK. A new or lost child sorts afresh.
+const NB_JORDER_SLACK=0.25;
+let _nbJOrder=new WeakMap();                 // parent record -> its children, in the order last used
+function nbJacobiOrder(T, i, ks){
+  const {list, X, B}=T;
+  const prev=_nbJOrder.get(list[i]);
+  let order=null;
+  if(prev && prev.length===ks.length){
+    const at=new Map(ks.map(c=>[list[c], c]));
+    if(prev.every(r=>at.has(r))) order=prev.map(r=>at.get(r));
+  }
+  if(order){
+    for(let pass=0; pass<order.length; pass++){
+      const a=nbJacobiA(T, i, order);
+      let k=0; while(k+1<order.length && !(a[k]>a[k+1]*(1+NB_JORDER_SLACK))) k++;
+      if(k+1>=order.length) break;
+      const t=order[k]; order[k]=order[k+1]; order[k+1]=t;
+    }
+  } else {
+    const key=new Map();
+    for(const c of ks){
+      const rx=B.x[c]-X.x[i], ry=B.y[c]-X.y[i], rz=B.z[c]-X.z[i];
+      const o=nbAEM(rx, ry, rz, B.vx[c]-X.vx[i], B.vy[c]-X.vy[i], B.vz[c]-X.vz[i], T.gm[i]+T.M[c]);
+      key.set(c, o ? o.a : 1e12+Math.hypot(rx,ry,rz));
+    }
+    order=ks.slice().sort((p,q)=>key.get(p)-key.get(q));
+  }
+  for(let k=0;k<order.length;k++) ks[k]=order[k];
+  _nbJOrder.set(list[i], order.map(c=>list[c]));
+}
+// The semi-major axis of each child's Jacobi orbit with the children in `order`
+// (as nbToJacobi builds them); an unbound one sorts outermost.
+function nbJacobiA(T, i, order){
+  const {X, B, M, gm}=T, out=[];
+  let cx=X.x[i], cy=X.y[i], cz=X.z[i], cvx=X.vx[i], cvy=X.vy[i], cvz=X.vz[i], eta=gm[i];
+  for(const c of order){
+    const jx=B.x[c]-cx, jy=B.y[c]-cy, jz=B.z[c]-cz, jvx=B.vx[c]-cvx, jvy=B.vy[c]-cvy, jvz=B.vz[c]-cvz;
+    eta+=M[c];
+    const r=Math.hypot(jx,jy,jz), a=1/(2/r-(jvx*jvx+jvy*jvy+jvz*jvz)/eta);
+    out.push(a>0 ? a : 1e12+r);
+    const f=M[c]/eta;
+    cx+=jx*f; cy+=jy*f; cz+=jz*f; cvx+=jvx*f; cvy+=jvy*f; cvz+=jvz*f;
+  }
+  return out;
 }
 // every body's subtree: its mass and barycentre, children first
 function nbTreeBary(T){
@@ -4791,13 +4836,19 @@ function nbPlan(want, dtSim){
   if(!(msF>0)) msF=msA>0 ? msA*wF/wA : 0.03;
   if(!(msA>0)) msA=msF*wA/wF;
   if(_nbMsPerStep>0 && _nbMsA>0){ msF=Math.min(msF, 2*_nbMsA*wF/wA); msA=Math.min(msA, 2*_nbMsPerStep*wA/wF); }
-  const capF=capOf(H.ok ? H.T.hF : _nbH, msF);
+  const capF=capOf(H.ok ? H.T.hF : _nbH, msF), capA=H.ok ? capOf(H.hA, msA) : 0;
+  if(!_nbEncounter && capA>0) _nbCapAQuiet=capA/dtSim;
+  // While something passes close, tier A is not what runs, and the passer has
+  // cut its step: K takes over only past what A managed with nothing passing,
+  // a clock geological by that measure -- not at the modest rate A's
+  // shrunken cap would hand to K, which ignores the passer altogether.
+  const kAt=_nbEncounter && _nbCapAQuiet>0 ? Math.max(capA, _nbCapAQuiet*dtSim) : capA;
   let tier='F', dt=want;
   if(H.ok && want>capF*(nbTier==='F'?1:NB_TIER_DOWN)){
-    if(want>capOf(H.hA, msA)*(nbTier==='K'?NB_TIER_DOWN:1)) tier='K';     // geological: orbits only
+    if(want>kAt*(nbTier==='K'?NB_TIER_DOWN:1)) tier='K';                  // geological: orbits only
     else if(!_nbEncounter) tier='A';
   }
-  _nbCaps.F=capF/dtSim; _nbCaps.A=H.ok ? capOf(H.hA, msA)/dtSim : 0;
+  _nbCaps.F=capF/dtSim; _nbCaps.A=capA/dtSim;
   _nbCapped=false;
   if(tier==='F' && want>capF){ dt=capF; _nbCapped=true; _nbCapWhy=H.ok?'close':'heavy'; }
   if(tier!==nbTier){ nbTier=tier; nbBtnState(); }
