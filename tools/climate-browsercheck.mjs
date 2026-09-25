@@ -270,6 +270,24 @@ try {
         'Reset after a supernova, a shattered planet and a custom world gives back the same system', JSON.stringify(w1.destroyed));
       ok(await page.evaluate(() => RAClimate.state('earth')[RAClimate.RS.TIME] === 0 && elapsedYears === 0), 'with every clock at zero');
 
+      section('sol: a destroyed world has no climate to change');
+      const gone = await page.evaluate(async () => {
+        focusBody('mars', 'force');
+        await new Promise((r) => setTimeout(r, 1200));
+        const before = !!document.getElementById('i-climate');
+        const mars = bodies.find((b) => b.data.key === 'mars'); mars.dmgJ = impBindingJ(mars) * 1.2; shatterBody(mars);
+        openInfo(mars.data);                                        // the panel as it is rebuilt at once
+        const rebuilt = !!document.getElementById('i-climate');
+        await new Promise((r) => setTimeout(r, 600));
+        const later = !!document.getElementById('i-climate');
+        openInfo(mars.data);
+        return { before, rebuilt, later, reopened: !!document.getElementById('i-climate') };
+      });
+      ok(gone.before && !gone.rebuilt && !gone.later && !gone.reopened,
+        'shattering Mars takes its climate panel away, and reopening it shows none', JSON.stringify(gone));
+      await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
+      await page.waitForTimeout(600);
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());

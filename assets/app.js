@@ -1526,7 +1526,10 @@ function uvToLocal(rec, u, v, out){
   const phi=u*Math.PI*2, theta=(1-v)*Math.PI, st=Math.sin(theta);
   return out.set(-Math.cos(phi)*st, Math.cos(theta), Math.sin(phi)*st).multiplyScalar(impLocalRadius(rec));
 }
-function uvToWorld(rec, u, v){ return rec.mesh.localToWorld(uvToLocal(rec,u,v,new THREE.Vector3())); }
+// (the mesh's matrices are brought up to date first: they are otherwise last
+// frame's until the next render, and a world moving on its orbit would put the
+// spot a frame behind its own centre)
+function uvToWorld(rec, u, v){ rec.mesh.updateWorldMatrix(true, false); return rec.mesh.localToWorld(uvToLocal(rec,u,v,new THREE.Vector3())); }
 
 /* ---- persistent scars: two canvas-textured overlay spheres per body (lazy).
    Children of rec.mesh, so they inherit spin and the per-frame size scaling
@@ -3487,7 +3490,10 @@ function launchAsteroid(rec, hit){
   const dist=Math.max(tgtR*10, camera.position.distanceTo(tgtW)*0.35);
   const start=tgtW.clone().addScaledVector(A,-dist);
   const T=Math.min(3.6, Math.max(1.4, 3.6-0.55*Math.log10(impSpdKms/11)));
-  impAsteroids.push({rec,u,v,rig,mesh,start,t:0,T,E,
+  // the run-in is laid out about the target and rides along with it, so a world
+  // moving on its orbit during the flight does not drag the path across the sky
+  const startRel=start.clone().sub(worldPosOf(rec));
+  impAsteroids.push({rec,u,v,rig,mesh,start,startRel,t:0,T,E,
     mKg:impRho*(Math.PI/6)*Math.pow(impDiaKm*1000,3), vKms:impSpdKms, matI:impMatI,   // for momentum + delivery
     spin:new THREE.Vector3(Math.random()*4-2,Math.random()*4-2,Math.random()*4-2)});
   sfxWhoosh(T);
@@ -3547,6 +3553,7 @@ function updateImpacts(dt){
     const a=impAsteroids[i];
     a.t+=dt;
     const tgt=uvToWorld(a.rec,a.u,a.v);
+    if(a.startRel) a.start.copy(worldPosOf(a.rec)).add(a.startRel);
     const k=a.t/a.T;
     if(k>=1){
       applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
@@ -3643,7 +3650,7 @@ function updateImpacts(dt){
   // the dust haze expands and fades. This aftermath now runs on SIM time, like the
   // debris ring, so the speed slider fast-forwards re-accretion (and pausing freezes
   // it); the gravity step is sub-stepped so the integrator stays stable at high warp.
-  const debWarp=(playing&&!surfaceView)?timeScale:0, ddt=dt*debWarp;
+  const debWarp=playing?timeScale:0, ddt=dt*debWarp;
   const nSub=Math.max(1, Math.min(64, Math.ceil(ddt/0.05))), hSub=ddt/nSub;
   for(const D of debrisFields){
     D.t+=ddt;
@@ -3873,8 +3880,10 @@ function exitImpact(){
   renderer.domElement.style.cursor='grab';
 }
 function updateSurfaceUI(){
-  const b=document.getElementById('imp-surface');
-  if(b){ b.textContent=surfaceView?T('imp-surface-on'):T('imp-surface'); b.classList.toggle('on',surfaceView); }
+  for(const id of ['imp-surface','t-surface']){
+    const b=document.getElementById(id);
+    if(b){ b.textContent=surfaceView?T('imp-surface-on'):T('imp-surface'); b.classList.toggle('on',surfaceView); }
+  }
 }
 function enterSurfaceView(){
   const rec=bodies.find(b=>b.data.key===selected) || (APP.currentData && bodies.find(b=>b.data.key===APP.currentData.key));
@@ -4480,7 +4489,10 @@ const NB_TIER_DOWN=0.8;                  // step back down only well inside the 
 // What each body is bound to, for the fast tiers: the rule of nbDominantParent
 // (the lightest heavier body it is bound to and inside the Hill sphere of),
 // strictly -- bound to nothing but the star is top level -- and counting
-// wrecks, whose mass still pulls. Descendants are listed parents first.
+// wrecks, whose mass still pulls. Strictly also in that the whole orbit must
+// stay inside the Hill sphere (apoapsis within it): a planet passing another
+// can be bound to it for a moment, and tier K, which has no encounters, would
+// then keep it captured for good. Descendants are listed parents first.
 function nbHierarchy(){
   const list=nbList(), star=nbStar();
   const H={list, star, par:new Map(), roots:[], kids:new Map(), desc:new Map(), ok:false, hA:0};
@@ -4494,11 +4506,15 @@ function nbHierarchy(){
       for(const b of list){
         if(b===rec || b===star || !(b.nb.gm>rec.nb.gm)) continue;
         if(best && !(b.nb.gm<best.nb.gm)) continue;       // only a lighter candidate can improve
-        const r=b.nb.r.distanceTo(rec.nb.r);
+        const r=b.nb.r.distanceTo(rec.nb.r), mu=b.nb.gm+rec.nb.gm;
         if(!(r>0)) continue;
-        if(!(b.nb.v.distanceToSquared(rec.nb.v)/2 - (b.nb.gm+rec.nb.gm)/r < 0)) continue;   // not bound to it
+        const v2=b.nb.v.distanceToSquared(rec.nb.v), a=1/(2/r-v2/mu);
+        if(!(a>0)) continue;                                  // not bound to it
+        const rv=(rec.nb.r.x-b.nb.r.x)*(rec.nb.v.x-b.nb.v.x)+(rec.nb.r.y-b.nb.r.y)*(rec.nb.v.y-b.nb.v.y)
+                +(rec.nb.r.z-b.nb.r.z)*(rec.nb.v.z-b.nb.v.z);
+        const e=Math.sqrt((1-r/a)*(1-r/a)+rv*rv/(mu*a));
         const P=parentOf(b, depth+1)||star;
-        if(r < b.nb.r.distanceTo(P.nb.r)*Math.cbrt(b.nb.gm/(3*P.nb.gm))) best=b;
+        if(a*(1+e) < b.nb.r.distanceTo(P.nb.r)*Math.cbrt(b.nb.gm/(3*P.nb.gm))) best=b;
       }
     }
     memo.set(rec, best);
@@ -6189,11 +6205,13 @@ function animate(){
   // not per frame, so the fastest N-body clock is the same at 20 fps as at 144.
   _nbCapped=false;
   let nbH=null;
-  if(nbodyOn && playing && !surfaceView && simDtYears>0){
+  if(nbodyOn && playing && simDtYears>0){
     const P=nbPlan(simDtYears, dtSim); nbH=P.H; simDtYears=P.dt;
   }
 
-  if(playing && !surfaceView){
+  // ▣ Surface holds one world still under the camera (the view follows it and
+  // its spin stops); time, orbits and climate run on for everything.
+  if(playing){
     if(nbodyOn){                               // real gravity: integrates + positions rec.nb bodies
       if(nbH && nbTier==='A') simDtYears=nbStepA(simDtYears, nbH);   // a close approach can end it early
       else if(nbH && nbTier==='K') nbStepK(simDtYears, nbH);
@@ -6210,14 +6228,15 @@ function animate(){
       else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*simDtYears;
         if(rec.M>1e4) rec.M%=Math.PI*2;          // geological time: keep the phase precise
         positionBody(rec); }
-      rec.mesh.rotation.y += rec.spin*dt*timeScale*SPIN_GAIN;   // rotation slows/freezes with the time rate
+      if(!(surfaceView && rec===surfaceRec))
+        rec.mesh.rotation.y += rec.spin*dt*timeScale*SPIN_GAIN;   // rotation slows/freezes with the time rate
     }
   }
   if(playing){
     elapsedYears += simDtYears;          // real sim-time elapsed
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
-  lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
+  lastSimDtYears = playing ? simDtYears : 0;
   // the climate: every terrestrial world, forced by the starlight it just received
   if(window.RAClimateView) RAClimateView.frame(dt, lastSimDtYears, dtSim>0?simDtYears/dtSim:0);
   if(_nbCapped!==animate._cappedShown){ animate._cappedShown=_nbCapped; updateSpeedCapUI(); }
@@ -6422,6 +6441,7 @@ function setupInteraction(){
   makeTypable('imp-pow-v','imp-pow', n=>Math.log10(n/1e12)/0.30, updateImpactUI);
   const impH=document.getElementById('imp-heal'); if(impH) impH.onclick=impHeal;
   const impS=document.getElementById('imp-surface'); if(impS) impS.onclick=toggleSurfaceView;
+  const tS=document.getElementById('t-surface'); if(tS) tS.onclick=toggleSurfaceView;
   const impX=document.getElementById('imp-exit'); if(impX) impX.onclick=exitImpact;
   window.addEventListener('keydown',e=>{ if(e.code==='Escape'&&impacting&&!flying) exitImpact(); });
 
@@ -6947,7 +6967,10 @@ function openInfo(d){
   APP.currentData=d;
   // a destroyed world (impact lab) shows its debris-field epitaph instead
   const drec=bodies.find(b=>b.data.key===d.key);
-  if(drec && drec.destroyed) return openInfoDestroyed(drec);
+  if(drec && drec.destroyed){
+    if(window.RAClimateView) RAClimateView.afterOpenInfo(d);   // takes the climate panel away
+    return openInfoDestroyed(drec);
+  }
   // the author's word-for-word text, where the source document has it
   // (in Slovak mode a natural translation of that text)
   const verbatim = locVerbatim(d.key);

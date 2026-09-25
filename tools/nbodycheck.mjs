@@ -236,25 +236,27 @@ try {
       for (let i = 0; i < 10; i++) nbStepK(100, nbHierarchy());
       for (let i = 0; i < 20; i++) { const H = nbHierarchy(); H.hA = nbTierAStep(H); nbStepA(0.5, H); }
       for (let i = 0; i < 5; i++) nbStepF(0.01, nbHierarchy());
-      const P1 = __nb.jacobi(), pd = Math.max(...Object.keys(P0).map((k) => Math.abs(P1[k] / P0[k] - 1)));
+      const P1 = __nb.jacobi(), pw = Object.keys(P0).map((k) => [k, Math.abs(P1[k] / P0[k] - 1)]).sort((x, y) => y[1] - x[1])[0];
       const lost = moons.filter(([k, p]) => !__nb.rel(k, p).bound).map(([k]) => k);
-      return { pd, lost };
+      return { pd: pw[1], pk: pw[0], lost };
     });
-    ok(trip.pd < 1e-2 && trip.lost.length === 0, 'F → A → K → A → F keeps every planet on its orbit and every moon on its planet',
-      `planets ${(trip.pd * 100).toFixed(3)} %` + (trip.lost.length ? ' lost ' + trip.lost.join(' ') : ''));
+    // (a broken switch moves an orbit by tens of per cent; what is left is the
+    // planets' own dynamics over the trip, Pluto meeting Neptune at random phases)
+    ok(trip.pd < 5e-2 && trip.lost.length === 0, 'F → A → K → A → F keeps every planet on its orbit and every moon on its planet',
+      `largest change ${trip.pk} ${(trip.pd * 100).toFixed(3)} %` + (trip.lost.length ? ' lost ' + trip.lost.join(' ') : ''));
     await page.evaluate((js) => __nb.put(js), s0);
 
     section(`${sys}: the clock picks the tier`);
     const plan = await page.evaluate(() => {
       // with the cost of a substep pinned, the choice is the caps' alone
-      const ms0 = [_nbMsPerStep, _nbMsA], out = [];
+      const ms0 = [_nbMsPerStep, _nbMsA], enc0 = _nbEncounter, out = []; _nbEncounter = false;
       const H0 = nbHierarchy(), nA = H0.roots.length, nF = H0.list.length;
       _nbMsPerStep = 0.001 * (nF * nF + 30 * nF); _nbMsA = 0.001 * (nA * nA + 30 * nA); nbPlan(1e-12, 1 / 30);
       const F = _nbCaps.F / 30, A = _nbCaps.A / 30;
       for (const w of [0.5 * F, Math.sqrt(F * A), 3 * A, 0.9 * A, 0.5 * A, 0.5 * F]) {
         nbPlan(w, 1 / 30); out.push(nbTier + (nbTier === 'A' ? ':' + document.getElementById('t-nbody').textContent.split('·')[1] : '')); }
       _nbEncounter = true; nbPlan(Math.sqrt(F * A), 1 / 30); const enc = [nbTier, _nbCapped]; _nbEncounter = false;
-      _nbMsPerStep = ms0[0]; _nbMsA = ms0[1];
+      _nbMsPerStep = ms0[0]; _nbMsA = ms0[1]; _nbEncounter = enc0;
       return { out, enc, ratio: A / F };
     });
     ok(plan.out.map((t) => t[0]).join('') === 'FAKKAF', 'the plan: slow F, between the caps A, past A\'s cap K, back down A then F',

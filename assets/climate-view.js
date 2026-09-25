@@ -210,6 +210,10 @@ function removeWorld(key){
   const cv=V.bodies.get(key); if(!cv) return;
   V.bodies.delete(key);
   CL.remove(key);
+  if(V.panelKey===key){                      // its panel goes with it
+    const box=document.getElementById('i-climate'); if(box) box.remove();
+    V.panelKey=null; CL.focus(null);
+  }
   if(cv.u){ cv.u.uClimOn.value=0; }
   const el=document.querySelector('.navitem[data-key="'+key+'"] .ctemp'); if(el) el.textContent='';
 }
@@ -836,12 +840,14 @@ function buildTempLegend(){
 /* ---------------- info panel ---------------- */
 V.afterOpenInfo=function(d){
   // First in the panel body: in this edition the climate is the point.
-  const host=document.getElementById('i-gallery')||document.getElementById('i-desc'); if(!host) return;
   const old=document.getElementById('i-climate'); if(old) old.remove();
+  const host=document.getElementById('i-gallery')||document.getElementById('i-desc'); if(!host) return;
   const star=d.kind==='star'||d.kind==='browndwarf';
   const cv=V.bodies.get(d.key);
   if(star){ V.panelKey=null; CL.focus(null); insertLumPanel(d); return; }
-  if(!cv){ V.panelKey=null; CL.focus(null); return; }
+  // a shattered, swallowed or otherwise gone world has no climate left to show
+  // or change, even in the frame before the climate lets go of it
+  if(!cv || !capable(cv.rec)){ V.panelKey=null; CL.focus(null); return; }
   const box=document.createElement('div'); box.id='i-climate'; box.className='clim';
   box.innerHTML=panelSkeleton(d);
   host.parentNode.insertBefore(box, host);

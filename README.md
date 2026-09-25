@@ -59,9 +59,10 @@ node tools/climatecheck.mjs           # load, stability, forcing, impacts, edits
 node tools/climate-tune.mjs --check   # every tuned world still at its target
 node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, language, views
 node tools/nbodycheck.mjs             # in Chromium: the gravity tiers, their accuracy and switching
+node tools/surfacecheck.mjs           # in Chromium: ▣ Surface holds a world still while time runs on
 ```
 
-The last two need Playwright (`npm i --no-save playwright`) and say "skipping"
+The last three need Playwright (`npm i --no-save playwright`) and say "skipping"
 without it; a skipped check is not a passed one.
 
 ## Alpha-only physics
