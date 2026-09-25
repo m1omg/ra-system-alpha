@@ -166,6 +166,41 @@ try {
       ok(pl.gas.every((v) => !/ppm/.test(v)), 'no gas field shows ppm', JSON.stringify(pl.gas));
       ok(/^0 %/.test(pl.sea) || /open sea 0 %/i.test(pl.sea), 'Pluto has no open sea', JSON.stringify(pl.sea));
 
+      section('sol: the sidebar follows the orbits');
+      // Reported: "even if you move Pluto closer to the Sun than Earth it STILL is
+      // listed at the bottom".
+      const order = () => page.evaluate(() => [...document.querySelectorAll('#nav .navitem:not(.sub)')].map((e) => e.dataset.key));
+      await page.evaluate(() => applyOrbitEdit(bodies.find((b) => b.data.key === 'pluto'), 0.5, 0.01));
+      await page.waitForTimeout(2500);
+      const o1 = await order();
+      ok(o1.indexOf('pluto') > o1.indexOf('mercury') && o1.indexOf('pluto') < o1.indexOf('venus'),
+        'Pluto moved to 0.5 AU is listed between Mercury and Venus', o1.join(' '));
+      const moonsAfter = await page.evaluate(() => { const all = [...document.querySelectorAll('#nav .navitem')].map((e) => e.dataset.key);
+        return all.slice(all.indexOf('pluto') + 1, all.indexOf('pluto') + 2); });
+      ok(moonsAfter[0] === 'charon', 'Charon still follows Pluto', moonsAfter.join(' '));
+      // a life tag set by the damage model survives a rebuild of the list
+      await page.evaluate(() => { const r = bodies.find((b) => b.data.key === 'earth'); impGoExtinct(r, false); });
+      await page.evaluate(() => { document.getElementById('t-lang').click(); document.getElementById('t-lang').click(); });
+      await page.waitForTimeout(300);
+      const tag = await page.evaluate(() => { const el = document.querySelector('#nav .navitem[data-key="earth"] .tag'); return el ? el.textContent : ''; });
+      ok(/unicellular/i.test(tag), 'Earth\'s "unicellular" tag survives a language switch', JSON.stringify(tag));
+      await page.evaluate(() => impHeal());
+      await page.waitForTimeout(300);
+      // Under N-body the list asks what each body orbits. The Sun pulls the Moon
+      // about twice as hard as Earth does, and the Moon still orbits Earth.
+      await page.evaluate(() => { if (!nbodyOn) toggleNbody(); });
+      await page.waitForTimeout(2500);
+      const par = await page.evaluate(() => Object.fromEntries(['moon', 'charon', 'io', 'phobos', 'earth']
+        .map((k) => { const p = nbDominantParent(bodies.find((b) => b.data.key === k)); return [k, p && p.data.key]; })));
+      ok(par.moon === 'earth' && par.charon === 'pluto' && par.io === 'jupiter' && par.phobos === 'mars' && par.earth === 'sun',
+        'under N-body each moon orbits its planet, each planet the Sun', JSON.stringify(par));
+      const o2 = await order();
+      const all2 = await page.evaluate(() => [...document.querySelectorAll('#nav .navitem')].map((e) => e.dataset.key));
+      ok(o2.indexOf('moon') < 0 && all2[all2.indexOf('earth') + 1] === 'moon', 'under N-body the Moon stays under Earth in the list', o2.join(' '));
+      const moonA = await page.evaluate(() => orbCurrent(bodies.find((b) => b.data.key === 'moon')).a * 1.495978707e8);
+      ok(Math.abs(moonA - 384400) < 20000, 'the Moon\'s live orbit is about 384 400 km', Math.round(moonA) + ' km');
+      await page.evaluate(() => { if (nbodyOn) toggleNbody(); });
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());
