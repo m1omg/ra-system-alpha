@@ -29,7 +29,7 @@ const YEARS_PER_SEC = 0.030;              // sim years per real second when time
 // second): the low end is true real-time (1 s = 1 s), the high end ≈ 2 years/second.
 const SEC_PER_YEAR  = 31557600;           // 365.25 days
 const RATE_MIN_YPS  = 1/SEC_PER_YEAR;     // slider min = real-time (1 sim-second per real-second)
-const RATE_MAX_YPS  = 2.0;                // slider max ≈ 2 years / second
+const RATE_MAX_YPS  = 1e7;                // slider max = 10 Myr / second: geological time, for the climate
 const DEFAULT_RATE_YPS = RATE_MIN_YPS;    // default = true real-time (1 s/s; planets ~frozen)
 const rateToSlider = (yps)=> 100*Math.log(yps/RATE_MIN_YPS)/Math.log(RATE_MAX_YPS/RATE_MIN_YPS);
 const DEFAULT_SPEED_V = rateToSlider(DEFAULT_RATE_YPS);
@@ -331,6 +331,7 @@ try{ if(localStorage.getItem('ra-lang')==='sk') LANG='sk'; }catch(_){}
 const UI_EN={
   'play':'▶ Play','pause':'⏸ Pause',
   'rt':'real-time','u-yr':'yr/s','u-mo':'mo/s','u-day':'days/s','u-hr':'hr/s','u-min':'min/s','u-s':'s/s',
+  'u-kyr':'kyr/s','u-myr':'Myr/s','e-kyr':'kyr','e-myr':'Myr','e-gyr':'Gyr',
   'e-yr':'yr','e-day':'days','e-hr':'hr','e-min':'min','e-s':'s',
   'real-scale':'📏 Real scale','compressed':'📐 Compressed',
   'authors-text':"📖 Author's text",'summary-source':'📖 Summary + source',
@@ -446,10 +447,10 @@ function applySysTitles(){
     if(h) h.innerHTML=T('title-sol-h1');
     document.title=T('doc-title-sol');
   }
-  // Alpha edition badge — survives language switches and the Sol retitle
-  if(h && h.innerHTML.indexOf('ALPHA')<0)
-    h.innerHTML+=' <small style="opacity:.65;font-size:.55em">ALPHA</small>';
-  if(document.title.indexOf('Alpha')<0) document.title+=' · Alpha';
+  // Climate edition badge — survives language switches and the Sol retitle
+  if(h && h.innerHTML.indexOf('CLIMATE')<0)
+    h.innerHTML+=' <small style="opacity:.65;font-size:.55em;color:#7fe6a8">CLIMATE</small>';
+  if(document.title.indexOf('Climate')<0) document.title+=' · Climate Sandbox';
 }
 function updateLangBtn(){ const b=document.getElementById('t-lang'); if(b) b.textContent = LANG==='sk'?'🌐 EN':'🌐 SK'; }
 function setLang(l){
@@ -876,6 +877,7 @@ function buildInner(){
   restoreCustoms();   // Alpha: re-create this browser's saved custom worlds
   setupStateUI();     // Alpha: 💾/📂/⬇/⬆/♻ + 🗑 delete wiring
   restoreSystemState();  // Alpha: auto-resume the saved world, if any
+  if(window.RAClimateView) RAClimateView.init();   // a climate for every terrestrial world
 
   hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
 
@@ -2212,8 +2214,9 @@ function applyStrike(rec, u, v, E, imp){
     }
     impDepositHeat(rec,s,u,1-v,rPx*(gasy?1.7:1.15+0.9*meltish),0.85+2.15*meltish);
     impPaintHeat(rec,s,true);
-    if(imp && imp.matI===0) impDeliverWater(rec,imp);
+    if(imp && imp.matI===0){ const wkg=impDeliverWater(rec,imp); if(window.RAClimateView) RAClimateView.water(rec, wkg); }
     rec.dmgJ=(rec.dmgJ||0)+E;
+    if(window.RAClimateView) RAClimateView.deposit(rec, E);
     rec._lastHit={u,v};                      // the killing blow shapes how the world breaks apart
     impUpdateMelt(rec);                      // craters → melt seas → global magma ocean
     if(rec.dmgJ>=U && !rec.shattered) shatterBody(rec);
@@ -2435,6 +2438,7 @@ function impApplyBlastEnergy(rec, E, source, states){
   impDepositHeat(rec,s,uv.u,1-uv.v,rPx,Math.min(3.1,0.55+0.32*f));
   impPaintHeat(rec,s,true);
   rec.dmgJ=(rec.dmgJ||0)+E;
+  if(window.RAClimateView) RAClimateView.deposit(rec, E);
   rec._lastHit={u:uv.u,v:uv.v};
   if(source && source.data) rec._lastHitBy={name:locName(source.data), sn:impIsStellar(source)};
   // rolling forensics log (console: impDmgLog) — every non-lab energy hit
@@ -3197,6 +3201,7 @@ function removeDebrisField(rec){
 }
 
 function impHeal(){
+  if(window.RAClimateView) RAClimateView.beforeHeal();   // which climates were hurt
   impBlastQueue.length=0;                    // cancel any still-travelling blast wave
   for(const rec of bodies){
     if(!rec._preFree) continue;
@@ -3285,6 +3290,7 @@ function impHeal(){
   }
   for(const t of evapTails) t.points.visible=showTails;
   if(bodies.some(r=>r._custom)) saveCustoms();
+  if(window.RAClimateView) RAClimateView.afterHeal();    // ...and they come back as they were
   if(APP.currentData && document.getElementById('info').classList.contains('open'))
     openInfo(APP.currentData);
   sfxChime();
@@ -3562,6 +3568,7 @@ function updateImpacts(dt){
           if(cold) impPaintHeat(rec,s,true);
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
+        if(window.RAClimateView) RAClimateView.deposit(rec, EJ);
         if(hit.uv) rec._lastHit={u:hit.uv.x, v:hit.uv.y};
         impUpdateMelt(rec);
         if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
@@ -3923,6 +3930,10 @@ let nbodyOn=false;
 const NB_GMK=4*Math.PI*Math.PI/SUN_KG;   // massKg -> GM in AU^3/yr^2 (GM_sun = 4π²)
 let _nbH=1.2e-4;                         // substep (yr) — retuned at enable to min-period/45
 const NB_MAXSTEPS=900;                   // per-frame cap; past it h grows (extreme warp only)
+const NB_SUBSTEPS_PER_SEC=36000;         // the N-body clock's budget per wall-clock second
+const NB_MAXSTEPS_FRAME=3000;            // ...and the most one (slow) frame may spend
+const NB_FRAME_BUDGET_MS=10;             // ...and never more wall clock than this per frame
+let _nbMsPerStep=0;                      // measured cost of one substep (running mean)
 let _nbF=null;                           // flat scratch arrays for the integrator
 const _nbV=new THREE.Vector3();
 function nbStar(){ return bodies.find(b=>b.data.kind==='star'); }
@@ -4258,7 +4269,8 @@ function nbStep(dt){
       F.x[i]=b.r.x; F.y[i]=b.r.y; F.z[i]=b.r.z;
       F.vx[i]=b.v.x; F.vy[i]=b.v.y; F.vz[i]=b.v.z; F.gm[i]=b.gm;
       F.rad[i]=(list[i].data.radiusKm||1000)/KM_PER_AU; }
-    const K=Math.max(1, Math.min(NB_MAXSTEPS, Math.ceil(dt/_nbH)));
+    const K=Math.max(1, Math.min(NB_MAXSTEPS_FRAME, Math.ceil(dt/_nbH)));
+    const tNb0=performance.now();
     const h=dt/K, h2=h*0.5, EPS2=1e-12;
     const hits=[];                         // contact pairs caught INSIDE the substep loop (no tunnelling)
     const markHit=(i,j)=>{ const key=i*8192+j; if(hits.indexOf(key)<0) hits.push(key); };
@@ -4288,6 +4300,7 @@ function nbStep(dt){
       }
     };
     accel();
+    const cctx=window.RAClimateView?RAClimateView.nbPrepare(list):null;   // starlight, substep by substep
     for(let s=0;s<K;s++){
       for(let i=0;i<n;i++){ F.px[i]=F.x[i]; F.py[i]=F.y[i]; F.pz[i]=F.z[i];
         F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
@@ -4295,7 +4308,11 @@ function nbStep(dt){
       sweptHits();
       accel();
       for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2; }
+      if(cctx) RAClimateView.nbAccumulate(cctx, F, h);
     }
+    if(cctx) RAClimateView.nbFinish(cctx, list);
+    const per=(performance.now()-tNb0)/K;
+    _nbMsPerStep=_nbMsPerStep>0 ? _nbMsPerStep+(per-_nbMsPerStep)*0.2 : per;
     for(let i=0;i<n;i++){ const b=list[i].nb;
       b.r.set(F.x[i],F.y[i],F.z[i]); b.v.set(F.vx[i],F.vy[i],F.vz[i]); }
     for(const key of hits) nbCollidePair(list[(key/8192)|0], list[key%8192]);
@@ -4503,7 +4520,7 @@ function crAInv(au){ const R=crARange();
   return Math.max(0, Math.min(100, 100*Math.log(au/R.min)/Math.log(R.max/R.min))); }
 function fmtAAU(au){ return au<0.02 ? Math.round(au*KM_PER_AU).toLocaleString()+' km'
                                     : (+au.toPrecision(3))+' AU'; }
-function crStoreKey(){ return 'ra-alpha-custom:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+function crStoreKey(){ return 'ra-climate-custom:'+(typeof SYS!=='undefined'?SYS:'ra'); }
 function fmtMassE(kg){
   if(kg>=1.5e29) return (kg/1.989e30).toFixed(2)+' M☉';
   if(kg>=1e27)   return (kg/1.898e27).toFixed(2)+' M♃';
@@ -4736,8 +4753,8 @@ function deleteSelected(){
    impUpdateMelt. Saved per edition+system (localStorage is shared
    across the three GitHub Pages sites). Auto-restores on load.
    ============================================================ */
-const ST_VER=1, ST_ED='alpha';
-function stateKey(){ return 'ra-alpha-state:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+const ST_VER=1, ST_ED='climate';
+function stateKey(){ return 'ra-climate-state:'+(typeof SYS!=='undefined'?SYS:'ra'); }
 let impRestoring=false;
 const _ST_STYLES=[['C',IMP_CHAR],['CS',IMP_CHAR_SOFT],['L',IMP_LAVA],['LS',IMP_LAVA_SOFT]];
 function stStyleName(st){ const e=_ST_STYLES.find(x=>x[1]===st); return e?e[0]:st; }
@@ -4875,10 +4892,11 @@ function restoreSystemState(){
     if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
   } finally { impRestoring=false; }
 }
-function exportSystemState(){
+async function exportSystemState(){
   saveSystemState();                                   // export exactly what Load would restore
   const bundle={ state:JSON.parse(localStorage.getItem(stateKey())||'null'),
                  customs:JSON.parse(localStorage.getItem(crStoreKey())||'[]') };
+  if(window.RAClimateView) bundle.climate=await RAClimateView.bundle();
   const blob=new Blob([JSON.stringify(bundle)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -4893,9 +4911,11 @@ function importSystemState(file){
       const bundle=JSON.parse(rd.result);
       const s=bundle.state;
       if(!s || s.v!==ST_VER || s.ed!==ST_ED) throw new Error('wrong edition/version');
-      localStorage.setItem('ra-system', s.sys);        // a sol save switches the app to sol
-      localStorage.setItem('ra-alpha-state:'+s.sys, JSON.stringify(s));
-      localStorage.setItem('ra-alpha-custom:'+s.sys, JSON.stringify(bundle.customs||[]));
+      localStorage.setItem('ra-climate-system', s.sys);        // a sol save switches the app to sol
+      localStorage.setItem('ra-climate-state:'+s.sys, JSON.stringify(s));
+      localStorage.setItem('ra-climate-custom:'+s.sys, JSON.stringify(bundle.customs||[]));
+      if(bundle.climate) localStorage.setItem('ra-climate-clim:'+s.sys, JSON.stringify(bundle.climate));
+      else localStorage.removeItem('ra-climate-clim:'+s.sys);
       location.reload();
     }catch(err){ alert('Not a valid '+ST_ED+' state file ('+err.message+')'); }
   };
@@ -4906,13 +4926,18 @@ function resetSystem(){
   if(!confirm(sk?'Obnoviť sústavu do pôvodného stavu? Odstráni VŠETKY poškodenia, vlastné telesá aj uložený stav.'
                :'Reset the system to its pristine original state? Removes ALL damage, custom bodies and the saved state.')) return;
   try{ localStorage.removeItem(crStoreKey()); localStorage.removeItem(stateKey()); }catch(_){}
+  if(window.RAClimateView) RAClimateView.clearSaved();
   location.reload();
 }
 function setupStateUI(){
   const g=id=>document.getElementById(id);
   const flash=(btn,txt)=>{ const t0=btn.textContent; btn.textContent=txt;
     setTimeout(()=>{ btn.textContent=t0; },900); };
-  if(g('t-save')) g('t-save').onclick=function(){ flash(this, saveSystemState()?'💾 ✓':'💾 ✗'); };
+  if(g('t-save')) g('t-save').onclick=function(){
+    const btn=this, ok=saveSystemState();
+    // the climate is saved alongside, once the worker has handed its worlds over
+    if(ok && window.RAClimateView) RAClimateView.save().then(c=>flash(btn, c?'💾 ✓':'💾 ✗'));
+    else flash(btn, ok?'💾 ✓':'💾 ✗'); };
   if(g('t-load')) g('t-load').onclick=function(){
     if(localStorage.getItem(stateKey())) location.reload();
     else flash(this,'📂 —'); };
@@ -5367,24 +5392,47 @@ function setupCreateLab(){
 let follow=null;            // body rec being followed
 const tween={active:false,t:0,fromCam:new THREE.Vector3(),fromTarget:new THREE.Vector3(),dist:0,body:null};
 
+let _frameCost=0, _nbCapped=false;
 function animate(){
   requestAnimationFrame(animate);
-  const dt=Math.min(clock.getDelta(),0.05);
+  const raw=clock.getDelta();
+  // Two clocks from one delta. Interaction (camera, flight, impact effects)
+  // keeps the old tenth-of-a-second ceiling. Simulated time does not: a flat
+  // ceiling silently throws away the clock on exactly the machines that run
+  // slowly (at 15 fps a 0.05 s cap loses a quarter of it). The ceiling on sim
+  // time follows the observed frame cost instead -- three times its running
+  // mean, between 0.1 and 1 s -- so a steady low frame rate keeps all its
+  // time while a GC pause or a backgrounded tab is still cut off.
+  const seen=Math.min(Math.max(raw,0),1);
+  _frameCost=_frameCost>0?_frameCost+(seen-_frameCost)*0.1:seen;
+  const dt=Math.min(raw,0.1);
+  const dtSim=Math.min(raw, Math.min(1, Math.max(0.1, _frameCost*3)));
   if(surfaceView && (!surfaceRec || bodies.indexOf(surfaceRec)<0 || surfaceRec.destroyed)) exitSurfaceView();
-  let simDtYears = playing ? YEARS_PER_SEC*timeScale*dt : 0;
-  // N-body can only integrate NB_MAXSTEPS substeps per frame — consuming more
-  // sim time would silently stretch the substep past the stability limit and
-  // moons would pump + grind into their planets (the high-warp "unrelated
-  // worlds explode" bug: Enceladus ⇄ Saturn). Cap the frame's sim time instead:
-  // an effective max time-warp while real gravity is on.
-  if(nbodyOn && simDtYears>NB_MAXSTEPS*_nbH) simDtYears=NB_MAXSTEPS*_nbH;
+  let simDtYears = playing ? YEARS_PER_SEC*timeScale*dtSim : 0;
+  // N-body can only integrate so many substeps — consuming more sim time
+  // would silently stretch the substep past the stability limit and moons
+  // would pump + grind into their planets (the high-warp "unrelated worlds
+  // explode" bug: Enceladus ⇄ Saturn). Cap the sim time instead: an effective
+  // max time-warp while real gravity is on. The cap is per wall-clock SECOND,
+  // not per frame, so the fastest N-body clock is the same at 20 fps as at 144.
+  _nbCapped=false;
+  if(nbodyOn){
+    // Measured cost too: without it a slow machine spirals -- a slow frame buys
+    // more substeps, which make the next frame slower still. The budget caps
+    // the wall clock gravity may take, and the clock slows instead of the page.
+    const byTime=_nbMsPerStep>0 ? NB_FRAME_BUDGET_MS/_nbMsPerStep : NB_MAXSTEPS_FRAME;
+    const cap=Math.max(1, Math.min(NB_MAXSTEPS_FRAME, NB_SUBSTEPS_PER_SEC*dtSim, byTime))*_nbH;
+    if(simDtYears>cap){ simDtYears=cap; _nbCapped=true; }
+  }
 
   if(playing && !surfaceView){
     if(nbodyOn) nbStep(simDtYears);            // real gravity: integrates + positions rec.nb bodies
     for(const rec of bodies){
       if(rec.nb){ /* positioned by nbStep */ }
       else if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,simDtYears); positionFreeBody(rec); }
-      else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*simDtYears; positionBody(rec); }
+      else if(rec.aDisp>0){ rec.M += (Math.PI*2/rec.period)*simDtYears;
+        if(rec.M>1e4) rec.M%=Math.PI*2;          // geological time: keep the phase precise
+        positionBody(rec); }
       rec.mesh.rotation.y += rec.spin*dt*timeScale*SPIN_GAIN;   // rotation slows/freezes with the time rate
     }
   }
@@ -5393,6 +5441,9 @@ function animate(){
     _clockT += dt; if(_clockT>=0.25){ _clockT=0; updateClock(); }
   }
   lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
+  // the climate: every terrestrial world, forced by the starlight it just received
+  if(window.RAClimateView) RAClimateView.frame(dt, lastSimDtYears, dtSim>0?simDtYears/dtSim:0);
+  if(_nbCapped!==animate._cappedShown){ animate._cappedShown=_nbCapped; updateSpeedCapUI(); }
   _nbInfoT+=dt; if(_nbInfoT>=0.5){ _nbInfoT=0; nbInfoTick(); }   // live osculating elements
   updateEvapTails(lastSimDtYears);
   updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
@@ -5723,12 +5774,27 @@ function togglePlay(){ playing=!playing; document.getElementById('play').innerHT
 function setSpeed(v){ // 0..100 -> real time-rate (sim years advanced per real second), logarithmic
   const yps = Math.exp( Math.log(RATE_MIN_YPS) + (Math.log(RATE_MAX_YPS)-Math.log(RATE_MIN_YPS))*(v/100) );
   timeScale = yps / YEARS_PER_SEC;          // motion advances exactly `yps` sim-years per real second
-  document.getElementById('speedval').textContent = fmtRate(yps);
+  updateSpeedCapUI();
+}
+// The readout says what the clock is actually doing: under N-body gravity the
+// integrator caps the warp, and the capped rate is shown instead of the asked one.
+function updateSpeedCapUI(){
+  const el=document.getElementById('speedval'); if(!el) return;
+  const yps=YEARS_PER_SEC*timeScale;
+  if(_nbCapped && nbodyOn){
+    const byTime=_nbMsPerStep>0 ? NB_FRAME_BUDGET_MS/_nbMsPerStep/Math.max(_frameCost,1/240) : Infinity;
+    const cap=Math.min(NB_SUBSTEPS_PER_SEC, byTime)*_nbH;
+    el.textContent='⚠ '+fmtRate(cap);
+    el.title=(LANG==='sk'?'N-telesová gravitácia obmedzuje čas na ':'N-body gravity caps the clock at ')+fmtRate(cap)
+      +(LANG==='sk'?' — pre geologický čas ju vypnite (klíma beží ďalej)':' — switch it off for geological time (the climate keeps running)');
+  } else { el.textContent=fmtRate(yps); el.title=''; }
 }
 /* speed readout in real time units: "real-time", "45 s/s", "12 min/s", "6 hr/s", "3 days/s", "2 mo/s", "1.4 yr/s" */
 function fmtRate(yps){
   const s = yps*SEC_PER_YEAR;               // sim seconds advanced per real second
   if(s>0.7 && s<1.5) return T('rt');
+  if(yps>=1e6)          return (yps/1e6<10?(yps/1e6).toFixed(1):(yps/1e6).toFixed(0))+' '+T('u-myr');
+  if(yps>=1e3)          return (yps/1e3<10?(yps/1e3).toFixed(1):(yps/1e3).toFixed(0))+' '+T('u-kyr');
   if(yps>=1)            return (yps<10?yps.toFixed(2):yps.toFixed(0))+' '+T('u-yr');
   const mo=yps*12;     if(mo>=1) return mo.toFixed(1)+' '+T('u-mo');
   const d=yps*365.25;  if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' '+T('u-day');
@@ -5737,6 +5803,9 @@ function fmtRate(yps){
   return (mi*60).toFixed(0)+' '+T('u-s');
 }
 function fmtElapsed(yr){
+  if(yr>=1e9)          return (yr/1e9).toFixed(2)+' '+T('e-gyr');
+  if(yr>=1e6)          return (yr/1e6<100?(yr/1e6).toFixed(1):(yr/1e6).toFixed(0))+' '+T('e-myr');
+  if(yr>=1e4)          return (yr/1e3<100?(yr/1e3).toFixed(1):(yr/1e3).toFixed(0))+' '+T('e-kyr');
   if(yr>=1)            return (yr<100?yr.toFixed(1):yr.toFixed(0))+' '+T('e-yr');
   const d=yr*365.25;   if(d>=1)  return (d<10?d.toFixed(1):d.toFixed(0))+' '+T('e-day');
   const h=d*24;        if(h>=1)  return h.toFixed(1)+' '+T('e-hr');
@@ -6208,6 +6277,7 @@ function openInfo(d){
     note.textContent='⚠ '+T(prec.sterile?'ext-note-sterile':'ext-note');
     ds.insertBefore(note, ds.firstChild);
   }
+  if(window.RAClimateView) RAClimateView.afterOpenInfo(d);   // 🌡 the live climate
   document.getElementById('info').classList.add('open');
   syncInfoBtn();
 }
@@ -6216,6 +6286,7 @@ function syncInfoBtn(){ const ib=document.getElementById('infobtn');
 /* info panel for a world destroyed in the impact lab */
 function openInfoDestroyed(rec){
   const d=rec.data;
+  if(window.RAClimateView) RAClimateView.afterCloseInfo();
   const field=debrisFields.find(x=>x.rec===rec);
   const stellar=impIsStellar(rec);
   document.getElementById('i-type').textContent=T('debris-type');
@@ -6257,7 +6328,8 @@ function openInfoDestroyed(rec){
   syncInfoBtn();
 }
 
-function closeInfo(){ document.getElementById('info').classList.remove('open'); setActiveNav(selected); syncInfoBtn(); }
+function closeInfo(){ document.getElementById('info').classList.remove('open'); setActiveNav(selected); syncInfoBtn();
+  if(window.RAClimateView) RAClimateView.afterCloseInfo(); }
 
 function buildGlossary(){
   const el=document.getElementById('gloss');
@@ -6274,7 +6346,7 @@ function onResize(){
    straight into their saved system. The ⇄ toolbar button reopens the chooser. ---- */
 let _built=false;
 function initApp(){
-  let saved=null; try{ saved=localStorage.getItem('ra-system'); }catch(_){}
+  let saved=null; try{ saved=localStorage.getItem('ra-climate-system'); }catch(_){}
   if(saved==='ra' || saved==='sol'){ applySystem(saved); build(); _built=true; }
   else showChooser();
 }
@@ -6291,7 +6363,7 @@ function showChooser(){
   ch.style.display='flex'; ch.style.opacity='1';
 }
 function pickSystem(sys){
-  try{ localStorage.setItem('ra-system', sys); }catch(_){}
+  try{ localStorage.setItem('ra-climate-system', sys); }catch(_){}
   if(_built){ location.hash=''; location.reload(); return; }   // mid-session change → clean rebuild
   const ch=document.getElementById('chooser');
   if(ch){ ch.style.opacity='0'; setTimeout(()=>{ ch.style.display='none'; },500); }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Ra System Alpha — Physics Sandbox</title>
+<title>Ra System — Climate Sandbox</title>
 <style>
   :root{
     --bg:#05070d; --panel:rgba(10,16,28,0.82); --panel2:rgba(16,24,40,0.92);
@@ -200,6 +200,40 @@
       text-shadow:0 0 10px rgba(255,215,140,.95),0 0 20px rgba(255,175,80,.7),0 0 3px #000}
   }
 
+
+  /* ---------- Climate ---------- */
+  .navitem .ctemp{margin-left:auto;font-size:10px;font-variant-numeric:tabular-nums;opacity:.9;letter-spacing:.02em}
+  .navitem .ctemp + .tag{margin-left:6px}
+  #clim-hud{cursor:help}
+  #temp-legend{position:fixed;left:50%;transform:translateX(-50%);bottom:110px;display:none;
+    padding:7px 14px 16px;z-index:20;width:min(360px,90vw)}
+  #temp-legend .tl-bar{height:9px;border-radius:5px}
+  #temp-legend .tl-ticks{position:relative;height:12px;margin-top:2px}
+  #temp-legend .tl-ticks i{position:absolute;transform:translateX(-50%);font-style:normal;font-size:9.5px;
+    color:var(--dim);font-variant-numeric:tabular-nums}
+  #temp-legend .tl-unit{position:absolute;right:8px;bottom:2px;font-size:9px;color:var(--dim)}
+  .clim{border:1px solid var(--line);border-radius:12px;padding:12px 12px 8px;margin:0 0 16px;background:rgba(10,18,32,.55)}
+  .clim-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .clim-title{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent2)}
+  .clim-state{--c:#4ec98a;font-size:11px;padding:2px 9px;border-radius:12px;color:#06101f;background:var(--c);font-weight:600;cursor:help}
+  .clim-lag{margin-left:auto;font-size:10.5px;color:#ffb86a;cursor:help}
+  .clim-big{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .clim-big b{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+  .clim-range{font-size:11px;color:var(--dim)}
+  .clim-blurb{font-size:11.5px;line-height:1.5;color:#b8c7dd;margin:6px 0 4px}
+  .clim canvas{width:100%;display:block;margin:6px 0 2px}
+  .clim-tab{margin:6px 0 4px!important}
+  .clim-tab td{font-size:11.5px!important}
+  .clim-ctl summary{cursor:pointer;font-size:12px;color:var(--accent);padding:6px 0;user-select:none}
+  .clim-quick{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px}
+  .clim-row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim);padding:3px 0}
+  .clim-row label{flex:1}
+  .clim-row input[type=text]{width:112px;background:#0d1526;border:1px solid #2a3a5a;border-radius:6px;color:#dce6ff;
+    padding:3px 7px;font:inherit;font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+  .clim-row input.bad{border-color:#c05050}
+  .clim-hint{font-size:10.5px;color:var(--dim);opacity:.75;margin:6px 0 2px;line-height:1.5}
+  .clim-note{font-size:11px;font-style:italic;color:#c0a58a;margin:6px 0 0;line-height:1.5}
+  .clim-note:empty{display:none}
   .scrollthin::-webkit-scrollbar{width:8px}
   .scrollthin::-webkit-scrollbar-thumb{background:rgba(120,170,255,.25);border-radius:8px}
   .scrollthin::-webkit-scrollbar-track{background:transparent}
@@ -297,7 +331,7 @@
 
 <div id="title" class="panel">
   <small id="title-sub">Interactive 3D Simulation</small>
-  <h1 id="title-h1">The <b>Ra</b> Planetary System <small style="opacity:.65;font-size:.55em">ALPHA</small></h1>
+  <h1 id="title-h1">The <b>Ra</b> Planetary System <small style="opacity:.65;font-size:.55em;color:#7fe6a8">CLIMATE</small></h1>
 </div>
 
 <button id="navbtn" class="btn panel" aria-label="Toggle body list" title="Body list">☰</button>
@@ -306,6 +340,8 @@
 <div id="help" class="panel scrollthin">
   <h4 id="help-nav-h">Navigate</h4>
   <div class="g" id="help-nav"><b>Drag</b> — orbit camera (left or right button)<br><b>Scroll</b> — zoom in / out<br><b>Middle-drag</b> — pan<br><b>Click a world</b> — focus &amp; read about it<br><b>On touch screens</b> — tap focuses; ⓘ (top right) opens the info sheet<br><b>List / labels</b> — jump to any body</div>
+  <h4 id="help-clim-h">Climate</h4>
+  <div class="g" id="help-clim">Every rocky, icy and ocean world runs a live <b>climate model</b> (the Planet Climate Sandbox: an 18-band energy balance with oceans, ice, clouds, a carbon cycle and escape to space), heated by the starlight it actually receives on its current orbit. <b>Move a world</b> (✎ orbit, 🌌 N-body, collisions), <b>dim or brighten a star</b>, <b>strike it</b> (💥), or <b>change its air and water</b> in its info panel, and watch ice caps, seas, forests and steam respond. Crank <b>Speed</b> to kyr/s–Myr/s for geological change (N-body caps the clock; switch it off for that). <b>🌡 Temperature</b> colours every world by its surface temperature.</div>
   <h4 id="help-scale-h">About the scale</h4>
   <div class="g" id="help-scale"><b>Real scale</b> (default) places every orbit at its true distance in AU — so Amunet hugs the star and Horus sits far out at 46 AU; zoom out to find Shu and Horus. <b>Compressed</b> (toggle in the bottom bar) squeezes the huge 0.05–46 AU range so the whole system fits on screen at once. Body sizes are exaggerated in both modes (true sizes would be invisible). Real figures are in each world's data panel; orbital <b>speeds</b> follow Kepler's laws.</div>
   <h4 id="gloss-h">Glossary</h4>
@@ -319,10 +355,11 @@
 <div id="controls" class="panel">
   <button id="play" class="btn">⏸ Pause</button>
   <div class="ctl"><label id="lbl-speed">Speed</label>
-    <input id="speed" type="range" min="0" max="100" value="0" style="width:120px">
+    <input id="speed" type="range" min="0" max="100" step="0.1" value="0" style="width:150px">
     <span id="speedval">real-time</span>
   </div>
   <span id="elapsed" class="clock"></span>
+  <span id="clim-hud" class="clock" title="Climate">🌡 …</span>
   <button id="ctl-more" class="btn" title="More controls" aria-expanded="false">⋯</button>
   <div id="controls-more" class="scrollthin">
   <div class="sep brk"></div>
@@ -336,6 +373,7 @@
   <button id="t-orbits" class="btn on">◉ Orbits</button>
   <button id="t-labels" class="btn on">🏷 Labels</button>
   <button id="t-tails" class="btn on" title="Toggle evaporation tails (Amunet, Sekhmet)">☄ Tails</button>
+  <button id="t-temp" class="btn" title="Temperature view — colour every world by its surface temperature">🌡 Temperature</button>
   <button id="reset" class="btn">⟲ Reset view</button>
   <button id="t-fly" class="btn" title="Free-roam flight (real scale)">🚀 Fly</button>
   <button id="t-impact" class="btn" title="Impact lab — customizable asteroid strikes &amp; laser">💥 Impact</button>
@@ -401,6 +439,7 @@
   </div>
 </div>
 
+<div id="temp-legend" class="panel"></div>
 <div id="tip"></div>
 <div id="lightbox"><img id="lightbox-img" alt=""></div>
 
@@ -412,5 +451,8 @@
 <script src="assets/lang-sk.js"></script>
 <script>window.USE_AI_TEXTURES=true;</script>
 <script src="assets/app.js"></script>
+<script src="assets/climate-sk.js"></script>
+<script src="assets/climate-bridge.js"></script>
+<script src="assets/climate-view.js"></script>
 </body>
 </html>
