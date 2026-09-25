@@ -457,8 +457,7 @@ function setLang(l){
   try{ localStorage.setItem('ra-lang',LANG); }catch(_){}
   applyStaticLang(); updateLangBtn();
   const nav=document.getElementById('nav');
-  if(nav){ nav.innerHTML=''; buildNav(); setActiveNav(selected);
-    for(const r of bodies) if(r.destroyed) updateNavStatus(r); }
+  if(nav){ nav.innerHTML=''; buildNav(); setActiveNav(selected); }
   buildGlossary();
   const pb=document.getElementById('play'); if(pb) pb.innerHTML=playing?T('pause'):T('play');
   const sb=document.getElementById('t-scale'); if(sb) sb.innerHTML=realScale?T('real-scale'):T('compressed');
@@ -2315,7 +2314,6 @@ function dissolveChunk(D, c, center, radius, addsMass){
 function refreshNav(){
   const nav=document.getElementById('nav'); if(!nav) return;
   nav.innerHTML=''; buildNav(); setActiveNav(selected);
-  for(const r of bodies) if(r.destroyed) updateNavStatus(r);
 }
 function updateRumpData(D){
   if(!D.rumpRec) return;
@@ -3973,19 +3971,41 @@ function nbTrailsDispose(){
    book values are just initial conditions, so show what the body is doing
    NOW — dominant attractor (strongest pull wins: a captured moon reports its
    new parent), semi-major axis, eccentricity, period — refreshed every ½ s. */
-function nbDominantParent(rec){
-  // a heavy moon close-in out-PULLS the star, but Jupiter doesn't orbit its own
-  // moon — the parent must out-weigh the child. Only if nothing heavier exists
-  // (the custom out-masses the star itself) fall back to the strongest pull.
-  let best=null, acc=0, anyBest=null, anyAcc=0;
-  for(const b of nbList()){
+// What a body orbits: the lightest body that out-weighs it, holds it inside its
+// Hill sphere, and has it bound. "Strongest pull" is the wrong question -- the Sun
+// pulls the Moon about twice as hard as Earth does, and the Moon still orbits
+// Earth -- and "heavier than me" keeps Jupiter from orbiting its own moon. The
+// Hill radius is taken about the candidate's own parent (so a moon of a moon is
+// measured against its planet), which ends at the heaviest body, whose sphere is
+// everything. Nothing binding it (a rogue, a flyby) falls back to the strongest
+// pull among heavier bodies, then among all.
+function nbDominantParent(rec, _depth){
+  const list=nbList();
+  let top=null;
+  for(const b of list) if(!b.destroyed && (!top || b.nb.gm>top.nb.gm)) top=b;
+  let best=null, anyBest=null, anyAcc=0, pullBest=null, pullAcc=0;
+  const depth=(_depth|0);
+  for(const b of list){
     if(b===rec || b.destroyed) continue;
     const d2=b.nb.r.distanceToSquared(rec.nb.r)+1e-12;
     const a=b.nb.gm/d2;
     if(a>anyAcc){ anyAcc=a; anyBest=b; }
-    if(b.nb.gm>rec.nb.gm && a>acc){ acc=a; best=b; }
+    if(!(b.nb.gm>rec.nb.gm)) continue;
+    if(a>pullAcc){ pullAcc=a; pullBest=b; }
+    if(best && !(b.nb.gm<best.nb.gm)) continue;          // only a lighter candidate can improve
+    const mu=b.nb.gm+rec.nb.gm, r=Math.sqrt(d2);
+    const v2=b.nb.v.distanceToSquared(rec.nb.v);
+    if(!(v2/2 - mu/r < 0)) continue;                     // not bound to it
+    if(b!==top){
+      if(depth>6) continue;                              // no parent chain is this deep
+      const P=nbDominantParent(b, depth+1);
+      if(!P || !(P.nb.gm>b.nb.gm)) continue;
+      const rH=Math.sqrt(b.nb.r.distanceToSquared(P.nb.r))*Math.cbrt(b.nb.gm/(3*P.nb.gm));
+      if(!(r<rH)) continue;                              // outside its Hill sphere
+    }
+    best=b;
   }
-  return best||anyBest;
+  return best||pullBest||anyBest;
 }
 function nbLiveOrbitTxt(rec){
   const p=nbDominantParent(rec); if(!p) return null;
@@ -5394,6 +5414,7 @@ function animate(){
   }
   lastSimDtYears = (playing && !surfaceView) ? simDtYears : 0;
   _nbInfoT+=dt; if(_nbInfoT>=0.5){ _nbInfoT=0; nbInfoTick(); }   // live osculating elements
+  navOrderTick(dt);                           // the sidebar follows the orbits
   updateEvapTails(lastSimDtYears);
   updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
@@ -5984,7 +6005,7 @@ function navItem(data, sub){
   el.dataset.key=data.key;
   const col='#'+new THREE.Color(data.color||0xcccccc).getHexString();
   el.innerHTML=`<span class="dot" style="color:${col}"></span><span>${locName(data)}</span>`+
-    (data.life?`<span class="tag" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'')+
+    (data.life?`<span class="tag life" title="${T('life-title')}">✦&nbsp;${T('life-'+data.life)}</span>`:'')+
     (data.navTag?`<span class="tag">${data.navTag}</span>`:'');
   el.onclick=()=>focusBody(data.key,true);
   return el;
@@ -5992,81 +6013,78 @@ function navItem(data, sub){
 function generatedFor(key){
   return bodies.filter(b=>b._generated && b._originKey===key);
 }
+// Every world in the order of its orbit around whatever it actually circles: the
+// planets by their live semi-major axis -- so a Pluto moved inside Earth's orbit
+// is listed inside Earth -- each followed by its moons by theirs, and so on down.
+// Under N-body "what it circles" is the live dominant attractor (a click-placed
+// orbiter lives around Jupiter; a captured moon changes planet); in Kepler mode it
+// is the recorded parent. The semi-major axis, not the distance, so an eccentric
+// Pluto does not swap places with Neptune twice an orbit.
+function navParentKey(b){
+  if(nbodyOn && b.nb && !b.destroyed && !b.freeState){
+    const p=nbDominantParent(b);
+    return (p && p.data.kind!=='star') ? p.data.key : null;
+  }
+  if(b.isMoon){
+    if(b._custom) return (b._crParams && b._crParams.parent) || null;
+    return b.data.parent || null;
+  }
+  return null;
+}
+function navA(b){
+  const o=orbCurrent(b);
+  if(o && o.a>0) return o.a;
+  return b.helioA!=null ? b.helioA : (b._physA!=null ? b._physA : (b.data.dist||0));
+}
+// The order as keys, for the list and for noticing when it has changed.
+function navOrder(){
+  const listed=bodies.filter(b=>!b._absorbedGone && !b._generated && b.data.kind!=='star');
+  const kids={};                              // parent key -> children
+  const top=[];
+  for(const b of listed){
+    const pk=navParentKey(b);
+    if(pk && pk!==b.data.key && listed.some(x=>x.data.key===pk)) (kids[pk]||(kids[pk]=[])).push(b);
+    else top.push(b);
+  }
+  const byA=(x,y)=>navA(x)-navA(y);
+  const out=[];
+  const emit=(b, depth, seen)=>{
+    if(seen.has(b.data.key)) return;          // a parent loop cannot hang the list
+    seen.add(b.data.key);
+    out.push({data:b.data, depth});
+    for(const g of generatedFor(b.data.key)) out.push({data:g.data, depth:depth+1});
+    for(const c of (kids[b.data.key]||[]).sort(byA)) emit(c, depth+1, seen);
+  };
+  const seen=new Set();
+  const horus=DS.HORUS && top.find(b=>b.data.key===DS.HORUS.key);
+  for(const b of top.filter(b=>b!==horus).sort(byA)) emit(b, 0, seen);
+  const main=out.splice(0);
+  if(horus) emit(horus, 0, seen);
+  return {main, horus:out};
+}
 function buildNav(){
   const nav=document.getElementById('nav');
-  const alive=k=>bodies.some(b=>b.data.key===k && !b._absorbedGone);  // deleted/swallowed bodies vanish from the nav
-  // custom worlds live under their gravitational parent, ordered by distance:
-  // heliocentric ones woven into the planet list, moons into their planet's list
-  const customs=bodies.filter(b=>b._custom && !b._absorbedGone);
-  // under N-body the creation flags go stale — a click-placed orbiter is
-  // heliocentric on paper but LIVES around Jupiter. Weave by the live
-  // dominant attractor; in Kepler mode by the recorded parent.
-  const starRec=bodies.find(b=>b.data.kind==='star');
-  const custPar={};
-  for(const b of customs){
-    let pk=null;
-    if(nbodyOn && b.nb && !b.destroyed && !b.freeState){
-      const p=nbDominantParent(b);
-      pk=(p && p.data.kind!=='star')?p.data.key:null;
-    } else if(b.isMoon && b._crParams && b._crParams.parent) pk=b._crParams.parent;
-    custPar[b.data.key]=pk;
-  }
-  const aHelio=b=>(nbodyOn && b.nb && starRec && starRec.nb)
-    ? b.nb.r.distanceTo(starRec.nb.r)
-    : (b.helioA!=null?b.helioA:(b.data.dist||0));
-  const customPlanets=customs.filter(b=>!custPar[b.data.key]).sort((x,y)=>aHelio(x)-aHelio(y));
-  const custD=(b,key)=>{                     // live separation for in-list ordering
-    if(nbodyOn && b.nb){ const p=bodies.find(r=>r.data.key===key && r.nb); if(p) return b.nb.r.distanceTo(p.nb.r); }
-    return b.data.dist||0;
-  };
-  const customMoonsOf=key=>customs.filter(b=>custPar[b.data.key]===key)
-    .sort((x,y)=>custD(x,key)-custD(y,key));
-  let cpi=0;
-  const flushCustomPlanets=upTo=>{           // append customs closer than the next built-in planet
-    while(cpi<customPlanets.length && (upTo==null || aHelio(customPlanets[cpi])<upTo)){
-      const cp=customPlanets[cpi++];
-      nav.appendChild(navItem(cp.data));
-      for(const g of generatedFor(cp.data.key)) nav.appendChild(navItem(g.data, true));
-      for(const cm of customMoonsOf(cp.data.key)) nav.appendChild(navItem(cm.data, true));
-    }
-  };
-  const moonRows=key=>{                      // built-in + custom moons, sorted by distance
-    const rows=DS.MOONS.filter(x=>x.parent===key && alive(x.key)).map(m=>({d:m.dist||0, data:m}));
-    for(const c of customMoonsOf(key)) rows.push({d:custD(c,key), data:c.data});
-    rows.sort((x,y)=>x.d-y.d);
-    return rows;
-  };
   const h=document.createElement('h3'); h.textContent=SYS==='sol'?T('nav-sol'):T('nav-ra'); nav.appendChild(h);
   nav.appendChild(navItem(DS.STAR));
-  for(const p of DS.PLANETS){
-    flushCustomPlanets(p.dist);
-    if(alive(p.key)) nav.appendChild(navItem(p));
-    for(const g of generatedFor(p.key)) nav.appendChild(navItem(g.data, true));
-    for(const row of moonRows(p.key)){
-      nav.appendChild(navItem(row.data,true));
-      for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
-      for(const cm of customMoonsOf(row.data.key)) nav.appendChild(navItem(cm.data, true));
-    }
-  }
-  flushCustomPlanets(null);                  // customs beyond the last planet
-  if(DS.HORUS){
+  for(const g of generatedFor(DS.STAR.key)) nav.appendChild(navItem(g.data, true));
+  const o=navOrder();
+  for(const row of o.main) nav.appendChild(navItem(row.data, row.depth>0));
+  if(o.horus.length){
     const h2=document.createElement('h3'); h2.textContent=T('nav-horus'); nav.appendChild(h2);
-    if(alive(DS.HORUS.key)) nav.appendChild(navItem(DS.HORUS));
-    for(const g of generatedFor(DS.HORUS.key)) nav.appendChild(navItem(g.data, true));
-    const hRows=DS.HORUS_MOONS.filter(m=>alive(m.key)).map(m=>({d:m.dist||0, data:m}));
-    for(const c of customMoonsOf(DS.HORUS.key)) hRows.push({d:custD(c,DS.HORUS.key), data:c.data});
-    hRows.sort((x,y)=>x.d-y.d);
-    for(const row of hRows){
-      nav.appendChild(navItem(row.data,true));
-      for(const g of generatedFor(row.data.key)) nav.appendChild(navItem(g.data, true));
-      for(const cm of customMoonsOf(row.data.key)) nav.appendChild(navItem(cm.data, true));
-    }
+    for(const row of o.horus) nav.appendChild(navItem(row.data, row.depth>0));
   }
-  // safety net: a custom whose parent isn't a listed body (orbiting a remnant,
-  // a deleted world's key, …) must still be reachable somewhere
-  for(const c of customs)
-    if(!nav.querySelector('.navitem[data-key="'+c.data.key+'"]'))
-      nav.appendChild(navItem(c.data, true));
+  // the badges come from each world's state, not from the book: a rebuild (a
+  // language switch, a new custom world) must not bring the dead back to life
+  for(const r of bodies) updateNavStatus(r);
+  _navSig=navSig();
+}
+let _navSig='', _navCheckT=0;
+function navSig(){ const o=navOrder(); return o.main.concat(o.horus).map(r=>r.data.key+':'+r.depth).join(','); }
+// Called from the frame loop: about once a second, rebuild the list if the orbits
+// have reordered it (an orbit edit, N-body migration, a capture or an escape).
+function navOrderTick(dtReal){
+  _navCheckT+=dtReal; if(_navCheckT<1) return; _navCheckT=0;
+  if(navSig()!==_navSig) refreshNav();
 }
 function setActiveNav(key){
   document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.key===key));
@@ -6074,24 +6092,23 @@ function setActiveNav(key){
 /* sidebar badge: a destroyed world swaps its ✦ life tag for a red ☠ one */
 function updateNavStatus(rec){
   const el=document.querySelector('.navitem[data-key="'+rec.data.key+'"]'); if(!el) return;
-  let tag=el.querySelector('.tag');
+  let tag=el.querySelector('.tag.life');
+  const want=rec.destroyed || rec.data.life;
+  if(!want){ if(tag) tag.remove(); return; }
+  if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
   if(rec.destroyed){
-    if(!tag){ tag=document.createElement('span'); tag.className='tag'; el.appendChild(tag); }
-    tag.className='tag dead'; tag.removeAttribute('title');
+    tag.className='tag life dead'; tag.removeAttribute('title');
     tag.innerHTML='☠&nbsp;'+T('nav-destroyed');
-  } else if(rec.sterile && rec.data.life){
-    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
-    tag.className='tag ext'; tag.title=T('life-title');
+  } else if(rec.sterile){
+    tag.className='tag life ext'; tag.title=T('life-title');
     tag.innerHTML='∅&nbsp;'+T('life-sterile');
-  } else if(rec.extinct && rec.data.life){
-    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
-    tag.className='tag ext'; tag.title=T('life-title');
+  } else if(rec.extinct){
+    tag.className='tag life ext'; tag.title=T('life-title');
     tag.innerHTML='✦&nbsp;'+T('life-unicellular');
-  } else if(rec.data.life){
-    if(!tag){ tag=document.createElement('span'); el.appendChild(tag); }
-    tag.className='tag'; tag.title=T('life-title');
+  } else {
+    tag.className='tag life'; tag.title=T('life-title');
     tag.innerHTML='✦&nbsp;'+T('life-'+rec.data.life);
-  } else if(tag) tag.remove();
+  }
 }
 
 function typeLabelFor(d){
