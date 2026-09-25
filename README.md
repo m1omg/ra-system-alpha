@@ -85,6 +85,17 @@ bottom bar flips between:
 (Worlds the document hasn't described yet — Shu, Horus, Khonsu, Nut, Osiris, Salibe, Yamm,
 Kauket — show only the summary in the default mode, and a short note in author's-text mode.)
 
+### Checks
+
+Two checks drive the page in a real browser (Chromium, through Playwright:
+`npm i --no-save playwright`; without it they say "skipping", and a skipped
+check is not a passed one):
+
+```bash
+node tools/nbodycheck.mjs     # the gravity tiers: accuracy, energy, switching, the default
+node tools/surfacecheck.mjs   # ▣ Surface holds a world still while time runs on
+```
+
 ## What's inside
 
 - **Every body from the document**, placed on Keplerian elliptical orbits with
