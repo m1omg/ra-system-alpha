@@ -818,8 +818,8 @@ function panelSkeleton(d){
   let rows='';
   for(const c of CTL){
     if(c[3]==='gas' && c===CTL.find(x=>x[3]==='gas'))
-      rows+='<div class="clim-hint clim-gas-note">'+t('Gases: partial pressure at the surface. ppm = millionths of a bar (µbar), which on a 1-bar world like Earth is ppm of the air.',
-        'Plyny: parciálny tlak pri povrchu. ppm = milióntiny baru (µbar); na svete s tlakom 1 bar, ako je Zem, sú to ppm vzduchu.')+'</div>';
+      rows+='<div class="clim-hint clim-gas-note">'+t('Gases: partial pressure at the surface. Type a pressure (0.5 bar, 3 mbar, 2 atm, 10 Pa) or a share of the air (21 %, 420 ppm).',
+        'Plyny: parciálny tlak pri povrchu. Zadajte tlak (0,5 bar, 3 mbar, 2 atm, 10 Pa) alebo podiel vo vzduchu (21 %, 420 ppm).')+'</div>';
     rows+='<div class="clim-row"><label>'+t(c[1],c[2])+'</label><input type="text" inputmode="decimal" data-k="'+c[0]+'" data-u="'+c[3]+'" spellcheck="false"></div>';
   }
   rows+='<div class="clim-row"><label>'+t('Tidally locked to the star','Viazaná rotácia voči hviezde')+'</label><input type="checkbox" data-k="tidallyLocked"></div>';
@@ -836,8 +836,8 @@ function panelSkeleton(d){
     +'<button class="btn sm" data-q="water+1">+1 '+t('ocean','oceán')+'</button><button class="btn sm" data-q="dry">'+t('Remove water','Odstrániť vodu')+'</button>'
     +'<button class="btn sm" data-q="terra">🌍 '+t('Earth-like air','Vzduch ako na Zemi')+'</button>'
     +'<button class="btn sm" data-q="reset">↺ '+t('Reset climate','Obnoviť klímu')+'</button></div>'
-    +rows+'<div class="clim-hint">'+t('Click a value to type it — units work: 420 ppm, 0.5 bar, 2 atm, 3 mbar.',
-      'Hodnotu môžete napísať aj s jednotkou: 420 ppm, 0,5 bar, 2 atm, 3 mbar.')+'</div></details>'
+    +rows+'<div class="clim-hint">'+t('Click a value to type it; units work.',
+      'Hodnotu môžete napísať aj s jednotkou.')+'</div></details>'
     +'<p class="clim-note"></p>';
 }
 function parseQty(s, kind){
@@ -846,19 +846,49 @@ function parseQty(s, kind){
   const m=s.match(/^([-+]?[0-9]*\.?[0-9]+(?:e[-+]?\d+)?)\s*([a-zµ%]*)$/i);
   if(!m) return NaN;
   let v=parseFloat(m[1]); const u=m[2];
-  if(kind==='gas'){
-    if(u==='ppm') v*=1e-6; else if(u==='ppb') v*=1e-9; else if(u==='mbar') v*=1e-3;
-    else if(u==='µbar'||u==='ubar') v*=1e-6; else if(u==='atm') v*=1.01325; else if(u==='pa') v*=1e-5;
-    else if(u==='kpa') v*=1e-2; else if(u==='%') v*=0.01;
-  } else if(kind==='frac' && u==='%') v*=0.01;
+  if(kind==='frac' && u==='%') v*=0.01;
   return v;
 }
-function fmtGas(bar){
+// A typed gas amount, in bar of partial pressure. A pressure unit gives the
+// partial pressure itself. A share of the air (%, ppm, ppb) is read against the
+// rest of the air as it is now, so "420 ppm" of CO2 is 420 ppm of the air it ends
+// up in -- not 420 millionths of a bar, which is what it means only on a world
+// whose air happens to weigh one bar.
+const P_UNITS={'':1, bar:1, bars:1, mbar:1e-3, hpa:1e-3, ubar:1e-6, pa:1e-5, kpa:1e-2,
+  atm:1.01325, torr:1.01325/760, mmhg:1.01325/760};
+const SHARE_UNITS={'%':1e-2, ppm:1e-6, ppb:1e-9};
+function parseGas(s, own, pTot){
+  if(s==null) return NaN;
+  s=String(s).trim().replace(',', '.').toLowerCase().replace(/[µμ]/g, 'u');
+  const m=s.match(/^([-+]?[0-9]*\.?[0-9]+(?:e[-+]?\d+)?)\s*([a-z%]*)$/);
+  if(!m) return NaN;
+  const v=parseFloat(m[1]), u=m[2];
+  if(u in P_UNITS) return v*P_UNITS[u];
+  if(u in SHARE_UNITS){
+    const f=v*SHARE_UNITS[u], others=Math.max((pTot||0)-(own||0), 0);
+    if(!(f>=0 && f<1) || !(others>0)) return NaN;   // a share of nothing, or all of it
+    return f*others/(1-f);
+  }
+  return NaN;
+}
+// Pressures are pressures: bar, mbar, µbar, then pascals. Never ppm -- that is a
+// share of the air, and a total pressure is not a share of anything.
+function fmtPressure(bar){
   if(!(bar===bar)) return '—';
-  if(!(bar>0)) return '0 bar';
-  if(bar>=0.1) return (+bar.toPrecision(3))+' bar';
-  if(bar>=1e-3) return (+(bar*1e3).toPrecision(3))+' mbar';
-  return (+(bar*1e6).toPrecision(3))+' ppm';
+  if(!(bar>1e-14)) return '0 bar';
+  const sig=(x)=>String(+x.toPrecision(3));
+  if(bar>=0.1) return sig(bar)+' bar';
+  if(bar>=1e-3) return sig(bar*1e3)+' mbar';
+  if(bar>=1e-6) return sig(bar*1e6)+' µbar';
+  const pa=bar*1e5;
+  return (pa>=1e-3 ? sig(pa) : pa.toExponential(1))+' Pa';
+}
+// A share of the air: percent, then ppm (down to 0.01 ppm, so methane reads as
+// the familiar 0.8 ppm), then ppb.
+function fmtShare(f){
+  if(f>=0.01) return String(+(f*100).toPrecision(3))+' %';
+  if(f>=1e-8) return String(+(f*1e6).toPrecision(3))+' ppm';
+  return String(+(f*1e9).toPrecision(2))+' ppb';
 }
 // "1 Earth ocean", "0.627 Earth oceans"; Slovak counts in four forms
 function oceansWord(n){
@@ -869,6 +899,7 @@ function oceansWord(n){
 }
 function fmtNum(v){ if(!(v===v)) return '—'; const a=Math.abs(v);
   if(a===0) return '0'; if(a>=1e4||a<1e-3) return v.toExponential(2); return String(+v.toPrecision(3)); }
+const GAS_OF={co2Bar:'co2', n2Bar:'n2', o2Bar:'o2', ch4Bar:'ch4', h2Bar:'h2'};
 function wirePanel(box, d){
   box.querySelectorAll('input[data-k]').forEach(inp=>{
     if(inp.type==='checkbox'){
@@ -879,7 +910,9 @@ function wirePanel(box, d){
     inp.addEventListener('blur', ()=>{ inp.dataset.editing=''; });
     inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ inp.blur(); } e.stopPropagation(); });
     inp.addEventListener('change', ()=>{
-      const k=inp.dataset.k, v=parseQty(inp.value, inp.dataset.u);
+      const k=inp.dataset.k, det=CL.detail&&CL.detail.key===d.key?CL.detail:null;
+      const own=det&&det.gas?det.gas[GAS_OF[k]]:0;
+      const v=inp.dataset.u==='gas' ? parseGas(inp.value, own, det?det.pTot:0) : parseQty(inp.value, inp.dataset.u);
       if(!(v>=0) && !(k==='obliquity' && v===v)) { inp.classList.add('bad'); return; }
       inp.classList.remove('bad');
       CL.set(d.key, {[k]: v});
@@ -919,16 +952,20 @@ function renderPanel(det){
   drawBands(box.querySelector('.clim-bands'), det);
   drawHist(box.querySelector('.clim-hist'), det);
   const g=det.gas;
-  const comp=[['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',g.h2o]]
-    .filter(x=>x[1]>1e-7).sort((a,b)=>b[1]-a[1]).map(x=>x[0]+' '+fmtGas(x[1])).join(' · ');
+  // the air as shares of itself, which is what "426 ppm" has always meant
+  const gsum=(g.n2||0)+(g.o2||0)+(g.co2||0)+(g.ch4||0)+(g.h2||0)+(g.h2o||0);
+  const comp=gsum>1e-14 ? [['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',g.h2o]]
+    .map(x=>[x[0],(x[1]||0)/gsum]).filter(x=>x[1]>1e-9).sort((a,b)=>b[1]-a[1])
+    .map(x=>x[0]+' '+fmtShare(x[1])).join(' · ') : '';
   const w=det.water;
   const rows=[
     [t('Starlight','Žiarenie hviezdy'), (+(det.flux/S_EARTH).toPrecision(3))+' S⊕ · '+Math.round(det.flux)+' W/m²'],
-    [t('Surface pressure','Tlak pri povrchu'), fmtGas(det.pTot)],
+    [t('Surface pressure','Tlak pri povrchu'), fmtPressure(det.pTot)],
     [t('Air','Vzduch'), comp||t('none','žiadny')],
     [t('Reflects (albedo)','Odráža (albedo)'), Math.round(det.albedo*100)+' %'+' · '+t('cloud','oblačnosť')+' '+Math.round(det.cloud*100)+' %'],
     [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+oceansWord(fmtNum(w.total))+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],
-    [t('Sea / ice cover','Pokrytie morom / ľadom'), Math.round((det.flooded||0)*100)+' % / '+Math.round((det.iceArea||0)*100)+' %'],
+    // open water and ice, never "sea" for a sea that is frozen solid
+    [t('Open sea · ice','Voľné more · ľad'), Math.round((det.openOcean!=null?det.openOcean:(det.flooded||0))*100)+' % · '+Math.round((det.iceArea||0)*100)+' %'],
     [t('Energy in − out','Energia dnu − von'), (det.imbalance>=0?'+':'')+det.imbalance.toFixed(2)+' W/m²'+(det.pulse>1?' · 💥 '+t('impact heat','teplo z dopadu'):'')],
   ];
   if(det.bio>0.001 || det.params.biosphere>0) rows.push([t('Living biosphere','Živá biosféra'), Math.round(det.bio*100)+' % '+t('of Earth\'s','zemskej')]);
@@ -944,7 +981,7 @@ function renderPanel(det){
     if(inp.type==='checkbox'){ inp.checked=!!det.params.tidallyLocked; return; }
     if(inp.dataset.editing==='1') return;
     const v=live[k];
-    inp.value = inp.dataset.u==='gas' ? fmtGas(v) : fmtNum(v);
+    inp.value = inp.dataset.u==='gas' ? fmtPressure(v) : fmtNum(v);
   });
   const note=box.querySelector('.clim-note');
   const mt=det.meta||{};

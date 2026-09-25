@@ -57,6 +57,9 @@ async function openSystem(sys) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  // Errors inside event handlers are caught and logged, not thrown: count them too.
+  // (A missing texture is a 404 the app recovers from, not an error in the code.)
+  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text().split('\n')[0]); });
   await page.addInitScript((s) => { try { localStorage.setItem('ra-climate-system', s); } catch (_) {} }, sys);
   await page.goto(BASE, { waitUntil: 'load' });
   // every climate world reports a state
@@ -137,12 +140,31 @@ try {
         const gasRows = box.querySelector('.clim-gas-note');
         return { gas, p, water, note: gasRows && gasRows.textContent };
       });
-      const unit = /^[-+]?[0-9.]+(e[-+]?\d+)?\s*(bar|mbar|ppm)$/;
-      ok(u.gas.length >= 5 && u.gas.every((v) => unit.test(v)), 'every gas value carries a unit', JSON.stringify(u.gas));
-      ok(unit.test(u.p || ''), 'the surface pressure carries a unit', JSON.stringify(u.p));
+      // A pressure is in pressure units. ppm is a share of the air, never a pressure.
+      const unit = /^[-+]?[0-9.]+(e[-+]?\d+)?\s*(bar|mbar|µbar|Pa)$/;
+      ok(u.gas.length >= 5 && u.gas.every((v) => unit.test(v)), 'every gas value carries a pressure unit', JSON.stringify(u.gas));
+      ok(unit.test(u.p || ''), 'the surface pressure carries a pressure unit', JSON.stringify(u.p));
       ok(/partial pressure/i.test(u.note || ''), 'the gas rows say what they measure', JSON.stringify(u.note));
       ok(/Earth ocean/.test(u.water || ''), 'the water readout names its unit', JSON.stringify(u.water));
       await page.evaluate(() => RAClimate.reset('moon'));
+
+      // Pluto, as reported: "Surface pressure 11 ppm", "Air N₂ 11 ppm", "Sea / ice cover
+      // 100 % / 100 %" for an ocean that is all ice.
+      await page.evaluate(() => focusBody('pluto', 'force'));
+      await until(page, () => RAClimate.detail && RAClimate.detail.key === 'pluto' &&
+        document.querySelector('#i-climate .clim-tab tr'), null, 15000);
+      await page.waitForTimeout(600);
+      const pl = await page.evaluate(() => {
+        const box = document.getElementById('i-climate');
+        const row = [...box.querySelectorAll('.clim-tab tr')].map((r) => [...r.cells].map((c) => c.textContent));
+        const get = (re) => (row.find((r) => re.test(r[0])) || [])[1] || '';
+        return { p: get(/pressure|Tlak/i), air: get(/^Air|^Vzduch/), sea: get(/sea|more/i),
+          gas: [...box.querySelectorAll('input[data-u="gas"]')].map((i) => i.value) };
+      });
+      ok(unit.test(pl.p) && /µbar|Pa/.test(pl.p), 'Pluto\'s surface pressure reads in µbar or Pa', JSON.stringify(pl.p));
+      ok(/N₂ (99|100)/.test(pl.air) && /%/.test(pl.air), 'Pluto\'s air is given as shares of the air', JSON.stringify(pl.air));
+      ok(pl.gas.every((v) => !/ppm/.test(v)), 'no gas field shows ppm', JSON.stringify(pl.gas));
+      ok(/^0 %/.test(pl.sea) || /open sea 0 %/i.test(pl.sea), 'Pluto has no open sea', JSON.stringify(pl.sea));
 
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));

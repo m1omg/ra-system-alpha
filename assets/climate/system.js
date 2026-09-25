@@ -388,6 +388,7 @@ export class ClimateSystem {
       },
       water: { ...w.water, total: dg.totalWater, initial: w.waterInitial },
       flooded: dg.flooded, iceMean: dg.iceMean, iceArea: dg.iceArea,
+      openOcean: dg.openOcean ?? null, seaIce: dg.seaIceFrac ?? null, landIce: dg.landIceFrac ?? null,
       bio: dg.bio ?? 0,
       life: w.life ? { ...w.life } : null,
       g, R: dg.d ? dg.d.R : null,
