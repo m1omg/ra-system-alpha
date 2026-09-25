@@ -103,7 +103,7 @@ export const PROFILES = {
            note: 'acid' },
     // 0.62 atm, 66% oxygen and 29% nitrogen, sixty per cent ocean and violet
     // forests. Tuned: the CO2.
-    satis: { base: { ...EARTH, landFraction: 0.40, water: 0.3, n2Bar: 0.18, o2Bar: 0.41,
+    satis: { base: { ...EARTH, landFraction: 0.40, water: 1.0, n2Bar: 0.18, o2Bar: 0.41,
             co2Bar: 1e-3, ch4Bar: 1e-6, biosphere: 1, obliquity: 20, landAlbedo: 0.22,
             internalHeat: 0.06, startT: 297 },
            target: 297, knob: 'co2Bar', clouds: 'delta', veg: 'purple' },

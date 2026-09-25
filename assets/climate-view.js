@@ -329,7 +329,7 @@ vec3 climTempColor(float T){
 }
 `;
 const FRAG_SURF=`
-float climT=288.0, climMelt=0.0, climTview=0.0;
+float climT=288.0, climMelt=0.0, climTview=0.0, climCrust=0.0;
 vec3 climLavaGlow=vec3(0.0);
 if(uClimOn>0.001){
   vec3 cn=normalize(vClimN);
@@ -359,11 +359,20 @@ if(uClimOn>0.001){
   float amtNow=clamp(bNow.g*1.05-0.16*nz, 0.0, 1.0), amt0=clamp(b0.g*1.05-0.16*nz, 0.0, 1.0);
   float mNow=smoothstep(0.06, 0.52, amtNow), m0=smoothstep(0.06, 0.52, amt0);
   float grow=max(mNow-m0, 0.0), melt=max(m0-mNow, 0.0);
-  float addIce=grow*(seaNow+(1.0-seaNow)*uClimA.w)*mix(0.35, 1.0, uClimA.z);
+  // Where the sea is where it always was, only the CHANGE in ice is drawn --
+  // the map already shows the ice it started with. Where the sea has moved
+  // (a new coast, a drained basin) the map shows nothing true, so the ice
+  // there is drawn in full.
+  float kept=1.0-max(drown, dry);
+  float keptSea=kept*seaNow, keptLand=kept*(1.0-seaNow);
+  float thaw=clamp(melt*1.6, 0.0, 1.0);
+  // a thawed sea is open water, whatever the map painted over it; a thawed
+  // land shows ground only where the map painted ice
+  col=mix(col, seaCol, keptSea*thaw);
+  col=mix(col, uClimLand*0.85, keptLand*pIce*thaw);
+  float addIce=(grow*(keptSea+keptLand*uClimA.w) + mNow*(drown+dry*uClimA.w))*mix(0.35, 1.0, uClimA.z);
   vec3 iceCol=mix(vec3(0.74,0.83,0.91), vec3(0.93,0.96,0.99), nz);
   col=mix(col, iceCol, clamp(addIce, 0.0, 1.0));
-  float unIce=pIce*clamp(melt*1.6, 0.0, 1.0);
-  col=mix(col, mix(uClimLand*0.85, seaCol, seaNow), unIce);
   // forests wither where the climate stops carrying them
   float warm=smoothstep(266.0,284.0,T)*(1.0-smoothstep(303.0,322.0,T));
   float warm0=smoothstep(266.0,284.0,T0)*(1.0-smoothstep(303.0,322.0,T0));
@@ -371,14 +380,21 @@ if(uClimOn>0.001){
   float wither=veg*clamp((life0-life)/max(life0,0.05), 0.0, 1.0)*(1.0-seaNow);
   vec3 dead=mix(col, vec3(dot(col, vec3(0.38,0.44,0.18)))*vec3(1.12,0.98,0.76), 0.85);
   col=mix(col, dead, wither);
-  // molten rock, only where there is rock to see
+  // molten rock, only where there is rock to see: a skin of dark crust over a
+  // molten sea, the plates shrinking as it heats and the seams between them
+  // glowing. The map's own ground is gone under it early -- lava resurfaces.
   climMelt=smoothstep(1150.0,1500.0,T)*uClimC.y;
   if(climMelt>0.001){
-    float crack=smoothstep(0.42, 0.62, abs(nz-0.5)*2.0);
-    vec3 crust=vec3(0.06,0.05,0.05);
-    vec3 magma=mix(vec3(0.85,0.16,0.02), vec3(1.0,0.82,0.35), crack);
-    col=mix(col, mix(crust, magma, 1.0-crack*0.6), climMelt);
-    climLavaGlow=magma*(1.0-crack*0.6)*climMelt;
+    float cover=smoothstep(0.0, 0.3, climMelt);
+    float thr=mix(0.30, 0.70, climMelt);
+    float liquid=1.0-smoothstep(thr-0.015, thr+0.015, nz);
+    float seam=(1.0-smoothstep(0.0, 0.035, abs(nz-thr)))*(1.0-0.5*liquid);
+    vec3 magma=mix(vec3(0.80,0.14,0.02), vec3(1.0,0.60,0.16), smoothstep(1400.0, 2400.0, T));
+    vec3 lava=mix(vec3(0.075,0.06,0.055), magma, liquid);
+    lava=mix(lava, vec3(1.0,0.72,0.30), seam*0.7);
+    col=mix(col, lava, cover);
+    climLavaGlow=(magma*liquid+vec3(1.0,0.55,0.18)*seam*0.8)*cover;
+    climCrust=(1.0-liquid)*cover;
   }
   // cloud: the deck the climate computes, or only its change where the
   // artist already painted one
@@ -414,7 +430,8 @@ if(uClimOn>0.001){
 `;
 const FRAG_EMIT=`
 if(uClimOn>0.001){
-  float glow=uClimC.z*min(exp(11.68-17520.0/max(climT,1.0)), 1.4);
+  // the crust is the cool part of a lava world: it glows least
+  float glow=uClimC.z*min(exp(11.68-17520.0/max(climT,1.0)), 1.4)*(1.0-0.75*climCrust);
   totalEmissiveRadiance+=uClimOn*(vec3(1.0,0.30,0.08)*glow*0.9+climLavaGlow*0.8);
   if(climTview>0.5) totalEmissiveRadiance+=diffuseColor.rgb*0.55;
 }
@@ -630,7 +647,9 @@ function maybeAnalyse(){
     const d=cv.rec.data, meta=CL.meta(cv.key)||{};
     const RS=CL.RS;
     const f0=cv.rs0[RS.FLOOD];
+    let ice0=0; for(let i=0;i<18;i++) ice0+=cv.rs0[RS.ICE+i]/18;
     const hints={ srcOcean: SRC_OCEAN[d.key]!=null?SRC_OCEAN[d.key]:(f0>0.005?f0:0),
+      frozen: SRC_OCEAN[d.key]==null && ice0>0.5,
       oceanRef: d.terran?d.terran.ocean:null, landRef: d.terran?(d.terran.land):null,
       veg: meta.veg || (d.vegKill==='purple'?'purple':d.vegKill==='green'?'green':null), seed: seedOf(cv.key) };
     const demName=(!d.custom && SYS==='sol')?DEM[d.key]:null;
@@ -662,6 +681,7 @@ function onAnalysis(a){
     const ct=new THREE.DataTexture(a.clouds, a.CW, a.CH, THREE.RGBAFormat, THREE.UnsignedByteType);
     ct.wrapS=THREE.RepeatWrapping; ct.wrapT=THREE.ClampToEdgeWrapping;
     ct.magFilter=THREE.LinearFilter; ct.minFilter=THREE.LinearMipmapLinearFilter;
+    ct.anisotropy=4;
     ct.generateMipmaps=true; ct.needsUpdate=true;
     V.cloudTex=ct;
     for(const cv of V.bodies.values()) if(cv.u) cv.u.uClimCloud.value=ct;
@@ -671,13 +691,19 @@ function onAnalysis(a){
   const t=new THREE.DataTexture(a.bytes, a.W, a.H, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS=THREE.RepeatWrapping; t.wrapT=THREE.ClampToEdgeWrapping;
   t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
+  // as the maps have: without it the squeezed rows near a pole read a mip
+  // level that averages the height over half the hemisphere, and a polar sea
+  // shows as a dry ring round the cap
+  t.anisotropy=4;
   t.generateMipmaps=true; t.needsUpdate=true;
   if(cv.surfTex) cv.surfTex.dispose();
   cv.surfTex=t; cv.cdf=a.cdf; cv.s0=a.s0;
   cv.u.uClimSurf.value=t;
-  cv.u.uClimSea.value.setRGB(a.seaAvg[0],a.seaAvg[1],a.seaAvg[2]);
   cv.u.uClimLand.value.setRGB(a.landAvg[0],a.landAvg[1],a.landAvg[2]);
-  if(!(a.s0>0.002)) cv.u.uClimSea.value.setRGB(0.04,0.14,0.32);
+  // A new sea takes the colour of the map's own sea only where the map has
+  // one worth the name; a basin on Mars is the colour of Mars, not of water.
+  if(a.s0>0.1) cv.u.uClimSea.value.setRGB(a.seaAvg[0],a.seaAvg[1],a.seaAvg[2]);
+  else cv.u.uClimSea.value.setRGB(0.04,0.14,0.32);
 }
 
 /* ---------------- nav + hud ---------------- */

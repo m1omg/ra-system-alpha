@@ -115,7 +115,33 @@ export function analyseSurface(W, H, rgba, dem, hints = {}) {
     heightRaw = new Float32Array(N);
     for (let i = 0; i < N; i++) heightRaw[i] = dem[i * 4] / 255;
   }
-  if (srcOcean > 0.003) {
+  // A coarse noise, for flood order where there is no topography.
+  const nLow = new Float32Array(N);
+  for (let y = 0; y < H; y++) {
+    const lat = ((y + 0.5) / H - 0.5) * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
+    for (let x = 0; x < W; x++) {
+      const lon = (x + 0.5) / W * 2 * Math.PI;
+      nLow[y * W + x] = fbm(cl * Math.cos(lon), sl, cl * Math.sin(lon), seed, 4, 2.2);
+    }
+  }
+  if (srcOcean >= 0.98) {
+    sea.fill(1);
+  } else if (srcOcean > 0.003 && hints.frozen) {
+    // The world's water starts frozen, so the map shows it as ice, not as sea:
+    // today's "sea" is the painted ice first (Mars's caps), then the lowest
+    // ground. Flooding later starts from the lowest ground, as it should.
+    const idx = [];
+    for (let i = 0; i < N; i++) idx.push(i);
+    const low = heightRaw ? (i) => heightRaw[i] : (i) => nLow[i];
+    idx.sort((a, b) => (ice[b] - ice[a]) * 10 - (low(b) - low(a)));
+    let tot = 0;
+    for (let y = 0; y < H; y++) tot += areaW[y] * W;
+    let acc = 0;
+    for (const i of idx) {
+      if (acc >= srcOcean * tot) break;
+      sea[i] = 1; acc += areaW[(i / W) | 0];
+    }
+  } else if (srcOcean > 0.003) {
     // Rank by how sea-like each pixel is (by height where a real topography
     // exists), and call the most sea-like `srcOcean` of the AREA sea. Painted
     // ice is left out of the colour ranking and decided by its neighbours: a
@@ -136,6 +162,12 @@ export function analyseSurface(W, H, rgba, dem, hints = {}) {
     if (!heightRaw) {
       const num = blur(sea, W, H, Math.max(2, W >> 6)), den = blur(known, W, H, Math.max(2, W >> 6));
       for (let i = 0; i < N; i++) if (!known[i]) sea[i] = den[i] > 1e-6 && num[i] / den[i] > 0.5 ? 1 : 0;
+    } else if (oRef && lRef) {
+      // A topography and a photograph never agree to the pixel at a coast. Where
+      // the photograph plainly shows water, it is water: otherwise a snowball
+      // leaves a thread of blue sea along every shore that the height map
+      // called land.
+      for (let i = 0; i < N; i++) if (!sea[i] && ice[i] < 0.5 && score[i] > 0.02) sea[i] = 1;
     }
   }
 
@@ -149,7 +181,7 @@ export function analyseSurface(W, H, rgba, dem, hints = {}) {
       const i = y * W + x;
       const lon = (x + 0.5) / W * 2 * Math.PI;
       const px = cl * Math.cos(lon), py = sl, pz = cl * Math.sin(lon);
-      const n1 = fbm(px, py, pz, seed, 4, 2.2);
+      const n1 = nLow[i];
       nA[i] = Math.round(clamp(fbm(px, py, pz, seed + 101, 4, 5.0), 0, 1) * 255);
       if (heightRaw) {
         // Monotonic in the real height, so the flood order is the planet's own.
@@ -168,36 +200,45 @@ export function analyseSurface(W, H, rgba, dem, hints = {}) {
     }
   }
   if (heightRaw) {
-    // Put today's shoreline at 0.5: the height at the sea quantile, or below
-    // the lowest point when the map has no sea.
-    let lo = Infinity, hi = -Infinity, shore = -Infinity;
+    // Today's sea below 0.5 and today's land above it, each ordered by the real
+    // height, so a rising sea drowns the lowest land first and a falling one
+    // bares the shallowest sea first -- whatever decided which pixels are sea
+    // (the photograph's water, or a frozen world's painted ice).
+    let sLo = Infinity, sHi = -Infinity, lLo = Infinity, lHi = -Infinity;
     for (let i = 0; i < N; i++) {
-      if (h[i] < lo) lo = h[i]; if (h[i] > hi) hi = h[i];
-      if (sea[i] > 0.5 && h[i] > shore) shore = h[i];
+      const v = heightRaw[i];
+      if (sea[i] > 0.5) { if (v < sLo) sLo = v; if (v > sHi) sHi = v; }
+      else { if (v < lLo) lLo = v; if (v > lHi) lHi = v; }
     }
-    if (!(srcOcean > 0.003)) shore = lo - 1e-3;
     for (let i = 0; i < N; i++) {
-      const v = h[i];
-      h[i] = sea[i] > 0.5 || (srcOcean > 0.003 && v <= shore)
-        ? 0.48 - 0.46 * clamp((shore - v) / Math.max(shore - lo, 1e-3), 0, 1)
-        : 0.52 + 0.46 * clamp((v - shore) / Math.max(hi - shore, 1e-3), 0, 1);
+      const v = heightRaw[i];
+      h[i] = sea[i] > 0.5
+        ? 0.48 - 0.46 * clamp((sHi - v) / Math.max(sHi - sLo, 1e-3), 0, 1)
+        : 0.52 + 0.46 * clamp((v - lLo) / Math.max(lHi - lLo, 1e-3), 0, 1);
     }
   }
 
   // Area-weighted CDF over 256 bins of height.
   const hist = new Float64Array(256);
   let total = 0;
+  // Written bottom row first: a DataTexture is not flipped on upload the way
+  // an image is, so row 0 of the texture is the SOUTH pole (v = 0) while row 0
+  // of the map is the north. Getting this backwards mirrors every sea, cap
+  // and forest pole to pole -- invisible on an untouched world, where nothing
+  // is drawn, and wrong the moment anything changes.
   const bytes = new Uint8Array(N * 4);
+  const hbAt = new Uint8Array(N);
   for (let y = 0; y < H; y++) {
     const a = areaW[y];
     for (let x = 0; x < W; x++) {
-      const i = y * W + x;
+      const i = y * W + x, o = ((H - 1 - y) * W + x) * 4;
       const hb = clamp(Math.round(h[i] * 255), 0, 255);
       hist[hb] += a; total += a;
-      bytes[i * 4] = hb;
-      bytes[i * 4 + 1] = Math.round(clamp(veg[i], 0, 1) * 255);
-      bytes[i * 4 + 2] = Math.round(clamp(ice[i], 0, 1) * 255);
-      bytes[i * 4 + 3] = nA[i];
+      hbAt[i] = hb;
+      bytes[o] = hb;
+      bytes[o + 1] = Math.round(clamp(veg[i], 0, 1) * 255);
+      bytes[o + 2] = Math.round(clamp(ice[i], 0, 1) * 255);
+      bytes[o + 3] = nA[i];
     }
   }
   const cdf = new Float32Array(257);
@@ -212,7 +253,7 @@ export function analyseSurface(W, H, rgba, dem, hints = {}) {
   for (let i = 0; i < N; i += 7) {
     if (ice[i] > 0.3) continue;
     const r = rgba[i * 4], g = rgba[i * 4 + 1], bl = rgba[i * 4 + 2];
-    if (bytes[i * 4] >= 128) { lr += r; lg += g; lb += bl; ln++; } else { or += r; og += g; ob += bl; on++; }
+    if (hbAt[i] >= 128) { lr += r; lg += g; lb += bl; ln++; } else { or += r; og += g; ob += bl; on++; }
   }
   const landAvg = ln ? [lr / ln / 255, lg / ln / 255, lb / ln / 255] : [0.42, 0.36, 0.30];
   const seaAvg = on ? [or / on / 255, og / on / 255, ob / on / 255] : [0.05, 0.16, 0.34];
