@@ -58,7 +58,7 @@ function capable(rec){
 function bodyData(rec){
   const d=rec.data;
   return { key:d.key, kind:d.kind, massKg:massOf(rec), radiusKm:d.radiusKm, rotationPeriod:d.rotationPeriod,
-    comp:d.comp||null, custom:!!rec._custom };
+    comp:d.comp||null, custom:!!rec._custom, life:d.life||null };
 }
 
 /* ---------------- light sources ---------------- */
@@ -293,6 +293,7 @@ V.frame=function(dtReal, simDt, rateYps){
   const t=performance.now()/1000;
   const p0=V.prof?performance.now():0;
   for(const cv of V.bodies.values()) applyState(cv, dtReal, t);
+  for(const cv of V.bodies.values()) lifeOf(cv);
   const p1=V.prof?performance.now():0;
   maybeAnalyse();
   if(V.prof){ const p2=performance.now(); if(p2-p0>15) V.prof.push({apply:+(p1-p0).toFixed(1), analyse:+(p2-p1).toFixed(1)}); }
@@ -304,6 +305,30 @@ V.frame=function(dtReal, simDt, rateYps){
     for(const rec of bodies) if(!V.bodies.has(rec.data.key) && capable(rec)) addWorld(rec);
     updateNavTemps(); updateHud();
   }
+};
+
+/* ---------------- life ---------------- */
+// What lives on a world is the climate's to say (the ledger, system.js): the
+// orrery's tags, panel and vegetation hear of a change the frame it arrives.
+function lifeOf(cv){
+  const RS=CL.RS; if(!RS || RS.LIFE==null || !cv.rec.data.life) return;
+  const r=CL.state(cv.key); if(!r) return;
+  const lv=r[RS.LIFE], cause=r[RS.LIFECAUSE];
+  if(lv===cv.lifeLv && cause===cv.lifeCause) return;
+  cv.lifeLv=lv; cv.lifeCause=cause;
+  if(typeof impLifeFromClimate==='function') impLifeFromClimate(cv.rec, lv, CL.LIFE_CAUSES[cause]||null);
+}
+// True where the climate keeps this world's life (the orrery's joule thresholds
+// then stand aside).
+V.ownsLife=function(rec){
+  const cv=rec && rec.data && V.bodies.get(rec.data.key);
+  return !!(cv && cv.rec===rec && CL.state(cv.key) && CL.RS && CL.RS.LIFE!=null);
+};
+// Simulated years since the life on this world last changed, or null.
+V.lifeAgo=function(rec){
+  const cv=rec && rec.data && V.bodies.get(rec.data.key), RS=CL.RS;
+  const r=cv && CL.state(cv.key); if(!r || !RS || RS.LIFESINCE==null) return null;
+  return Math.max(0, r[RS.TIME]-r[RS.LIFESINCE]);
 };
 
 /* ---------------- deposits ---------------- */
@@ -799,8 +824,10 @@ function updateNavTemps(){
     let s=el.querySelector('.ctemp');
     if(!s){ s=document.createElement('span'); s.className='ctemp'; const tag=el.querySelector('.tag');
       if(tag) el.insertBefore(s, tag); else el.appendChild(s); }
-    const T=r[RS.SURFT]>0?r[RS.SURFT]:r[RS.TMEAN];
-    const txt=fmtT(T);
+    // the mean, as the sandbox heads its own readout: after a boil the model's
+    // "surface" is the top of the ocean buried under the steam, still 16 °C
+    // under a 470 °C sky, and the list is no place for that distinction
+    const txt=fmtT(r[RS.TMEAN]);
     if(s.textContent!==txt) s.textContent=txt;
     const st=CL.STATE_IDS[r[RS.STATE]|0], S=st&&CL.STATES[st];
     if(S){ s.style.color=S.color; s.title=stateName(st, S.name); }
@@ -1027,8 +1054,10 @@ function renderPanel(det){
   lag.textContent=det.lag<0.9?('⏳ '+Math.round(det.lag*100)+'%'):'';
   lag.title=t('This climate is running slower than the clock: the physics is taking small steps through a fast change.',
     'Táto klíma beží pomalšie než čas: model prechádza rýchlou zmenou po malých krokoch.');
-  const sT=det.surface&&det.surface.surfaceT, Tshow=sT>0?sT:det.Tmean;
-  box.querySelector('.clim-T').textContent=fmtT(Tshow)+'  ·  '+Math.round(Tshow)+' K';
+  // the mean heads the card, as in the sandbox; an ocean buried under a steam
+  // lid gets its own row below rather than posing as the planet's temperature
+  box.querySelector('.clim-T').textContent=fmtT(det.Tmean)+'  ·  '+Math.round(det.Tmean)+' K';
+  const buried=det.surface && det.surface.surfaceKind==='buried ocean' && det.surface.surfaceT>0 ? det.surface.surfaceT : null;
   box.querySelector('.clim-range').textContent=t('range ','rozsah ')+fmtT(det.Tmin)+' … '+fmtT(det.Tmax);
   drawBands(box.querySelector('.clim-bands'), det);
   drawHist(box.querySelector('.clim-hist'), det);
@@ -1042,6 +1071,7 @@ function renderPanel(det){
   const rows=[
     [t('Starlight','Žiarenie hviezdy'), (+(det.flux/S_EARTH).toPrecision(3))+' S⊕ · '+Math.round(det.flux)+' W/m²'],
     [t('Surface pressure','Tlak pri povrchu'), fmtPressure(det.pTot)],
+    ...(buried ? [[t('Buried ocean, top','Pochovaný oceán, vrch'), fmtT(buried)+' '+t('under the steam','pod parou')]] : []),
     [t('Air','Vzduch'), comp||t('none','žiadny')],
     [t('Reflects (albedo)','Odráža (albedo)'), Math.round(det.albedo*100)+' %'+' · '+t('cloud','oblačnosť')+' '+Math.round(det.cloud*100)+' %'],
     [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+oceansWord(fmtNum(w.total))+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],

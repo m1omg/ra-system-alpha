@@ -17,14 +17,14 @@
 //   restore  {worlds}                {key: snapshot}
 //   analyze  {key, W, H, rgba, dem, hints}
 // Out:
-//   ready    {RS, STATE_IDS, STATES}
+//   ready    {RS, STATE_IDS, STATES, LIFE_CAUSES}
 //   added    {key, ok, meta, rs0}
 //   state    {keys, data}            data: Float32Array, RS.SIZE per key
 //   detail   {...}                   for the focused world
 //   snapshot {id, worlds}
 //   analysis {key, W, H, bytes, cdf, s0, landAvg, seaAvg}
 //   stats    {steps, busyMs, worlds}
-import { ClimateSystem, RS, STATE_IDS } from './system.js';
+import { ClimateSystem, RS, STATE_IDS, LIFE_CAUSES } from './system.js';
 import { STATES } from './physics/classify.js';
 import { SPINUP } from './spinup.js';
 import { analyseSurface, cloudField, CLOUD_W, CLOUD_H } from './analysis.js';
@@ -180,7 +180,7 @@ export function createHost(post, onAsync = null) {
   function ready() {
     const states = {};
     for (const [k, s] of Object.entries(STATES)) states[k] = { name: s.name, color: s.color, blurb: s.blurb };
-    post({ type: 'ready', RS, STATE_IDS, STATES: states });
+    post({ type: 'ready', RS, STATE_IDS, STATES: states, LIFE_CAUSES });
   }
 
   return { handle, work, flush, ready, sys, isDirty: () => dirty };

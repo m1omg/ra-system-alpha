@@ -358,6 +358,56 @@ try {
       await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
       await page.waitForTimeout(600);
 
+      section('sol: life follows the climate');
+      const life = await page.evaluate(async () => {
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        const earth = bodies.find((b) => b.data.key === 'earth');
+        const sp = document.getElementById('speed'); sp.value = 0; setSpeed(0); if (!playing) togglePlay();
+        focusBody('earth', 'force');
+        for (let i = 0; i < 20; i++) await frame();
+        const tag = () => (document.querySelector('.navitem[data-key="earth"] .tag.life') || {}).textContent || '';
+        const row = () => { const r = [...document.querySelectorAll('#info tr')].find((tr) => /Biosphere|Biosféra/.test(tr.textContent)); return r ? r.textContent : ''; };
+        const before = { tag: tag(), owned: RAClimateView.ownsLife(earth) };
+        // a 1e28 J strike at real time: the verdict cannot wait a day of wall clock for the next step
+        applyStrike(earth, 0.5, 0.5, 1e28, { mKg: 1e20, vKms: 20, matI: 1, dir: new THREE.Vector3(0, 0, 1) });
+        let n = 0; while (n < 30 && !/unicellular/.test(tag())) { await frame(); n++; }
+        await new Promise((r) => setTimeout(r, 300));
+        const after = { frames: n, tag: tag(), row: row(), veg: !!earth._vegKilled, extinct: earth.extinct, level: earth.lifeLevel, cause: earth.lifeCause };
+        document.getElementById('t-lang').click();
+        await new Promise((r) => setTimeout(r, 300));
+        const sk = { tag: tag(), row: row() };
+        document.getElementById('t-lang').click();
+        await new Promise((r) => setTimeout(r, 300));
+        if (playing) togglePlay();
+        // 💾 saved (the worker hands the climate over), healed back to the book's
+        // Earth, 📂 loaded: the ledger comes back with the save
+        const ck = 'ra-climate-clim:' + SYS; localStorage.removeItem(ck);
+        window.__stay = 3; document.getElementById('t-save').click();
+        for (let i = 0; i < 200 && !localStorage.getItem(ck); i++) await frame();
+        impHeal();
+        for (let i = 0; i < 60 && !/intelligent/.test(tag()); i++) await frame();
+        const reset = tag();
+        document.getElementById('t-load').click();
+        for (let i = 0; i < 90 && !/unicellular/.test(tag()); i++) await frame();
+        const loaded = { reset, tag: tag(), stay: window.__stay, extinct: bodies.find((b) => b.data.key === 'earth').extinct };
+        try { localStorage.removeItem(stateKey()); localStorage.removeItem(ck); } catch (_) {}
+        impHeal();
+        for (let i = 0; i < 40 && !/intelligent/.test(tag()); i++) await frame();
+        const healed = { tag: tag(), veg: !!earth._vegKilled, extinct: earth.extinct };
+        return { before, after, sk, loaded, healed };
+      });
+      ok(life.before.owned && /intelligent/.test(life.before.tag), 'Earth opens intelligent, its life kept by the climate', JSON.stringify(life.before));
+      ok(life.after.frames <= 3 && /unicellular/.test(life.after.tag) && life.after.extinct && life.after.veg,
+        'a 1e28 J strike at real time: complex life gone within frames, the tag says so and the forests are gone from the map',
+        `${life.after.frames} frames, "${life.after.tag}", level ${life.after.level}, ${life.after.cause}`);
+      ok(/boiled away/.test(life.after.row) && /just now| ago/.test(life.after.row), 'the panel says what did it and when', JSON.stringify(life.after.row));
+      ok(/jednobunkový/.test(life.sk.tag) && /vyvarili/.test(life.sk.row), '...in Slovak too, and the tag survives the switch', JSON.stringify(life.sk));
+      ok(/intelligent/.test(life.loaded.reset) && /unicellular/.test(life.loaded.tag) && life.loaded.stay === 3 && life.loaded.extinct,
+        'saved, healed and loaded in the page: the extinction comes back with the save', JSON.stringify(life.loaded));
+      ok(/intelligent/.test(life.healed.tag) && !life.healed.veg && !life.healed.extinct, '🧽 Heal gives the biosphere back, forests and all', JSON.stringify(life.healed));
+      await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
+      await page.waitForTimeout(600);
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());

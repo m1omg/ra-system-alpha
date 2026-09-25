@@ -15,7 +15,7 @@ import { S_EARTH } from '../assets/climate/physics/constants.js';
 
 const systems = loadSystems();
 const trim = (d) => ({ key: d.key, kind: d.kind, massKg: d.massKg, radiusKm: d.radiusKm,
-  rotationPeriod: d.rotationPeriod, comp: d.comp, custom: !!d.custom });
+  rotationPeriod: d.rotationPeriod, comp: d.comp, custom: !!d.custom, life: d.life || null });
 function sysOf(key) {
   for (const s of ['sol', 'ra']) if (systems[s].bodies.some((d) => d.key === key)) return s;
   throw new Error('no such world: ' + key);

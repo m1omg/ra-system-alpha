@@ -21,7 +21,7 @@
   const metas=new Map();               // key -> profile meta
   let worker=null, local=null, ready=false, failed=false, mode='none';
   let queue=[];
-  let RS=null, STATE_IDS=[], STATES={};
+  let RS=null, STATE_IDS=[], STATES={}, LIFE_CAUSES=[];
   let snapId=0; const snapWaiters=new Map();
   let lastDetail=null, stats=null;
 
@@ -31,7 +31,7 @@
   function onMessage(m){
     switch(m.type){
       case 'ready':
-        RS=m.RS; STATE_IDS=m.STATE_IDS; STATES=m.STATES; ready=true;
+        RS=m.RS; STATE_IDS=m.STATE_IDS; STATES=m.STATES; LIFE_CAUSES=m.LIFE_CAUSES||[]; ready=true;
         const q=queue; queue=[];
         q.forEach(x=>post(x.msg, x.transfer));
         emit('ready', {mode});
@@ -128,6 +128,7 @@
     start, on, frame, snapshot,
     get ready(){ return ready; }, get mode(){ return mode; }, get failed(){ return failed; },
     get RS(){ return RS; }, get STATE_IDS(){ return STATE_IDS; }, get STATES(){ return STATES; },
+    get LIFE_CAUSES(){ return LIFE_CAUSES; },
     get stats(){ return stats; }, get detail(){ return lastDetail; },
     state:(k)=>states.get(k)||null,
     initial:(k)=>initial.get(k)||null,

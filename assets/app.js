@@ -349,6 +349,17 @@ const UI_EN={
   'st-bio-now':'Biosphere (current)',
   'bio-extinct-val':'multicellular life extinct — microbes only',
   'bio-sterile-val':'ALL life extinct — the world is sterile',
+  'life-complex':'multicellular',
+  'bio-extinct-now':'complex life extinct when {why}, {when} — microbes only',
+  'bio-sterile-now':'ALL life extinct when {why}, {when} — sterile',
+  'bio-reevolved-now':'complex life evolved again, {when} — no intelligence yet',
+  'life-ago':'{ago} ago','life-now':'just now',
+  'ext-note-clim':'Complex life died when {why}. Microbes came through, in the deep crust and wherever else they could, and spread back as the climate lets them; complex life takes hundreds of millions of years to evolve again, and intelligence half a billion more. (🧽 Heal in the impact lab restores the biosphere.)',
+  'ext-note-sterile-clim':'Nothing survived when {why}. With nothing left to spread back, the world stays sterile. (🧽 Heal in the impact lab restores the biosphere.)',
+  'ext-note-reevolved':'Complex life has evolved again since the extinction. Intelligence needs half a billion years of it. (🧽 Heal in the impact lab restores the biosphere as it was.)',
+  'lc-heat':'the surface grew too hot','lc-boiled':'the oceans boiled away','lc-cooked':'the heat reached down into the crust',
+  'lc-magma':'the crust melted','lc-frozen':'the world froze','lc-dry':'the water was lost',
+  'lc-anoxia':'the oxygen ran out','lc-starved':'CO₂ fell too low for photosynthesis','lc-unknown':'the climate changed',
   'ext-note':'The bombardment sterilized the surface: every animal, plant and fungus is gone. Only single-celled life clings on in the deep rock and what remains of the seas. (🧽 Heal in the impact lab restores the biosphere.)',
   'ext-note-sterile':'The bombardment exceeded an exaton of TNT: nothing survived, not even microbes. The world is completely sterile. (🧽 Heal in the impact lab restores the biosphere.)',
   'from-source':"From the source — author's text",
@@ -1844,6 +1855,7 @@ const IMP_EXTINCT_J=1e27;                    // multicellular extinction (vegKil
 const IMP_STERILE_J=4.184e27;                // 1 Et TNT: total sterilization (all life tags)
 function impCheckExtinct(rec){
   if(!rec.data.life || rec.destroyed) return;
+  if(window.RAClimateView && RAClimateView.ownsLife(rec)) return;   // the climate decides (impLifeFromClimate)
   const E=rec.dmgJ||0;
   if(!rec.sterile && E>=IMP_STERILE_J) impGoExtinct(rec,true);
   else if(!rec.extinct && rec.data.vegKill && E>=IMP_EXTINCT_J) impGoExtinct(rec,false);
@@ -1905,16 +1917,57 @@ function impKillVegetation(rec){
   rec._vegKilled=true;
   mat.map=tex; mat.needsUpdate=true;
 }
+// the map as it was before the vegetation was scrubbed: a healed world, or one
+// whose complex life has evolved again
+function impRegrowVegetation(rec){
+  if(!rec._vegKilled) return;
+  const mat=rec.mesh&&rec.mesh.material;
+  if(mat && rec._preExtinctMap){ mat.map=rec._preExtinctMap; mat.needsUpdate=true; }
+  if(rec._extinctTex){ unregCanvasTex(rec._extinctTex); rec._extinctTex.dispose(); rec._extinctTex=null; }
+  rec._preExtinctMap=null; rec._vegKilled=false;
+}
 function impHealExtinct(rec){                // 🧽: the biosphere comes back too
-  if(!rec.extinct && !rec.sterile) return;
-  rec.extinct=false; rec.sterile=false;
-  if(rec._vegKilled){
-    const mat=rec.mesh&&rec.mesh.material;
-    if(mat && rec._preExtinctMap){ mat.map=rec._preExtinctMap; mat.needsUpdate=true; }
-    if(rec._extinctTex){ unregCanvasTex(rec._extinctTex); rec._extinctTex.dispose(); rec._extinctTex=null; }
-    rec._preExtinctMap=null; rec._vegKilled=false;
+  if(!rec.extinct && !rec.sterile && rec.lifeLevel==null) return;
+  rec.extinct=false; rec.sterile=false; rec.lifeLevel=null; rec.lifeCause=null;
+  impRegrowVegetation(rec);
+  updateNavStatus(rec);
+}
+/* ---- life on a world the climate runs (climate edition): the climate's
+   ledger decides, from what its populations did -- heat, a boiled sea, a
+   molten crust, a freeze -- instead of the joule thresholds above. `level`:
+   3 intelligent, 2 complex, 1 microbes only, 0 nothing, never above the book's;
+   `cause`: what took the last level away. Complex life coming back re-greens
+   the map; intelligence follows it half a billion years later. ---- */
+const LIFE_DOC={intelligent:3, complex:2, alien:1, seeded:1, native:1};
+function lifeDoc(rec){ return LIFE_DOC[rec.data.life]||0; }
+function impLifeFromClimate(rec, level, cause){
+  if(!rec || !rec.data.life || rec.destroyed) return;
+  const doc=lifeDoc(rec);
+  rec.lifeLevel=level; rec.lifeCause=cause;
+  rec.sterile=level===0;
+  rec.extinct=rec.sterile || (doc>=2 && level<2);
+  if(rec.data.vegKill){
+    if(rec.extinct) impKillVegetation(rec); else impRegrowVegetation(rec);
   }
   updateNavStatus(rec);
+  if(APP.currentData && APP.currentData.key===rec.data.key &&
+     document.getElementById('info').classList.contains('open')) openInfo(rec.data);
+}
+// The "Biosphere (current)" row and the note above the description, or null
+// when the world's life is as the book has it.
+function lifeNowText(rec){
+  if(window.RAClimateView && RAClimateView.ownsLife(rec) && rec.lifeLevel!=null){
+    const doc=lifeDoc(rec), lv=rec.lifeLevel;
+    if(!(lv<doc)) return null;
+    const ago=RAClimateView.lifeAgo(rec);
+    const when=ago==null ? '' : ago<60/SEC_PER_YEAR ? T('life-now') : T('life-ago').replace('{ago}', fmtElapsed(ago));
+    const fill=(k)=>T(k).replace('{why}', rec.lifeCause?T('lc-'+rec.lifeCause):T('lc-unknown')).replace('{when}', when);
+    if(lv===0) return {row:fill('bio-sterile-now'), note:fill('ext-note-sterile-clim')};
+    if(lv===1) return {row:fill(doc>=2?'bio-extinct-now':'bio-sterile-now'), note:fill(doc>=2?'ext-note-clim':'ext-note-sterile-clim')};
+    return {row:fill('bio-reevolved-now'), note:fill('ext-note-reevolved')};
+  }
+  if(!(rec.extinct||rec.sterile)) return null;
+  return {row:T(rec.sterile?'bio-sterile-val':'bio-extinct-val'), note:T(rec.sterile?'ext-note-sterile':'ext-note')};
 }
 function impUpdateMelt(rec){                 // cumulative surface state from the phase budgets
   impCheckExtinct(rec);                      // life dies long before crust does
@@ -7023,6 +7076,9 @@ function updateNavStatus(rec){
   } else if(rec.extinct){
     tag.className='tag life ext'; tag.title=T('life-title');
     tag.innerHTML='✦&nbsp;'+T('life-unicellular');
+  } else if(rec.lifeLevel!=null && rec.lifeLevel<lifeDoc(rec)){
+    tag.className='tag life ext'; tag.title=T('life-title');
+    tag.innerHTML='✦&nbsp;'+T('life-complex');
   } else {
     tag.className='tag life'; tag.title=T('life-title');
     tag.innerHTML='✦&nbsp;'+T('life-'+rec.data.life);
@@ -7112,10 +7168,11 @@ function openInfo(d){
       } else { btn.textContent='✗'; setTimeout(()=>{ btn.textContent=T('orb-apply'); }, 900); }
     };
   }
-  // a sterilized biosphere overrides the book's life claims
-  if(prec && !prec.destroyed && (prec.extinct||prec.sterile)){
+  // a biosphere that is not what the book says overrides the book's life claims
+  const lifeNow=prec && !prec.destroyed ? lifeNowText(prec) : null;
+  if(lifeNow){
     const tr=document.createElement('tr');
-    tr.innerHTML='<td>⚠ '+T('st-bio-now')+'</td><td>'+T(prec.sterile?'bio-sterile-val':'bio-extinct-val')+'</td>';
+    tr.innerHTML='<td>⚠ '+T('st-bio-now')+'</td><td>'+lifeNow.row+'</td>';
     t.appendChild(tr);
   }
   // description
@@ -7140,10 +7197,10 @@ function openInfo(d){
     if(verbatim){ addSource(T('from-source')); addParas(verbatim); }
   }
   // extinction note — a separate element AFTER the (untouchable) source text
-  if(prec && !prec.destroyed && (prec.extinct||prec.sterile)){
+  if(lifeNow){
     const note=document.createElement('p');
     note.style.cssText='font-style:italic;color:#c08a8a;font-size:12px';
-    note.textContent='⚠ '+T(prec.sterile?'ext-note-sterile':'ext-note');
+    note.textContent='⚠ '+lifeNow.note;
     ds.insertBefore(note, ds.firstChild);
   }
   if(window.RAClimateView) RAClimateView.afterOpenInfo(d);   // 🌡 the live climate

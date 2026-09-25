@@ -45,6 +45,16 @@ book gives it.
   branch, an unstable root above it and a runaway beyond, the topology Wolf &
   Toon (2015) found. 🧽 Heal restores the climate with the orbit. 💾 Save
   and ⬇ Export carry the climate with the system.
+- Life follows the climate. The model's own populations, microbes and complex
+  life, decide what lives on a world; the sidebar tag, the info panel and the
+  map's forests follow them the frame they change, and say what did it
+  ("complex life extinct when the oceans boiled away"). Heat kills fast, and
+  outright a hundred kelvin past the limit; microbes a kilometre and a half
+  down in the crust come through a boil that rains back out, and die when the
+  heat reaches them or the crust melts. Complex life lost on a world that
+  stays habitable takes the model's 800 million years to evolve again, and
+  intelligence half a billion more; a sterilised world stays sterile.
+  Nephtys's acid-sea life lives while its sea is liquid, to 330 °C.
 
 **How it fits together**
 
