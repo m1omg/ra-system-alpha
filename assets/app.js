@@ -508,10 +508,16 @@ function bakedTextureKey(url){
   const m=/(?:^|\/)([^\/]+)\.webp$/.exec(url);
   return m&&m[1];
 }
+// Each image is fetched and decoded once per page: a world rebuilt by Reset or Load
+// takes its maps from memory instead of the network, and a map that is not there
+// (most small moons have none) is not asked for again.
+THREE.Cache.enabled=true;
+const texMissing=new Set();
 function loadTextureURL(url, onLoad, onProgress, onError, fileNoCors){
+  if(texMissing.has(url)){ if(onError) setTimeout(onError, 0); return null; }
   const loader=new THREE.TextureLoader();
   if(fileNoCors) loader.setCrossOrigin(undefined);
-  return loader.load(url, onLoad, onProgress, onError);
+  return loader.load(url, onLoad, onProgress, function(e){ texMissing.add(url); if(onError) onError(e); });
 }
 function loadBakedTexture(url, onLoad, onProgress, onError){
   if(typeof location!=='undefined' && location.protocol==='file:'){

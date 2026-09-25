@@ -221,14 +221,20 @@ try {
         impGoExtinct(bodies.find((b) => b.data.key === 'earth'), false);
         toggleNbody(); nbStep(0.5); toggleNbody(); elapsedYears += 3; });
       await page.evaluate(() => { saveSystemState(); window.__save = localStorage.getItem(stateKey()); });
+      // a rebuilt world takes its images from memory: nothing goes over the network
+      const fetched = []; const onReq = (q) => fetched.push(q.url().replace(BASE, ''));
+      page.on('request', onReq);
       const t0 = Date.now();
       await page.evaluate(() => document.getElementById('t-sysreset').click());
       await until(page, () => window.__stay === 1 && !!bodies.find((b) => b.data.key === 'phobos'), null, 20000);
       const took = Date.now() - t0;
+      await page.waitForTimeout(4000);          // long enough for the map readings to queue up
+      page.off('request', onReq);
       const r1 = await page.evaluate(() => ({ stay: window.__stay, t: elapsedYears, phobos: !!bodies.find((b) => b.data.key === 'phobos'),
         marsA: orbCurrent(bodies.find((b) => b.data.key === 'mars')).a, earth: bodies.find((b) => b.data.key === 'earth').extinct,
         saved: !!localStorage.getItem(stateKey()) }));
       ok(r1.stay === 1 && took < 3000, 'Reset stays in the page', took + ' ms');
+      ok(fetched.length === 0, 'Reset fetches nothing', fetched.length ? fetched.slice(0, 4).join(' ') : '0 requests');
       ok(r1.t === 0 && r1.phobos && Math.abs(r1.marsA - 1.5237) < 0.01 && !r1.earth && !r1.saved,
         'Reset puts back time, a deleted moon, an edited orbit and a dead biosphere, and clears the save', JSON.stringify(r1));
       const p1 = await pos();

@@ -207,9 +207,12 @@ V.init=function(){
   CL.on('unavailable', e=>{ V.available=false; V.unavailableWhy=e.reason; showBanner(); });
   CL.on('added', m=>{
     const cv=V.bodies.get(m.key); if(!cv) return;
+    const was=cv.rs0?startSig(cv.rs0):null;
     cv.rs0=m.rs0; cv.iceSeeded=false; cv.stateSeen=false; cv.dirty=true;
     writeInitialRow(cv);
-    if(m.reset){ cv.token=null; }
+    // a reset reads the map again only if what the reading takes from the
+    // start moved; the map itself changing is caught by its token
+    if(m.reset && startSig(m.rs0)!==was){ cv.token=null; }
   });
   CL.on('analysis', onAnalysis);
   CL.on('analysis-failed', m=>{
@@ -644,6 +647,13 @@ const CAN_BITMAP=typeof createImageBitmap==='function' && typeof OffscreenCanvas
 function bitmapOf(img, W, H){
   return createImageBitmap(img, {resizeWidth:W, resizeHeight:H, resizeQuality:'medium'});
 }
+// What a map reading takes from the world's start: its sea and whether it is frozen over.
+function startHints(rs0){
+  const RS=CL.RS, f0=rs0[RS.FLOOD];
+  let ice0=0; for(let i=0;i<18;i++) ice0+=rs0[RS.ICE+i]/18;
+  return { flood:f0>0.005?f0:0, frozen:ice0>0.5 };
+}
+function startSig(rs0){ const h=startHints(rs0); return h.flood+'|'+h.frozen; }
 function seedOf(key){ let s=7; for(const ch of key) s=(s*31+ch.charCodeAt(0))|0; return Math.abs(s)%100000; }
 function maybeAnalyse(){
   if(V.analysisBusy || !CL.ready) return;
@@ -653,20 +663,22 @@ function maybeAnalyse(){
     if(!cv.rs0) continue;
     const m=mapImage(cv); if(!m) continue;
     if(m.token===cv.token) continue;
+    // a map this world has shown before (healed back from a repaint) is read
+    // from memory, not fetched and analysed again
+    const sig=m.token+'|'+startSig(cv.rs0), seen=cv.readings&&cv.readings.get(sig);
+    if(seen){ cv.readings.delete(sig); cv.readings.set(sig, seen); cv.token=m.token; applyReading(cv, seen); continue; }
     // give the baked WebP a moment to replace the procedural first paint
     if(m.isCanvas && now-cv.addedAt<2500 && !cv.rec._vegKilled) continue;
     V.analysisBusy=true;
-    cv.token=m.token;
+    cv.token=m.token; cv.readingSig=sig;
     // Planets get a finer field than moons: they are the ones seen close up.
     const big=m.w>=2048 && !cv.rec.isMoon;
     const viaUrl=!m.isCanvas && m.url && !/^data:|^blob:/.test(m.url) && !cv.needPixels;
     const W=(viaUrl||CAN_BITMAP)?(big?1024:512):512, H=W>>1;
     const d=cv.rec.data, meta=CL.meta(cv.key)||{};
-    const RS=CL.RS;
-    const f0=cv.rs0[RS.FLOOD];
-    let ice0=0; for(let i=0;i<18;i++) ice0+=cv.rs0[RS.ICE+i]/18;
-    const hints={ srcOcean: SRC_OCEAN[d.key]!=null?SRC_OCEAN[d.key]:(f0>0.005?f0:0),
-      frozen: SRC_OCEAN[d.key]==null && ice0>0.5,
+    const st=startHints(cv.rs0);
+    const hints={ srcOcean: SRC_OCEAN[d.key]!=null?SRC_OCEAN[d.key]:st.flood,
+      frozen: SRC_OCEAN[d.key]==null && st.frozen,
       oceanRef: d.terran?d.terran.ocean:null, landRef: d.terran?(d.terran.land):null,
       veg: meta.veg || (d.vegKill==='purple'?'purple':d.vegKill==='green'?'green':null), seed: seedOf(cv.key) };
     const demName=(!d.custom && SYS==='sol')?DEM[d.key]:null;
@@ -705,6 +717,16 @@ function onAnalysis(a){
   }
   const cv=V.bodies.get(a.key); if(!cv || !cv.u) return;
   if(a.token!==cv.token) return;
+  // the three readings used last are kept: the map a heal or a Reset puts
+  // back is the one shown before the repaint
+  if(cv.readingSig){
+    cv.readings=cv.readings||new Map();
+    cv.readings.delete(cv.readingSig); cv.readings.set(cv.readingSig, a);
+    while(cv.readings.size>3) cv.readings.delete(cv.readings.keys().next().value);
+  }
+  applyReading(cv, a);
+}
+function applyReading(cv, a){
   const t=new THREE.DataTexture(a.bytes, a.W, a.H, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS=THREE.RepeatWrapping; t.wrapT=THREE.ClampToEdgeWrapping;
   t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
