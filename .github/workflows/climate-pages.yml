@@ -1,0 +1,18 @@
+name: Climate edition pushed
+
+# This branch is published at https://m1omg.github.io/ra-system-alpha/climate/.
+# Pages deploys only from main, so this job does nothing itself: finishing is
+# the signal. main's "Deploy to GitHub Pages" listens for it (workflow_run),
+# fetches this branch and publishes it under /climate/ beside the main site.
+on:
+  push:
+    branches: [claude/climate-orrery-universe-sandbox-b66ski]
+
+permissions: {}
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce
+        run: echo "climate edition at $GITHUB_SHA; main's Pages workflow publishes it under /climate/"
