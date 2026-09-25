@@ -124,10 +124,12 @@ try {
   ok(wet.landed && wet.kg > 0, 'an icy asteroid delivers its water when it lands', `${wet.kg.toExponential(1)} kg`);
   await page.evaluate(() => document.getElementById('imp-surface').click());
   const off = await page.evaluate(() => ({ sv: surfaceView, bar: document.getElementById('t-surface').classList.contains('on') }));
+  // a few drawn frames, however long they take
   const r0 = await page.evaluate(() => bodies.find((b) => b.data.key === 'earth').mesh.rotation.y);
-  await page.waitForTimeout(800);
+  await page.evaluate(async () => { for (let i = 0; i < 5; i++) await new Promise((r) => requestAnimationFrame(r)); });
   const r1 = await page.evaluate(() => bodies.find((b) => b.data.key === 'earth').mesh.rotation.y);
-  ok(!off.sv && !off.bar && r1 !== r0, 'the lab\'s button turns it off, the toolbar shows it, and Earth turns again');
+  ok(!off.sv && !off.bar && r1 !== r0, 'the lab\'s button turns it off, the toolbar shows it, and Earth turns again',
+    `${JSON.stringify(off)}, Δspin ${(r1 - r0).toExponential(1)}`);
   await page.evaluate(() => document.getElementById('t-lang').click());
   const sk = await page.evaluate(() => document.getElementById('t-surface').textContent);
   await page.evaluate(() => document.getElementById('t-lang').click());
