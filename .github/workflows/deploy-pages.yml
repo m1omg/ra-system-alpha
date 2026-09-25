@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The climate edition lives on a side branch and is published beside the
+  # main site, under /climate/. Pages deploys only from main, so that branch's
+  # own workflow merely announces a push; this run, from main, publishes it.
+  workflow_run:
+    workflows: ["Climate edition pushed"]
+    types: [completed]
 
 # Allow the workflow to publish to Pages via OIDC.
 permissions:
@@ -18,6 +24,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -28,6 +35,21 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
+      - name: Add the climate edition under /climate/
+        # https://<owner>.github.io/ra-system-alpha/climate/ -- the branch's tree
+        # as it stands, beside the main site rather than instead of it. If the
+        # branch is gone, the main site still deploys, without /climate/.
+        env:
+          CLIMATE_BRANCH: claude/climate-orrery-universe-sandbox-b66ski
+        run: |
+          if git fetch --no-tags --depth 1 origin "$CLIMATE_BRANCH"; then
+            mkdir climate
+            git archive FETCH_HEAD | tar -x -C climate
+            rm -rf climate/.github climate/assets/img/textures/local-data
+          else
+            echo "::warning::$CLIMATE_BRANCH not found; deploying without /climate/"
+          fi
 
       - name: Drop file://-only texture sidecars from the site
         # local-data/ holds base64 copies of the WebP maps used only when the
