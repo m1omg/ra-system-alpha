@@ -391,6 +391,13 @@ const UI_EN={
   'fly-notarget':'◎ no target — tap a world',
   // ➕ Create a body / 🌌 N-body — dynamic strings written from app.js
   'nb-on':'ON','nb-off':'OFF',
+  'nb-title':'Real N-body gravity — every world attracts every other with true masses (forces Real scale; moons run on physical orbits)',
+  'nb-tier-A':'fast','nb-tier-K':'Kepler',
+  'nb-tier-F-t':'Full gravity: every body pulls on every other.',
+  'nb-tier-A-t':'Fast: the time warp is past what full gravity can follow. The star, the planets and loose bodies still pull on one another; each moon rides its planet on its exact two-body orbit. A close approach switches back to full gravity.',
+  'nb-tier-K-t':'Kepler: geological time warp. Every body follows its exact two-body orbit from where gravity left it; slow down and full gravity resumes from there.',
+  'nb-cap-close':'Full N-body gravity holds the clock at {r} while bodies pass close to each other',
+  'nb-cap-heavy':'Full N-body gravity holds the clock at {r}: with a body heavier than the star there are no orbits to hand over to',
   'k-rocky':'Rocky','k-terran':'Terran','k-iceworld':'Ice world','k-gasgiant':'Gas giant',
   'm-still':'Still','m-orbit':'Orbit','m-launch':'Launch',
   'cr-name-ph':'New world',
@@ -880,7 +887,7 @@ function buildInner(){
   setupCreateLab();   // Alpha: custom-body panel + N-body toggle
   restoreCustoms();   // Alpha: re-create this browser's saved custom worlds
   setupStateUI();     // Alpha: 💾/📂/⬇/⬆/♻ + 🗑 delete wiring
-  restoreSystemState();  // Alpha: auto-resume the saved world, if any
+  if(!restoreSystemState() && NB_DEFAULT) nbEnable();   // Alpha: auto-resume the saved world, if any
   if(window.RAClimateView) RAClimateView.init();   // a climate for every terrestrial world
 
   hideLoader();       // synchronous — never depends on a throttled timer (mobile app-switch)
@@ -3980,7 +3987,11 @@ function nbTrailSample(rec){
   // A body that covers a big slice of its orbit between two frames (an inner
   // planet at 2 yr/s) would draw chords straight across it, a spirograph: show
   // its orbit as it is at that moment instead.
-  if(t.count>0 && d2 > (0.15*r)*(0.15*r)){ nbTrailPrefill(rec); return; }
+  if(t.count>0 && d2 > (0.15*r)*(0.15*r)){
+    const now=performance.now();                    // the orbit barely changes between redraws
+    if(!(now-(t.fillT||0)<250)){ t.fillT=now; nbTrailPrefill(rec); }
+    return;
+  }
   t.last.copy(p);
   if(t.count<NB_TRAIL_N) t.count++;
   else t.pos.copyWithin(0,3);                       // drop the oldest point
@@ -4130,10 +4141,16 @@ function applyOrbitEdit(rec, a, e){
   if(!(a>0) || !(e>=0 && e<=0.95)) return false;
   if(nbodyOn && rec.nb){
     const cur=orbCurrent(rec); if(!cur || !cur.parent) return false;
+    // what is bound to it goes with it (Pluto moved in takes Charon along)
+    const H=nbHierarchy(), moons=[];
+    if(H.ok) for(let i=-1;i<moons.length;i++){ const k=H.kids.get(i<0?rec:moons[i]); if(k) moons.push(...k); }
+    const r0=rec.nb.r.clone(), v0=rec.nb.v.clone();
     const st=keplerStateAU(a, e, cur.q, cur.M%(Math.PI*2), cur.mu);
     rec.nb.r.copy(cur.parent.nb.r).add(st.r);
     rec.nb.v.copy(cur.parent.nb.v).add(st.v);
     crAvoidOverlap(rec);                         // never rewrite INTO a body
+    const dr=rec.nb.r.clone().sub(r0), dv=rec.nb.v.clone().sub(v0);
+    for(const m of moons){ m.nb.r.add(dr); m.nb.v.add(dv); }
     _nbH=Math.max(2e-5, Math.min(_nbH, 2*Math.PI*Math.sqrt(a*a*a/cur.mu)/45));
     nbSyncHolders();
   } else if(rec.helio || rec.isMoon){
@@ -4239,11 +4256,13 @@ function nbEnable(){
 function nbBtnState(){
   const btn=document.getElementById('t-nbody'); if(!btn) return;
   btn.classList.toggle('on', nbodyOn);
-  btn.textContent='🌌 N-body: '+T(nbodyOn?'nb-on':'nb-off');
+  btn.textContent='🌌 N-body: '+T(nbodyOn?'nb-on':'nb-off')+(nbodyOn && nbTier!=='F' ? ' · '+T('nb-tier-'+nbTier) : '');
+  btn.dataset.tier=nbodyOn?nbTier:'';
+  btn.title=T('nb-title')+(nbodyOn ? '\n\n'+T('nb-tier-'+nbTier+'-t') : '');
 }
 function nbDisable(){
   if(!nbodyOn) return;
-  nbodyOn=false;
+  nbodyOn=false; nbTier='F'; _nbEncounter=false;
   const star=nbStar();
   // snapshot every state first — restoring moons needs their parent's final state
   const snap=new Map();
@@ -4352,72 +4371,619 @@ function nbSyncHolders(){
     if(showOrbits) nbTrailSample(rec);
   }
 }
-/* leapfrog (KDK) over flat arrays — no per-step allocation */
+// Gravity between the n bodies in flat arrays F (gm in AU³/yr²), and contacts
+// between them along this substep's straight paths (px → x), so nothing tunnels
+// through. The leapfrog softens gravity by 1e-6 AU (150 km) so a grazing pair
+// cannot blow up; the tree integrator carries every orbit exactly and needs only
+// a guard against two bodies at one point (1e-10 AU, 15 m): 150 km would change
+// the pull on Phobos by 4 parts in 10 000.
+function nbAccel(F, n, eps2){
+  const EPS2=eps2>0 ? eps2 : 1e-12;
+  F.ax.fill(0,0,n); F.ay.fill(0,0,n); F.az.fill(0,0,n);
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    const dx=F.x[j]-F.x[i], dy=F.y[j]-F.y[i], dz=F.z[j]-F.z[i];
+    const d2=dx*dx+dy*dy+dz*dz+EPS2, inv=1/(d2*Math.sqrt(d2));
+    const fi=F.gm[j]*inv, fj=F.gm[i]*inv;
+    F.ax[i]+=dx*fi; F.ay[i]+=dy*fi; F.az[i]+=dz*fi;
+    F.ax[j]-=dx*fj; F.ay[j]-=dy*fj; F.az[j]-=dz*fj;
+  }
+}
+function nbSwept(F, n, recs, hits){
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    if(recs[i].destroyed || recs[j].destroyed) continue;
+    const s=(F.rad[i]+F.rad[j])*0.9;
+    const s2=s*s;
+    const dx0=F.px[j]-F.px[i], dy0=F.py[j]-F.py[i], dz0=F.pz[j]-F.pz[i];
+    const dx1=F.x[j]-F.x[i], dy1=F.y[j]-F.y[i], dz1=F.z[j]-F.z[i];
+    const mx=dx1-dx0, my=dy1-dy0, mz=dz1-dz0;
+    const mm=mx*mx+my*my+mz*mz;
+    let u=0;
+    if(mm>1e-24) u=Math.max(0, Math.min(1, -(dx0*mx+dy0*my+dz0*mz)/mm));
+    const cx=dx0+mx*u, cy=dy0+my*u, cz=dz0+mz*u;
+    if(cx*cx+cy*cy+cz*cz < s2){ const key=i*8192+j; if(hits.indexOf(key)<0) hits.push(key); }
+  }
+}
+// Leapfrog (KDK) over flat arrays, no per-step allocation: K substeps of h for
+// the n bodies in F (recs[i] is the body behind slot i). Contacts go to `hits`
+// as i*8192+j; the climate's starlight is accumulated substep by substep.
+let _nbSoft=1e-12;                       // the leapfrog's softening, AU²
+function nbLeapfrog(F, n, recs, K, h, hits, cctx){
+  const h2=h*0.5;
+  nbAccel(F, n, _nbSoft);
+  for(let s=0;s<K;s++){
+    for(let i=0;i<n;i++){ F.px[i]=F.x[i]; F.py[i]=F.y[i]; F.pz[i]=F.z[i];
+      F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
+      F.x[i]+=F.vx[i]*h; F.y[i]+=F.vy[i]*h; F.z[i]+=F.vz[i]*h; }
+    nbSwept(F, n, recs, hits);
+    nbAccel(F, n, _nbSoft);
+    for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2; }
+    if(cctx) RAClimateView.nbAccumulate(cctx, F, h);
+  }
+  return K;
+}
+function nbArrays(cur, n){
+  if(cur && cur.cap>=n) return cur;
+  const f=()=>new Float64Array(n);
+  return {cap:n, x:f(),y:f(),z:f(), px:f(),py:f(),pz:f(), vx:f(),vy:f(),vz:f(), ax:f(),ay:f(),az:f(), gm:f(), rad:f()};
+}
+/* full N-body (tier F): every body, at the substep of the fastest orbit */
 function nbStep(dt){
   const list=nbList(), n=list.length;
   if(!n){ return; }
   if(dt>0){
-    if(!_nbF || _nbF.cap<n){
-      _nbF={cap:n, x:new Float64Array(n),y:new Float64Array(n),z:new Float64Array(n),
-        px:new Float64Array(n),py:new Float64Array(n),pz:new Float64Array(n),
-        vx:new Float64Array(n),vy:new Float64Array(n),vz:new Float64Array(n),
-        ax:new Float64Array(n),ay:new Float64Array(n),az:new Float64Array(n),
-        gm:new Float64Array(n), rad:new Float64Array(n)};
-    }
+    _nbF=nbArrays(_nbF, n);
     const F=_nbF;
     for(let i=0;i<n;i++){ const b=list[i].nb;
       F.x[i]=b.r.x; F.y[i]=b.r.y; F.z[i]=b.r.z;
       F.vx[i]=b.v.x; F.vy[i]=b.v.y; F.vz[i]=b.v.z; F.gm[i]=b.gm;
       F.rad[i]=(list[i].data.radiusKm||1000)/KM_PER_AU; }
     const K=Math.max(1, Math.min(NB_MAXSTEPS_FRAME, Math.ceil(dt/_nbH)));
-    const tNb0=performance.now();
-    const h=dt/K, h2=h*0.5, EPS2=1e-12;
-    const hits=[];                         // contact pairs caught INSIDE the substep loop (no tunnelling)
-    const markHit=(i,j)=>{ const key=i*8192+j; if(hits.indexOf(key)<0) hits.push(key); };
-    const accel=()=>{
-      F.ax.fill(0,0,n); F.ay.fill(0,0,n); F.az.fill(0,0,n);
-      for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
-        const dx=F.x[j]-F.x[i], dy=F.y[j]-F.y[i], dz=F.z[j]-F.z[i];
-        const d2=dx*dx+dy*dy+dz*dz+EPS2, inv=1/(d2*Math.sqrt(d2));
-        const fi=F.gm[j]*inv, fj=F.gm[i]*inv;
-        F.ax[i]+=dx*fi; F.ay[i]+=dy*fi; F.az[i]+=dz*fi;
-        F.ax[j]-=dx*fj; F.ay[j]-=dy*fj; F.az[j]-=dz*fj;
-      }
-    };
-    const sweptHits=()=>{
-      for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
-        if(list[i].destroyed || list[j].destroyed) continue;
-        const s=(F.rad[i]+F.rad[j])*0.9;
-        const s2=s*s;
-        const dx0=F.px[j]-F.px[i], dy0=F.py[j]-F.py[i], dz0=F.pz[j]-F.pz[i];
-        const dx1=F.x[j]-F.x[i], dy1=F.y[j]-F.y[i], dz1=F.z[j]-F.z[i];
-        const mx=dx1-dx0, my=dy1-dy0, mz=dz1-dz0;
-        const mm=mx*mx+my*my+mz*mz;
-        let u=0;
-        if(mm>1e-24) u=Math.max(0, Math.min(1, -(dx0*mx+dy0*my+dz0*mz)/mm));
-        const cx=dx0+mx*u, cy=dy0+my*u, cz=dz0+mz*u;
-        if(cx*cx+cy*cy+cz*cz < s2) markHit(i,j);
-      }
-    };
-    accel();
+    const hits=[];
     const cctx=window.RAClimateView?RAClimateView.nbPrepare(list):null;   // starlight, substep by substep
-    for(let s=0;s<K;s++){
-      for(let i=0;i<n;i++){ F.px[i]=F.x[i]; F.py[i]=F.y[i]; F.pz[i]=F.z[i];
-        F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2;
-        F.x[i]+=F.vx[i]*h; F.y[i]+=F.vy[i]*h; F.z[i]+=F.vz[i]*h; }
-      sweptHits();
-      accel();
-      for(let i=0;i<n;i++){ F.vx[i]+=F.ax[i]*h2; F.vy[i]+=F.ay[i]*h2; F.vz[i]+=F.az[i]*h2; }
-      if(cctx) RAClimateView.nbAccumulate(cctx, F, h);
-    }
+    const tNb0=performance.now();
+    nbLeapfrog(F, n, list, K, dt/K, hits, cctx);
+    // the cost of a substep, from frames with enough of them that the fixed
+    // cost of a call (one extra force evaluation) does not pass for it
+    if(K>=8){ const per=(performance.now()-tNb0)/K;
+      _nbMsPerStep=_nbMsPerStep>0 ? _nbMsPerStep+(per-_nbMsPerStep)*0.2 : per; }
     if(cctx) RAClimateView.nbFinish(cctx, list);
-    const per=(performance.now()-tNb0)/K;
-    _nbMsPerStep=_nbMsPerStep>0 ? _nbMsPerStep+(per-_nbMsPerStep)*0.2 : per;
     for(let i=0;i<n;i++){ const b=list[i].nb;
       b.r.set(F.x[i],F.y[i],F.z[i]); b.v.set(F.vx[i],F.vy[i],F.vz[i]); }
     for(const key of hits) nbCollidePair(list[(key/8192)|0], list[key%8192]);
   }
   nbSyncHolders();
+}
+/* ---- Three tiers of gravity ----
+   Full N-body (F) steps every body at a substep set by the fastest orbit in the
+   system, Phobos's 7.6 h in the Solar System, so it tops out near a simulated
+   year per second. When the time warp asks for more, two faster tiers take
+   over. All three read and write the same state vectors (rec.nb), so a switch
+   in either direction is exact; all three run on the Jacobi tree below
+   (nbHJS), and the leapfrog above (nbStep) is left for a system with a body
+   heavier than its star, which has no tree.
+   A  the star, the planets and anything loose still pull on one another, at a
+      substep set by the fastest top-level orbit (Mercury's 88 d: ~270x fewer
+      steps than Phobos's). Each moon rides its planet on its exact two-body
+      orbit, and a planet with moons moves as their barycentre, so it keeps its
+      wobble. A passer close enough to disturb a planet's moons more than the
+      star does hands the clock back to F.
+   K  every body follows its exact two-body orbit (ellipse or hyperbola) from
+      where gravity left it, about its parent and the bodies inside its orbit:
+      geological time. Slowing down resumes gravity from exactly there. */
+let nbTier='F';
+let _nbEncounter=false;                  // a passer disturbing some planet's moons: tier A would be wrong
+let _nbMsA=0;                            // measured cost of one tier-A substep
+let _nbCapWhy='';                        // why full N-body is holding the clock back
+const _nbCaps={F:0, A:0};                // what F and A can do now, sim years per wall second
+const NB_TIER_DOWN=0.8;                  // step back down only well inside the lower tier's cap
+
+// What each body is bound to, for the fast tiers: the rule of nbDominantParent
+// (the lightest heavier body it is bound to and inside the Hill sphere of),
+// strictly -- bound to nothing but the star is top level -- and counting
+// wrecks, whose mass still pulls. Descendants are listed parents first.
+function nbHierarchy(){
+  const list=nbList(), star=nbStar();
+  const H={list, star, par:new Map(), roots:[], kids:new Map(), desc:new Map(), ok:false, hA:0};
+  if(!star || !star.nb) return H;
+  for(const b of list) if(b!==star && !(b.nb.gm<star.nb.gm)) return H;   // something outweighs the star
+  const memo=new Map();
+  const parentOf=(rec, depth)=>{
+    if(memo.has(rec)) return memo.get(rec);
+    let best=null;
+    if(rec!==star && depth<=6){
+      for(const b of list){
+        if(b===rec || b===star || !(b.nb.gm>rec.nb.gm)) continue;
+        if(best && !(b.nb.gm<best.nb.gm)) continue;       // only a lighter candidate can improve
+        const r=b.nb.r.distanceTo(rec.nb.r);
+        if(!(r>0)) continue;
+        if(!(b.nb.v.distanceToSquared(rec.nb.v)/2 - (b.nb.gm+rec.nb.gm)/r < 0)) continue;   // not bound to it
+        const P=parentOf(b, depth+1)||star;
+        if(r < b.nb.r.distanceTo(P.nb.r)*Math.cbrt(b.nb.gm/(3*P.nb.gm))) best=b;
+      }
+    }
+    memo.set(rec, best);
+    return best;
+  };
+  for(const b of list){
+    const p=parentOf(b, 0);
+    if(p){ H.par.set(b, p); if(!H.kids.has(p)) H.kids.set(p, []); H.kids.get(p).push(b); }
+    else H.roots.push(b);
+  }
+  for(const R of H.roots){
+    const out=[];
+    for(let i=-1;i<out.length;i++){ const k=H.kids.get(i<0?R:out[i]); if(k) for(const c of k) out.push(c); }
+    H.desc.set(R, out);
+  }
+  H.ok=true;
+  return H;
+}
+// A root and everything bound to it, as one body: total gm, barycentre, its velocity.
+function nbGroup(H, R, g){
+  let M=R.nb.gm, x=R.nb.r.x*M, y=R.nb.r.y*M, z=R.nb.r.z*M, vx=R.nb.v.x*M, vy=R.nb.v.y*M, vz=R.nb.v.z*M;
+  for(const d of H.desc.get(R)){ const m=d.nb.gm; M+=m;
+    x+=d.nb.r.x*m; y+=d.nb.r.y*m; z+=d.nb.r.z*m; vx+=d.nb.v.x*m; vy+=d.nb.v.y*m; vz+=d.nb.v.z*m; }
+  g.gm=M; g.x=x/M; g.y=y/M; g.z=z/M; g.vx=vx/M; g.vy=vy/M; g.vz=vz/M;
+  return g;
+}
+// Tier A's substep for this hierarchy (see nbTreeSteps).
+function nbTierAStep(H){ if(!H.T) H.T=nbTree(H); return H.T.hA; }
+// Close approaches the fast tiers cannot follow. In tiers A and K a moon rides
+// its planet on a fixed two-body orbit, already leaving out the star's tide on
+// it; that holds until a passing body raises a tide on the moons comparable to
+// the star's, which is within k·D·cbrt(m/M★) of their planet (D its distance
+// from the star: the scale of the passer's own Hill sphere out there). Two moons
+// of one parent within k+1 mutual Hill radii are the same trouble one level
+// down: tier A does not let moons pull on each other.
+function nbEncounter(H, k){
+  if(!H.ok) return false;
+  const s=H.star, X=[], g={};
+  for(const R of H.roots){
+    if(R===s) continue;
+    nbGroup(H, R, g);
+    X.push({x:g.x, y:g.y, z:g.z, q:Math.cbrt(g.gm/s.nb.gm), moons:H.desc.get(R).length>0,
+      D:Math.hypot(g.x-s.nb.r.x, g.y-s.nb.r.y, g.z-s.nb.r.z)});
+  }
+  for(const a of X){
+    if(!a.moons) continue;
+    for(const b of X){
+      if(a===b) continue;
+      const lim=k*a.D*b.q, dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z;
+      if(dx*dx+dy*dy+dz*dz<lim*lim) return true;
+    }
+  }
+  for(const [p, ks] of H.kids){
+    for(let i=0;i<ks.length;i++) for(let j=i+1;j<ks.length;j++){
+      const A=ks[i].nb, B=ks[j].nb;
+      const lim=(k+1)*0.5*(A.r.distanceTo(p.nb.r)+B.r.distanceTo(p.nb.r))*Math.cbrt((A.gm+B.gm)/(3*p.nb.gm));
+      if(A.r.distanceToSquared(B.r)<lim*lim) return true;       // within k+1 mutual Hill radii
+    }
+  }
+  return false;
+}
+// Two-body drift of a relative state S {x,y,z,vx,vy,vz} (AU, AU/yr) by dt years
+// under mu, in place, for any conic: universal variables (Danby 1988), with
+// whole periods of an ellipse taken off first. Kepler's equation in s has a
+// positive derivative (r), so a bracketed Newton iteration always converges.
+const _nbC=new Float64Array(4);
+function nbStumpff(z){
+  const c=_nbC;
+  if(Math.abs(z)<0.1){
+    let c2=0, c3=0, t2=0.5, t3=1/6;
+    for(let k=0;k<8;k++){ c2+=t2; c3+=t3; t2*=-z/((2*k+3)*(2*k+4)); t3*=-z/((2*k+4)*(2*k+5)); }
+    c[2]=c2; c[3]=c3; c[0]=1-z*c2; c[1]=1-z*c3;
+  } else if(z>0){ const q=Math.sqrt(z); c[0]=Math.cos(q); c[1]=Math.sin(q)/q; c[2]=(1-c[0])/z; c[3]=(1-c[1])/z; }
+  else { const q=Math.sqrt(-z); c[0]=Math.cosh(q); c[1]=Math.sinh(q)/q; c[2]=(1-c[0])/z; c[3]=(1-c[1])/z; }
+  return c;
+}
+function nbKeplerDrift(S, mu, dt){
+  const r0=Math.hypot(S.x,S.y,S.z);
+  if(!(dt>0) || !(r0>0) || !(mu>0)) return;
+  const v2=S.vx*S.vx+S.vy*S.vy+S.vz*S.vz, eta=S.x*S.vx+S.y*S.vy+S.z*S.vz, beta=2*mu/r0-v2;
+  const kep=s=>{ const c=nbStumpff(beta*s*s); return r0*s*c[1]+eta*s*s*c[2]+mu*s*s*s*c[3]-dt; };
+  let lo=0, hi;
+  if(beta>0){
+    const P=2*Math.PI*mu/(beta*Math.sqrt(beta));
+    dt-=Math.floor(dt/P)*P;
+    if(!(dt>0)) return;                              // a whole number of periods
+    hi=2*Math.PI/Math.sqrt(beta);                    // one period
+  } else {
+    hi=dt/r0;                                        // enough while it recedes; double if not
+    for(let i=0;i<2000 && kep(hi)<0;i++) hi*=2;      // (NaN from an overflow counts as past it)
+  }
+  // Safeguarded Newton (Numerical Recipes' rtsafe): a Newton step when it stays
+  // inside the bracket and at least halves the last step, a bisection otherwise.
+  let s=Math.min(Math.max(dt/r0, lo), hi), dsOld=hi-lo, ds=dsOld;
+  if(!(s>lo && s<hi)) s=0.5*(lo+hi);
+  for(let it=0;it<200;it++){
+    const c=nbStumpff(beta*s*s);
+    const G1=s*c[1], G2=s*s*c[2], G3=s*s*s*c[3];
+    const f=r0*G1+eta*G2+mu*G3-dt;
+    const fp=r0*c[0]+eta*G1+mu*G2;                   // dt/ds = r > 0
+    if(f===0) break;
+    if(f>0 || f!==f) hi=s; else lo=s;
+    if(!(fp>0) || !(Math.abs(2*f)<Math.abs(dsOld*fp)) || !(s-f/fp>lo && s-f/fp<hi)){
+      dsOld=ds; ds=0.5*(hi-lo); s=lo+ds;
+    } else { dsOld=ds; ds=f/fp; s-=ds; }
+    if(!(Math.abs(ds)>1e-15*s) || !(hi-lo>1e-15*hi)) break;
+  }
+  const c=nbStumpff(beta*s*s);
+  const G0=c[0], G1=s*c[1], G2=s*s*c[2];
+  const r=r0*G0+eta*G1+mu*G2;
+  const f=1-mu*G2/r0, g=r0*G1+eta*G2, fd=-mu*G1/(r*r0), gd=1-mu*G2/r;
+  const x=S.x, y=S.y, z=S.z;
+  S.x=f*x+g*S.vx; S.y=f*y+g*S.vy; S.z=f*z+g*S.vz;
+  S.vx=fd*x+gd*S.vx; S.vy=fd*y+gd*S.vy; S.vz=fd*z+gd*S.vz;
+}
+/* ---- The Jacobi tree ----
+   Every body but the star has a parent: the body it is bound to, or the star
+   for a top-level body. Each family, a parent with its children, is a Jacobi
+   chain: each child together with everything bound to it, about the
+   barycentre of the parent and of the children inside it, in order of
+   semi-major axis. The star's family is the planetary system (the Sun and
+   Jupiter together for Saturn); a planet's family is its moons. On these
+   coordinates the two-body motion of every orbit is exact (nbKeplerDrift),
+   and what is left to step is how the bodies disturb one another. */
+let _nbTX=null, _nbTJ=null, _nbTB=null, _nbTR=null;
+function nbTree(H){
+  const list=H.list, n=list.length, idx=new Map();
+  for(let i=0;i<n;i++) idx.set(list[i], i);
+  const s=idx.get(H.star), par=new Int32Array(n).fill(-1), kids=[];
+  for(let i=0;i<n;i++) kids.push([]);
+  for(let i=0;i<n;i++){
+    if(i===s) continue;
+    const p=H.par.get(list[i]);
+    par[i]=p ? idx.get(p) : s;
+    kids[par[i]].push(i);
+  }
+  const pre=[], st=[s];                          // parents before children
+  while(st.length){ const i=st.pop(); pre.push(i); for(const k of kids[i]) st.push(k); }
+  _nbTX=nbArrays(_nbTX, n); _nbTJ=nbArrays(_nbTJ, n); _nbTB=nbArrays(_nbTB, n);
+  const T={n, s, list, idx, par, kids, pre, M:new Float64Array(n), gm:new Float64Array(n), mu:new Float64Array(n),
+    X:_nbTX, J:_nbTJ, B:_nbTB, hF:0, hA:0};
+  const X=T.X;
+  for(let i=0;i<n;i++){ const b=list[i].nb; T.gm[i]=X.gm[i]=b.gm;
+    X.x[i]=b.r.x; X.y[i]=b.r.y; X.z[i]=b.r.z; X.vx[i]=b.v.x; X.vy[i]=b.v.y; X.vz[i]=b.v.z;
+    X.rad[i]=(list[i].data.radiusKm||1000)/KM_PER_AU; }
+  nbTreeBary(T);
+  for(let i=0;i<n;i++){                          // Jacobi order: by semi-major axis about the parent
+    const ks=kids[i]; if(ks.length<2) continue;
+    const key=new Map();
+    for(const c of ks){
+      const rx=T.B.x[c]-X.x[i], ry=T.B.y[c]-X.y[i], rz=T.B.z[c]-X.z[i];
+      const o=nbAEM(rx, ry, rz, T.B.vx[c]-X.vx[i], T.B.vy[c]-X.vy[i], T.B.vz[c]-X.vz[i], T.gm[i]+T.M[c]);
+      key.set(c, o ? o.a : 1e12+Math.hypot(rx,ry,rz));
+    }
+    ks.sort((p,q)=>key.get(p)-key.get(q));
+  }
+  nbToJacobi(T);
+  nbTreeSteps(T);
+  return T;
+}
+// every body's subtree: its mass and barycentre, children first
+function nbTreeBary(T){
+  const {pre, kids, gm, M, X, B}=T;
+  for(let k=pre.length-1;k>=0;k--){
+    const i=pre[k]; let m=gm[i];
+    let x=X.x[i]*m, y=X.y[i]*m, z=X.z[i]*m, vx=X.vx[i]*m, vy=X.vy[i]*m, vz=X.vz[i]*m;
+    for(const c of kids[i]){ const mc=M[c]; m+=mc;
+      x+=B.x[c]*mc; y+=B.y[c]*mc; z+=B.z[c]*mc; vx+=B.vx[c]*mc; vy+=B.vy[c]*mc; vz+=B.vz[c]*mc; }
+    M[i]=m; B.x[i]=x/m; B.y[i]=y/m; B.z[i]=z/m; B.vx[i]=vx/m; B.vy[i]=vy/m; B.vz[i]=vz/m;
+  }
+}
+function nbToJacobi(T){
+  const {pre, kids, gm, M, X, B, J, mu, s}=T;
+  for(const i of pre){
+    const ks=kids[i]; if(!ks.length) continue;
+    let cx=X.x[i], cy=X.y[i], cz=X.z[i], cvx=X.vx[i], cvy=X.vy[i], cvz=X.vz[i], eta=gm[i];
+    for(const c of ks){
+      J.x[c]=B.x[c]-cx; J.y[c]=B.y[c]-cy; J.z[c]=B.z[c]-cz;
+      J.vx[c]=B.vx[c]-cvx; J.vy[c]=B.vy[c]-cvy; J.vz[c]=B.vz[c]-cvz;
+      eta+=M[c]; mu[c]=eta;
+      const f=M[c]/eta;
+      cx+=J.x[c]*f; cy+=J.y[c]*f; cz+=J.z[c]*f; cvx+=J.vx[c]*f; cvy+=J.vy[c]*f; cvz+=J.vz[c]*f;
+    }
+  }
+  J.x[s]=B.x[s]; J.y[s]=B.y[s]; J.z[s]=B.z[s]; J.vx[s]=B.vx[s]; J.vy[s]=B.vy[s]; J.vz[s]=B.vz[s];   // the whole system
+}
+// back to ordinary positions (or velocities), parents first; `top` stops after
+// the star's family, which is all tier A needs between substeps
+function nbFromJacobi(T, vel, top){
+  const {pre, kids, M, X, B, J, s}=T;
+  const JX=vel?J.vx:J.x, JY=vel?J.vy:J.y, JZ=vel?J.vz:J.z, BX=vel?B.vx:B.x, BY=vel?B.vy:B.y, BZ=vel?B.vz:B.z;
+  const XX=vel?X.vx:X.x, XY=vel?X.vy:X.y, XZ=vel?X.vz:X.z;
+  BX[s]=JX[s]; BY[s]=JY[s]; BZ[s]=JZ[s];
+  for(const i of pre){
+    const ks=kids[i];
+    let cx=BX[i], cy=BY[i], cz=BZ[i], eta=M[i];
+    for(let k=ks.length-1;k>=0;k--){
+      const c=ks[k], f=M[c]/eta;
+      cx-=JX[c]*f; cy-=JY[c]*f; cz-=JZ[c]*f;
+      BX[c]=cx+JX[c]; BY[c]=cy+JY[c]; BZ[c]=cz+JZ[c];
+      eta-=M[c];
+    }
+    XX[i]=cx; XY[i]=cy; XZ[i]=cz;
+    if(top) return;                              // pre[0] is the star
+  }
+}
+// Substeps: a fraction of the fastest orbit, timed at its periapsis (h²/mu(1+e)
+// is the periapsis of any conic) -- of every orbit in the tree for full
+// gravity, of the top-level ones for tier A -- and 1/45 of the time any two
+// bodies close enough to swing round each other would take to (for tier A, two
+// top-level bodies; for full gravity, any two bodies neither of which is bound
+// inside the other). The fraction: the map's error is the disturbance times the
+// step squared, so an orbit the rest of the system pulls at eps of its own
+// two-body pull takes 20·sqrt(eps/1e-4) steps, at least 20 (a planet on its
+// neighbours is 1e-6 to 5e-3; the Sun pulls on the Moon at 1e-2, Ra on Sekhmet
+// the same: 200 steps an orbit keep Sekhmet within 4e-5 of its true orbit over
+// a day, where the 20 of an undisturbed orbit would leave it 2e-3 out).
+function nbTreeSteps(T){
+  const {n, s, par, kids, pre, J, mu, B, M, X, gm}=T;
+  nbAccel(X, n, 1e-20);
+  for(let k=pre.length-1;k>=0;k--){
+    const i=pre[k]; let ax=X.ax[i]*gm[i], ay=X.ay[i]*gm[i], az=X.az[i]*gm[i];
+    for(const c of kids[i]){ ax+=B.ax[c]*M[c]; ay+=B.ay[c]*M[c]; az+=B.az[c]*M[c]; }
+    B.ax[i]=ax/M[i]; B.ay[i]=ay/M[i]; B.az[i]=az/M[i];
+  }
+  const per=new Float64Array(n).fill(20);
+  for(const i of pre){
+    let ax=X.ax[i], ay=X.ay[i], az=X.az[i];
+    for(const c of kids[i]){
+      const x=J.x[c], y=J.y[c], z=J.z[c], r2=x*x+y*y+z*z, k=mu[c]/(r2*Math.sqrt(r2));
+      const eps=Math.hypot(B.ax[c]-ax+k*x, B.ay[c]-ay+k*y, B.az[c]-az+k*z)*r2/mu[c];
+      if(eps>1e-4) per[c]=20*Math.sqrt(eps/1e-4);
+      const f=M[c]/mu[c]; ax+=(B.ax[c]-ax)*f; ay+=(B.ay[c]-ay)*f; az+=(B.az[c]-az)*f;
+    }
+  }
+  let tF=Infinity, tA=Infinity;
+  for(let c=0;c<n;c++){
+    if(c===s) continue;
+    const rx=J.x[c], ry=J.y[c], rz=J.z[c], vx=J.vx[c], vy=J.vy[c], vz=J.vz[c], m=mu[c];
+    const r=Math.hypot(rx,ry,rz), v2=vx*vx+vy*vy+vz*vz, rv=rx*vx+ry*vy+rz*vz;
+    const hx=ry*vz-rz*vy, hy=rz*vx-rx*vz, hz=rx*vy-ry*vx, k=v2-m/r;
+    const e=Math.hypot(k*rx-rv*vx, k*ry-rv*vy, k*rz-rv*vz)/m;
+    const rp=Math.min(r, (hx*hx+hy*hy+hz*hz)/(m*(1+e)));
+    const t=2*Math.PI*Math.sqrt(rp*rp*rp/m)/per[c];
+    if(t<tF) tF=t;
+    if(par[c]===s && t<tA) tA=t;
+  }
+  const R=kids[s];
+  for(let a=0;a<R.length;a++) for(let b=a+1;b<R.length;b++){
+    const i=R[a], j=R[b], d=Math.hypot(B.x[i]-B.x[j], B.y[i]-B.y[j], B.z[i]-B.z[j]);
+    tA=Math.min(tA, 2*Math.PI*Math.sqrt(d*d*d/(M[i]+M[j]))/45);
+  }
+  const inside=(i,j)=>{ for(let k=par[i];k>=0;k=par[k]) if(k===j) return true; return false; };
+  for(let i=0;i<n;i++){ if(i===s) continue;
+    for(let j=i+1;j<n;j++){ if(j===s || inside(i,j) || inside(j,i)) continue;
+      const d=Math.hypot(X.x[i]-X.x[j], X.y[i]-X.y[j], X.z[i]-X.z[j]);
+      tF=Math.min(tF, 2*Math.PI*Math.sqrt(d*d*d/(gm[i]+gm[j]))/45);
+    }
+  }
+  T.hF=Math.max(2e-5, Math.min(1.5e-4, isFinite(tF)?tF:1.5e-4));
+  T.hA=Math.max(2e-5, Math.min(0.02, isFinite(tA)?tA:0.02));
+}
+// Which tier runs this frame and how much simulated time it may take, for a
+// frame that wants `want` years over `dtSim` wall seconds. Measured cost too:
+// without it a slow machine spirals -- a slow frame buys more substeps, which
+// make the next frame slower still -- so each tier's cap is the wall clock it
+// may spend. Past full N-body's cap tier A takes over, past A's cap tier K;
+// only when neither may (bodies passing close, a body outweighing the star)
+// does the clock slow instead.
+function nbPlan(want, dtSim){
+  const capOf=(h, ms)=>Math.max(1, Math.min(NB_MAXSTEPS_FRAME, NB_SUBSTEPS_PER_SEC*dtSim,
+    ms>0 ? NB_FRAME_BUDGET_MS/ms : NB_MAXSTEPS_FRAME))*h;
+  const H=nbHierarchy();
+  if(H.ok){ H.T=nbTree(H); H.hA=H.T.hA; }
+  // The cost of a substep, per tier, from frames that ran it. A tier that has
+  // not run yet, or not since a slow moment (the first frames compile the code),
+  // is estimated from the other's by their work (pairs of bodies, plus about 30
+  // pairs' worth per two-body drift), and never trusted above twice that: an
+  // outlier must not lock a tier out, for then it never runs to correct itself.
+  const nA=H.roots.length, nF=H.list.length, wF=nF*nF+30*nF, wA=nA*nA+30*nA;
+  let msF=_nbMsPerStep, msA=_nbMsA;
+  if(!(msF>0)) msF=msA>0 ? msA*wF/wA : 0.03;
+  if(!(msA>0)) msA=msF*wA/wF;
+  if(_nbMsPerStep>0 && _nbMsA>0){ msF=Math.min(msF, 2*_nbMsA*wF/wA); msA=Math.min(msA, 2*_nbMsPerStep*wA/wF); }
+  const capF=capOf(H.ok ? H.T.hF : _nbH, msF);
+  let tier='F', dt=want;
+  if(H.ok && want>capF*(nbTier==='F'?1:NB_TIER_DOWN)){
+    if(want>capOf(H.hA, msA)*(nbTier==='K'?NB_TIER_DOWN:1)) tier='K';     // geological: orbits only
+    else if(!_nbEncounter) tier='A';
+  }
+  _nbCaps.F=capF/dtSim; _nbCaps.A=H.ok ? capOf(H.hA, msA)/dtSim : 0;
+  _nbCapped=false;
+  if(tier==='F' && want>capF){ dt=capF; _nbCapped=true; _nbCapWhy=H.ok?'close':'heavy'; }
+  if(tier!==nbTier){ nbTier=tier; nbBtnState(); }
+  return {H, dt};
+}
+/* The integrator of every tier: the Wisdom-Holman map on the Jacobi tree.
+   Each substep drifts every orbit along its exact two-body path and kicks it
+   with what the rest of the system does to it: full gravity between every pair
+   of bodies, less the orbit's own two-body pull. The error is the size of those
+   disturbances times the step squared, not the orbit's own curvature: a
+   leapfrog at the same step turned Mercury's perihelion 74° in 20 years (the
+   real figure is 0.03°) and put Ra's innermost planet half an orbit out in six.
+   F  full gravity: every orbit, moons included, drifted and kicked.
+   A  the star's family only is kicked, with each top-level body and everything
+      bound to it as one mass at its barycentre; moons ride their planets on
+      their exact two-body orbits. A passer's tide on some planet's moons ends
+      the frame and hands the clock to F.
+   K  every orbit on its exact two-body path, nothing kicked.
+   Returns the simulated time actually taken. */
+const _nbS={x:0,y:0,z:0,vx:0,vy:0,vz:0};
+function nbDriftOne(T, c, t){
+  const J=T.J, S=_nbS;
+  S.x=J.x[c]; S.y=J.y[c]; S.z=J.z[c]; S.vx=J.vx[c]; S.vy=J.vy[c]; S.vz=J.vz[c];
+  nbKeplerDrift(S, T.mu[c], t);
+  J.x[c]=S.x; J.y[c]=S.y; J.z[c]=S.z; J.vx[c]=S.vx; J.vy[c]=S.vy; J.vz[c]=S.vz;
+}
+// Kick one family: child c's coordinate gets (its subtree's acceleration) minus
+// (the interior barycentre's) plus back its own two-body pull. a0 is the head's
+// own acceleration; A holds every subtree's in ax..az.
+function nbKickFamily(T, i, A, a0x, a0y, a0z, t){
+  const {kids, M, J, mu}=T;
+  let ax=a0x, ay=a0y, az=a0z;
+  for(const c of kids[i]){
+    const x=J.x[c], y=J.y[c], z=J.z[c], r2=x*x+y*y+z*z, k=mu[c]/(r2*Math.sqrt(r2));
+    J.vx[c]+=t*(A.ax[c]-ax+k*x); J.vy[c]+=t*(A.ay[c]-ay+k*y); J.vz[c]+=t*(A.az[c]-az+k*z);
+    const f=M[c]/mu[c];
+    ax+=(A.ax[c]-ax)*f; ay+=(A.ay[c]-ay)*f; az+=(A.az[c]-az)*f;
+  }
+}
+function nbHJS(dt, H, mode){
+  if(!H || !H.ok){ nbSyncHolders(); return 0; }
+  const T=H.T || nbTree(H); H.T=null;             // a tree holds this instant's states: use once
+  const {n, s, list, kids, pre, X, B, J, M, gm}=T;
+  let done=0;
+  if(dt>0){
+    if(mode==='K'){
+      for(let c=0;c<n;c++) if(c!==s) nbDriftOne(T, c, dt);
+      J.x[s]+=J.vx[s]*dt; J.y[s]+=J.vy[s]*dt; J.z[s]+=J.vz[s]*dt;
+      done=dt;
+    } else {
+      const R=kids[s], nr=R.length+1, hits=[];
+      const h0=mode==='F' ? T.hF : T.hA;
+      const K=Math.max(1, Math.min(NB_MAXSTEPS_FRAME, Math.ceil(dt/h0))), h=dt/K;
+      // tier A: the star and the top-level subtrees as point masses (slot 0 the star)
+      let P=null, recs=list, at=null, q=null, moons=null;
+      if(mode==='A'){
+        _nbTR=nbArrays(_nbTR, nr); P=_nbTR;
+        recs=[list[s]].concat(R.map(i=>list[i]));
+        P.gm[0]=gm[s]; P.rad[0]=X.rad[s];
+        q=new Float64Array(nr); moons=new Uint8Array(nr);
+        for(let k=1;k<nr;k++){ const i=R[k-1]; P.gm[k]=M[i]; P.rad[k]=X.rad[i];
+          q[k]=Math.cbrt(M[i]/gm[s]); moons[k]=kids[i].length>0?1:0; }
+        const slot=new Int32Array(n);
+        R.forEach((i,k)=>{ const mark=j=>{ slot[j]=k+1; for(const c of kids[j]) mark(c); }; mark(i); });
+        slot[s]=0; at=Array.from(slot);
+      }
+      const fromTop=()=>{                          // tier A's point masses where they now are
+        nbFromJacobi(T, false, true);
+        P.x[0]=X.x[s]; P.y[0]=X.y[s]; P.z[0]=X.z[s];
+        for(let k=1;k<nr;k++){ const i=R[k-1]; P.x[k]=B.x[i]; P.y[k]=B.y[i]; P.z[k]=B.z[i]; }
+      };
+      const forces=()=>{
+        if(mode==='F'){
+          nbAccel(X, n, 1e-20);
+          for(let k=pre.length-1;k>=0;k--){          // every subtree's acceleration, children first
+            const i=pre[k]; let m=gm[i], ax=X.ax[i]*m, ay=X.ay[i]*m, az=X.az[i]*m;
+            for(const c of kids[i]){ const mc=M[c]; ax+=B.ax[c]*mc; ay+=B.ay[c]*mc; az+=B.az[c]*mc; }
+            B.ax[i]=ax/M[i]; B.ay[i]=ay/M[i]; B.az[i]=az/M[i];
+          }
+        } else {
+          nbAccel(P, nr, 1e-20);
+          for(let k=1;k<nr;k++){ const i=R[k-1]; B.ax[i]=P.ax[k]; B.ay[i]=P.ay[k]; B.az[i]=P.az[k]; }
+        }
+      };
+      const kick=(t)=>{
+        forces();
+        if(mode==='F'){ for(const i of pre) if(kids[i].length) nbKickFamily(T, i, B, X.ax[i], X.ay[i], X.az[i], t); }
+        else nbKickFamily(T, s, B, P.ax[0], P.ay[0], P.az[0], t);
+      };
+      const drift=(t)=>{
+        if(mode==='F'){ for(let c=0;c<n;c++) if(c!==s) nbDriftOne(T, c, t); }
+        else for(const c of R) nbDriftOne(T, c, t);
+        J.x[s]+=J.vx[s]*t; J.y[s]+=J.vy[s]*t; J.z[s]+=J.vz[s]*t;
+      };
+      const pos=()=>{ if(mode==='F') nbFromJacobi(T, false, false); else fromTop(); };
+      const A=mode==='F' ? X : P;                  // the arrays contacts and starlight are read from
+      let stopWhy='';
+      // tier A, after every substep: a passer's tide on some planet's moons
+      // rivalling the star's (-> full N-body), or two top-level bodies now
+      // swinging round each other too fast for this step (-> end the frame
+      // here; the next one plans a shorter step)
+      const watch=()=>{
+        const tight=(20*h/(2*Math.PI))**2;
+        for(let i=1;i<nr;i++){
+          const Di=moons[i] ? Math.hypot(P.x[i]-P.x[0], P.y[i]-P.y[0], P.z[i]-P.z[0]) : 0;
+          for(let j=1;j<nr;j++){ if(j===i) continue;
+            const dx=P.x[i]-P.x[j], dy=P.y[i]-P.y[j], dz=P.z[i]-P.z[j], d2=dx*dx+dy*dy+dz*dz;
+            if(moons[i]){ const lim=2*Di*q[j]; if(d2<lim*lim){ stopWhy='close'; return true; } }
+            if(j>i && d2*Math.sqrt(d2)<tight*(P.gm[i]+P.gm[j])){ stopWhy='tight'; return true; }
+          }
+        }
+        return false;
+      };
+      const cctx=window.RAClimateView?RAClimateView.nbPrepare(list, at):null;
+      const t0=performance.now();
+      pos(); kick(h*0.5);
+      let steps=0;
+      const na=mode==='F' ? n : nr;
+      for(let st=0;st<K;st++){
+        for(let i=0;i<na;i++){ A.px[i]=A.x[i]; A.py[i]=A.y[i]; A.pz[i]=A.z[i]; }
+        drift(h);
+        pos();
+        nbSwept(A, na, recs, hits);
+        steps++;
+        const stop=mode==='A' && watch();
+        kick(stop || st===K-1 ? h*0.5 : h);          // the last half-kick closes the step
+        if(cctx) RAClimateView.nbAccumulate(cctx, A, h);
+        if(stop) break;
+      }
+      if(steps>=8){
+        const per=(performance.now()-t0)/steps;
+        if(mode==='F') _nbMsPerStep=_nbMsPerStep>0 ? _nbMsPerStep+(per-_nbMsPerStep)*0.2 : per;
+        else _nbMsA=_nbMsA>0 ? _nbMsA+(per-_nbMsA)*0.2 : per;
+      }
+      if(stopWhy==='close') _nbEncounter=true;
+      done=steps*h;
+      if(mode==='A') for(let c=0;c<n;c++) if(c!==s && T.par[c]!==s) nbDriftOne(T, c, done);   // moons, on their exact orbits
+      if(cctx) RAClimateView.nbFinish(cctx, list);
+      T.hits=hits.map(k=>[recs[(k/8192)|0], recs[k%8192]]);
+    }
+    nbFromJacobi(T, false, false); nbFromJacobi(T, true, false);
+    for(let i=0;i<n;i++){ const b=list[i].nb; b.r.set(X.x[i],X.y[i],X.z[i]); b.v.set(X.vx[i],X.vy[i],X.vz[i]); }
+    if(mode==='A') nbOrbitLight(H, done, 'A');
+    else if(mode==='K') nbOrbitLight(H, done, 'K');
+    if(T.hits) for(const [a,b] of T.hits) nbCollidePair(a, b);
+  }
+  nbSyncHolders();
+  return done;
+}
+function nbStepF(dt, H){ return nbHJS(dt, H, 'F'); }
+function nbStepA(dt, H){ return nbHJS(dt, H, 'A'); }
+function nbStepK(dt, H){ return nbHJS(dt, H, 'K'); }
+// {a, e, M, n} of a bound relative state, or null.
+function nbAEM(rx,ry,rz,vx,vy,vz,mu){
+  const r=Math.hypot(rx,ry,rz), a=1/(2/r-(vx*vx+vy*vy+vz*vz)/mu);
+  if(!(a>0)) return null;
+  const ecosE=1-r/a, esinE=(rx*vx+ry*vy+rz*vz)/Math.sqrt(mu*a);
+  const E=Math.atan2(esinE, ecosE);
+  return {a, e:Math.hypot(ecosE, esinE), M:E-esinE, n:Math.sqrt(mu/(a*a*a))};
+}
+// Starlight for the fast tiers. A source a world goes round (its star, a brown
+// dwarf it orbits) is averaged over the frame along the exact orbit that carries
+// it round that source; any other source shines at its end-of-frame distance.
+// In tier A only a source inside the world's own group needs this: the rest was
+// accumulated substep by substep.
+function nbOrbitLight(H, dt, tier){
+  const V=window.RAClimateView;
+  if(!V || !V.nbAddInvR2 || !V.luminous) return;
+  const lums=V.luminous(); if(!lums.length) return;
+  const rootOf=b=>{ let t=b; for(let k=0;k<8 && H.par.get(t);k++) t=H.par.get(t); return t; };
+  const g={};
+  for(const w of H.list){
+    if(!V.bodies.has(w.data.key) || w.destroyed) continue;
+    if(tier==='K') w._climNbFlux={};
+    const rw=rootOf(w);
+    for(const L of lums){
+      const p=L.rec; if(p===w || !p.nb) continue;
+      if(tier==='A' && rootOf(p)!==rw) continue;
+      let c=w, carrier=null;
+      for(let k=0;k<8;k++){ const q=H.par.get(c); if(!q) break; if(q===p){ carrier=c; break; } c=q; }
+      if(!carrier && p===H.star) carrier=rw;
+      let inv=null;
+      if(carrier){
+        let o;
+        if(carrier===rw && p===H.star){ nbGroup(H, rw, g);
+          o=nbAEM(g.x-p.nb.r.x, g.y-p.nb.r.y, g.z-p.nb.r.z, g.vx-p.nb.v.x, g.vy-p.nb.v.y, g.vz-p.nb.v.z, p.nb.gm+g.gm); }
+        else { const a=carrier.nb;
+          o=nbAEM(a.r.x-p.nb.r.x, a.r.y-p.nb.r.y, a.r.z-p.nb.r.z, a.v.x-p.nb.v.x, a.v.y-p.nb.v.y, a.v.z-p.nb.v.z, p.nb.gm+a.gm); }
+        if(o) inv=V.meanInvR2(o.a, o.e, o.M, o.n*dt);
+      }
+      if(inv==null){ const d2=w.nb.r.distanceToSquared(p.nb.r); inv=d2>1e-12?1/d2:0; }
+      V.nbAddInvR2(w, L, inv);
+    }
+  }
 }
 function nbDisposeTrail(rec){
   if(!rec || !rec._trail) return;
@@ -4871,7 +5437,7 @@ function saveSystemState(){
   } }
   saveCustoms();
   const out={v:ST_VER, ed:ST_ED, sys:SYS, t:Date.now(),
-    elapsedYears:+elapsedYears.toFixed(6), nbodyOn:!!nbodyOn,
+    elapsedYears:+elapsedYears.toFixed(6), nbodyOn:!!nbodyOn, nbDef:1,
     deleted:deletedKeys.slice(), bodies:{}};
   for(const rec of bodies){
     if(rec._generated || rec._custom) continue;      // customs live in their own store; rumps re-evolve
@@ -4988,6 +5554,9 @@ function restoreSystemState(){
       }
       nbSyncHolders();
       refreshNav();                      // weave customs by their NOW-correct live parent
+    } else if(st.nbDef===undefined && NB_DEFAULT){
+      // saved before N-body was the default: that "off" was the old default, not a choice
+      nbEnable();
     }
     if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
   } finally { impRestoring=false; }
@@ -5032,7 +5601,7 @@ function importSystemState(file){
    page opened it with. (Phases are random per page load, so "pristine" is the
    state of this page, not of some other one.) */
 const _pristine=new Map();
-const NB_DEFAULT=false;                  // this edition: N-body starts off (the tiered integrator will turn it on)
+const NB_DEFAULT=true;                   // a fresh start runs under N-body gravity
 function recordPristine(){
   _pristine.clear();
   for(const rec of bodies){
@@ -5619,17 +6188,22 @@ function animate(){
   // max time-warp while real gravity is on. The cap is per wall-clock SECOND,
   // not per frame, so the fastest N-body clock is the same at 20 fps as at 144.
   _nbCapped=false;
-  if(nbodyOn){
-    // Measured cost too: without it a slow machine spirals -- a slow frame buys
-    // more substeps, which make the next frame slower still. The budget caps
-    // the wall clock gravity may take, and the clock slows instead of the page.
-    const byTime=_nbMsPerStep>0 ? NB_FRAME_BUDGET_MS/_nbMsPerStep : NB_MAXSTEPS_FRAME;
-    const cap=Math.max(1, Math.min(NB_MAXSTEPS_FRAME, NB_SUBSTEPS_PER_SEC*dtSim, byTime))*_nbH;
-    if(simDtYears>cap){ simDtYears=cap; _nbCapped=true; }
+  let nbH=null;
+  if(nbodyOn && playing && !surfaceView && simDtYears>0){
+    const P=nbPlan(simDtYears, dtSim); nbH=P.H; simDtYears=P.dt;
   }
 
   if(playing && !surfaceView){
-    if(nbodyOn) nbStep(simDtYears);            // real gravity: integrates + positions rec.nb bodies
+    if(nbodyOn){                               // real gravity: integrates + positions rec.nb bodies
+      if(nbH && nbTier==='A') simDtYears=nbStepA(simDtYears, nbH);   // a close approach can end it early
+      else if(nbH && nbTier==='K') nbStepK(simDtYears, nbH);
+      else if(nbH && nbH.ok) nbStepF(simDtYears, nbH);
+      else nbStep(simDtYears);                    // a body outweighs the star: plain leapfrog
+      if(nbH){
+        if(nbH.list.some(b=>!b.nb)) nbH=nbHierarchy();                // a collision took a body
+        _nbEncounter=nbEncounter(nbH, _nbEncounter?2.5:2);
+      }
+    }
     for(const rec of bodies){
       if(rec.nb){ /* positioned by nbStep */ }
       else if(rec.freeState){ rec.freeState.r.addScaledVector(rec.freeState.v,simDtYears); positionFreeBody(rec); }
@@ -5989,8 +6563,7 @@ function updateSpeedCapUI(){
     const byTime=_nbMsPerStep>0 ? NB_FRAME_BUDGET_MS/_nbMsPerStep/Math.max(_frameCost,1/240) : Infinity;
     const cap=Math.min(NB_SUBSTEPS_PER_SEC, byTime)*_nbH;
     el.textContent='⚠ '+fmtRate(cap);
-    el.title=(LANG==='sk'?'N-telesová gravitácia obmedzuje čas na ':'N-body gravity caps the clock at ')+fmtRate(cap)
-      +(LANG==='sk'?' — pre geologický čas ju vypnite (klíma beží ďalej)':' — switch it off for geological time (the climate keeps running)');
+    el.title=T(_nbCapWhy==='heavy'?'nb-cap-heavy':'nb-cap-close').replace('{r}', fmtRate(cap));
   } else { el.textContent=fmtRate(yps); el.title=''; }
 }
 /* speed readout in real time units: "real-time", "45 s/s", "12 min/s", "6 hr/s", "3 days/s", "2 mo/s", "1.4 yr/s" */

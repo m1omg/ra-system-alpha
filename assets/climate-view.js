@@ -145,25 +145,29 @@ function fluxOver(rec, dtYears, lums){
   return {flux:F, starTemp:domT};
 }
 
-// Called from nbStep: per-substep accumulation of flux from each light source,
-// so the climate sees the average over the frame rather than its last instant.
-V.nbPrepare=function(list){
+// Called from the N-body step: per-substep accumulation of flux from each light
+// source, so the climate sees the average over the frame rather than its last
+// instant. `at` (tier A) gives the slot each body's position is read from: a
+// moon reads its planet group's barycentre, and a source in the world's own
+// group is left to the orbit average (nbOrbitLight in app.js).
+V.nbPrepare=function(list, at){
   const lums=luminous();
-  const cl=[], li=[], lL=[], lk=[];
+  const cl=[], cf=[], li=[], lL=[], lk=[];
   for(let i=0;i<list.length;i++){
-    const r=list[i];
-    if(V.bodies.has(r.data.key)) cl.push(i);
-    for(const s of lums) if(s.rec===r){ li.push(i); lL.push(s.L); lk.push(s.rec.data.key); }
+    const r=list[i], f=at?at[i]:i;
+    if(V.bodies.has(r.data.key)){ cl.push(i); cf.push(f); }
+    for(const s of lums) if(s.rec===r){ li.push(f); lL.push(s.L); lk.push(s.rec.data.key); }
   }
   if(!cl.length || !li.length) return null;
-  return {cl, li, lL, lk, acc:new Float64Array(cl.length*li.length), t:0};
+  return {cl, cf, li, lL, lk, acc:new Float64Array(cl.length*li.length), t:0};
 };
 V.nbAccumulate=function(ctx, F, h){
-  const {cl, li, lL, acc}=ctx, nl=li.length;
-  for(let a=0;a<cl.length;a++){
-    const i=cl[a];
+  const {cf, li, lL, acc}=ctx, nl=li.length;
+  for(let a=0;a<cf.length;a++){
+    const i=cf[a];
     for(let b=0;b<nl;b++){
       const j=li[b];
+      if(i===j) continue;
       const dx=F.x[i]-F.x[j], dy=F.y[i]-F.y[j], dz=F.z[i]-F.z[j];
       const d2=dx*dx+dy*dy+dz*dz;
       acc[a*nl+b]+= d2>1e-12 ? lL[b]/d2*h : 0;
@@ -179,6 +183,15 @@ V.nbFinish=function(ctx, list){
     for(let b=0;b<nl;b++) o[ctx.lk[b]]=S_EARTH*ctx.acc[a*nl+b]/ctx.t;
     rec._climNbFlux=o;
   }
+};
+// The fast tiers' starlight: `inv` is a mean 1/r² (AU⁻²) over the frame along an
+// orbit, or an end-of-frame one, from source `s` (an entry of V.luminous()).
+V.luminous=luminous;
+V.meanInvR2=meanInvR2;
+V.nbAddInvR2=function(rec, s, inv){
+  if(!V.bodies.has(rec.data.key) || !(inv>=0)) return;
+  const o=rec._climNbFlux||(rec._climNbFlux={}), k=s.rec.data.key;
+  o[k]=(o[k]||0)+S_EARTH*s.L*inv;
 };
 
 /* ---------------- worlds ---------------- */
