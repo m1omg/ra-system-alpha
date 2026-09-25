@@ -3959,9 +3959,15 @@ function nbTrailFor(rec){
   return rec._trail;
 }
 function nbTrailSample(rec){
+  if(rec._nbRing) return;                           // a moon draws its ring, not a trail
   const t=nbTrailFor(rec), p=rec.holder.position;
   const r=Math.max(1,p.length());
-  if(t.last.distanceToSquared(p) < (0.02*r)*(0.02*r)) return;
+  const d2=t.last.distanceToSquared(p);
+  if(d2 < (0.02*r)*(0.02*r)) return;
+  // A body that covers a big slice of its orbit between two frames (an inner
+  // planet at 2 yr/s) would draw chords straight across it, a spirograph: show
+  // its orbit as it is at that moment instead.
+  if(t.count>0 && d2 > (0.15*r)*(0.15*r)){ nbTrailPrefill(rec); return; }
   t.last.copy(p);
   if(t.count<NB_TRAIL_N) t.count++;
   else t.pos.copyWithin(0,3);                       // drop the oldest point
@@ -3970,8 +3976,56 @@ function nbTrailSample(rec){
   t.g.attributes.position.needsUpdate=true;
   t.g.setDrawRange(0,t.count);
 }
+// A fresh start under N-body has no path behind anything yet: each trail begins
+// as its body's orbit at that moment, ending where the body is, and the real
+// path writes over it as the body moves.
+function nbTrailPrefill(rec){
+  const star=nbStar(); if(!star || !star.nb || rec===star || !rec.nb) return;
+  if(nbDominantParent(rec)!==star) return;          // moons ride rings instead
+  const el=stateToElements(rec.nb.r.clone().sub(star.nb.r), rec.nb.v.clone().sub(star.nb.v),
+                           star.nb.gm+rec.nb.gm);
+  if(!(el.a>0) || !(el.e<1)) return;
+  const t=nbTrailFor(rec), n=300, b=el.a*Math.sqrt(1-el.e*el.e), E0=kepler(el.M, el.e);
+  const v=new THREE.Vector3();
+  for(let i=0;i<n;i++){
+    const E=E0-2*Math.PI*(n-1-i)/n;
+    v.set(el.a*(Math.cos(E)-el.e), 0, b*Math.sin(E)).applyQuaternion(el.q);
+    const d=displayVectorFromAU(v);
+    t.pos[i*3]=d.x; t.pos[i*3+1]=d.y; t.pos[i*3+2]=d.z;
+  }
+  t.count=n; t.last.set(t.pos[(n-1)*3], t.pos[(n-1)*3+1], t.pos[(n-1)*3+2]);
+  t.g.attributes.position.needsUpdate=true; t.g.setDrawRange(0,n);
+  t.line.visible=showOrbits;
+}
+// A moon's trail is sampled against its distance from the star, so it traces its
+// planet's path, not its own orbit. Under N-body a moon keeps a ring instead: its
+// osculating orbit about its live parent, redrawn twice a second, riding on the
+// parent's holder (a captured moon's ring moves to its new planet).
+function nbMoonRings(){
+  const star=nbStar(); if(!star || !star.nb) return;
+  for(const rec of bodies){
+    if(!rec.nb || !rec.orbitLine || rec===star || rec.destroyed || rec._absorbedGone) continue;
+    const p=nbDominantParent(rec);
+    let el=null;
+    if(p && p!==star && p.nb){
+      el=stateToElements(rec.nb.r.clone().sub(p.nb.r), rec.nb.v.clone().sub(p.nb.v), p.nb.gm+rec.nb.gm);
+      if(!(el.a>0) || !(el.e<1)) el=null;
+    }
+    if(!el){ if(rec._nbRing){ rec.orbitLine.visible=false; rec._nbRing=false; } continue; }
+    if(rec.orbitLine.parent!==p.holder){
+      if(rec.orbitLine.parent) rec.orbitLine.parent.remove(rec.orbitLine);
+      p.holder.add(rec.orbitLine);
+    }
+    rec.orbitLine.geometry.dispose();
+    rec.orbitLine.geometry=new THREE.BufferGeometry().setFromPoints(orbitPoints(el.a*AU_UNIT, el.e));
+    rec.orbitLine.quaternion.copy(el.q);
+    rec.orbitLine.visible=showOrbits;
+    rec._nbRing=true;
+    if(rec._trail) rec._trail.line.visible=false;   // its star-relative trail is its planet's path
+  }
+}
 function nbTrailsVisible(v){
-  for(const rec of bodies) if(rec._trail) rec._trail.line.visible=v;
+  for(const rec of bodies) if(rec._trail) rec._trail.line.visible=v&&!rec._nbRing;
 }
 function nbTrailsDispose(){
   for(const rec of bodies){
@@ -4164,6 +4218,8 @@ function nbEnable(){
     if(a>0) _nbH=Math.max(2e-5, Math.min(_nbH, 2*Math.PI*Math.sqrt(a*a*a/mu)/45));
   }
   nbSyncHolders();
+  for(const rec of bodies) nbTrailPrefill(rec);
+  nbMoonRings();
   refreshNav();                          // customs re-weave under their live parent
   nbBtnState();
 }
@@ -4246,6 +4302,13 @@ function nbDisable(){
         // still bound: snap back to the tuned display orbit (phase kept via M below)
         rec.helioA=P.helioA; rec._physA=P._physA; rec.e=P.e; rec.q=P.q; rec.M=P.M;
         rec.period=P.period; rec.aDisp=P.aDisp;
+        if(rec.orbitLine && rec._nbRing){               // the live ring gives way to the book ellipse
+          if(rec.orbitLine.parent!==rec.parentHolder){
+            if(rec.orbitLine.parent) rec.orbitLine.parent.remove(rec.orbitLine);
+            rec.parentHolder.add(rec.orbitLine);
+          }
+          rebuildOrbitLine(rec); rec.orbitLine.quaternion.copy(rec.q);
+        }
       } else {
         // ejected from its parent: sail on heliocentric, unbound
         rec.helio=false; rec.isMoon=false;
@@ -4257,6 +4320,7 @@ function nbDisable(){
     if(rec.orbitLine) rec.orbitLine.visible=showOrbits;
     positionBody(rec);
   }
+  for(const rec of bodies) rec._nbRing=false;
   nbTrailsDispose();
   nbBtnState();
   saveCustoms();                                     // re-parented orbiters persist as moons
@@ -4820,7 +4884,7 @@ function saveSystemState(){
 function restoreSystemState(){
   let st=null;
   try{ st=JSON.parse(localStorage.getItem(stateKey())||'null'); }catch(_){}
-  if(!st || st.v!==ST_VER || st.sys!==SYS) return;
+  if(!st || st.v!==ST_VER || st.sys!==SYS) return false;
   impRestoring=true;
   try{
     // 1. deletions (authored bodies removed cleanly, no liberation re-run needed
@@ -4914,6 +4978,7 @@ function restoreSystemState(){
     }
     if(st.elapsedYears>0){ elapsedYears=st.elapsedYears; updateClock(); }
   } finally { impRestoring=false; }
+  return true;
 }
 async function exportSystemState(){
   saveSystemState();                                   // export exactly what Load would restore
@@ -5467,7 +5532,7 @@ function animate(){
   // the climate: every terrestrial world, forced by the starlight it just received
   if(window.RAClimateView) RAClimateView.frame(dt, lastSimDtYears, dtSim>0?simDtYears/dtSim:0);
   if(_nbCapped!==animate._cappedShown){ animate._cappedShown=_nbCapped; updateSpeedCapUI(); }
-  _nbInfoT+=dt; if(_nbInfoT>=0.5){ _nbInfoT=0; nbInfoTick(); }   // live osculating elements
+  _nbInfoT+=dt; if(_nbInfoT>=0.5){ _nbInfoT=0; nbInfoTick(); if(nbodyOn) nbMoonRings(); }   // live osculating elements
   navOrderTick(dt);                           // the sidebar follows the orbits
   updateEvapTails(lastSimDtYears);
   updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
@@ -5632,7 +5697,7 @@ function setupInteraction(){
     try{ sfxOn=localStorage.getItem('ra-sfx')!=='0'; }catch(_){ sfxOn=true; }   // on by default
     sx.classList.toggle('on',sfxOn); }
   document.getElementById('t-orbits').onclick=function(){ showOrbits=!showOrbits; this.classList.toggle('on',showOrbits);
-    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits&&!b.nb;   // nb: Kepler ellipses are stale
+    for(const b of bodies) if(b.orbitLine) b.orbitLine.visible=showOrbits&&(!b.nb||!!b._nbRing);   // nb: Kepler ellipses are stale; moon rings are live
     nbTrailsVisible(showOrbits); };                                                 // …trails carry the job instead
   document.getElementById('t-labels').onclick=function(){ showLabels=!showLabels; this.classList.toggle('on',showLabels);
     labelLayer.style.display=showLabels?'block':'none'; };
