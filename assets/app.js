@@ -843,16 +843,12 @@ function buildInner(){
 
   // ---- Horus + its moons (Ra system only) ----
   if(DS.HORUS){
-    horusRec=addBody(DS.HORUS, sunHolder, { aDisp:distDisp(DS.HORUS.dist), incl:inclFor('horus'), node:nodeFor('horus'),
-                      radius:sizeDisp(DS.HORUS.radiusKm), orbitOpacity:0.28 });
-    horusHolder=horusRec.holder;
-    addStarGlow(horusRec.mesh, horusRec.radius, '#ff7a44', '#7a1c08', 2.4);  // glow scales with mesh
-    const hLight=new THREE.PointLight(0xff5a2a, aiTex?0.55:0.9, horusRec.radius*70, 1.2);
-    horusRec.mesh.add(hLight);
+    addHorus();
     for(const m of DS.HORUS_MOONS){ addMoon(m, horusRec); }
   }
   // ring systems (Saturn) — a flat banded annulus in the equator plane
   for(const rec of bodies) if(rec.data.rings) makeBodyRings(rec);
+  recordPristine();
 
   // the Wadjet fragment swarm — a debris belt from the author's .ubox save
   if(DS.BELT) makeBelt();
@@ -892,6 +888,16 @@ function buildInner(){
   animate();
 }
 
+function addHorus(){
+  const aiTex=!!window.USE_AI_TEXTURES;
+  horusRec=addBody(DS.HORUS, sunHolder, { aDisp:distDisp(DS.HORUS.dist), incl:inclFor('horus'), node:nodeFor('horus'),
+                    radius:sizeDisp(DS.HORUS.radiusKm), orbitOpacity:0.28 });
+  horusHolder=horusRec.holder;
+  addStarGlow(horusRec.mesh, horusRec.radius, '#ff7a44', '#7a1c08', 2.4);  // glow scales with mesh
+  const hLight=new THREE.PointLight(0xff5a2a, aiTex?0.55:0.9, horusRec.radius*70, 1.2);
+  horusRec.mesh.add(hLight);
+  return horusRec;
+}
 function addMoon(m, parentRec){
   // per-subsystem display distance
   const sysMoons = (DS.HORUS && parentRec.data.key===DS.HORUS.key)?DS.HORUS_MOONS:DS.MOONS.filter(x=>x.parent===parentRec.data.key);
@@ -3201,7 +3207,7 @@ function removeDebrisField(rec){
   refreshNav();
 }
 
-function impHeal(){
+function impHeal(quiet){
   if(window.RAClimateView) RAClimateView.beforeHeal();   // which climates were hurt
   impBlastQueue.length=0;                    // cancel any still-travelling blast wave
   for(const rec of bodies){
@@ -3292,6 +3298,7 @@ function impHeal(){
   for(const t of evapTails) t.points.visible=showTails;
   if(bodies.some(r=>r._custom)) saveCustoms();
   if(window.RAClimateView) RAClimateView.afterHeal();    // ...and they come back as they were
+  if(quiet) return;
   if(APP.currentData && document.getElementById('info').classList.contains('open'))
     openInfo(APP.currentData);
   sfxChime();
@@ -5004,18 +5011,120 @@ function importSystemState(file){
       localStorage.setItem('ra-climate-custom:'+s.sys, JSON.stringify(bundle.customs||[]));
       if(bundle.climate) localStorage.setItem('ra-climate-clim:'+s.sys, JSON.stringify(bundle.climate));
       else localStorage.removeItem('ra-climate-clim:'+s.sys);
-      location.reload();
+      if(s.sys===SYS) loadInPlace();                       // same system: no reload
+      else location.reload();                              // another system needs its own textures
     }catch(err){ alert('Not a valid '+ST_ED+' state file ('+err.message+')'); }
   };
   rd.readAsText(file);
+}
+/* ---- ♻ Reset, 📂 Load and ⬆ Import in place ----
+   A reload re-fetches, re-decodes and re-uploads every texture and restarts the
+   climate worker and its map analysis: about 20 s on a slow connection, for a
+   page that already has everything it needs. So the system is put back in the
+   page instead: damage healed, custom worlds removed, deleted book worlds
+   rebuilt, and every book world returned to the orbit, parent and phase this
+   page opened it with. (Phases are random per page load, so "pristine" is the
+   state of this page, not of some other one.) */
+const _pristine=new Map();
+const NB_DEFAULT=false;                  // this edition: N-body starts off (the tiered integrator will turn it on)
+function recordPristine(){
+  _pristine.clear();
+  for(const rec of bodies){
+    if(rec._custom || rec._generated || rec.external || rec.data.kind==='star') continue;
+    const par=rec.parentHolder===sunHolder ? null : bodies.find(b=>b.holder===rec.parentHolder);
+    _pristine.set(rec.data.key, { M:rec.M, e:rec.e, q:rec.q.clone(), period:rec.period,
+      helioA:rec.helioA, physA:rec._physA, aDispReal:rec.aDispReal, aDispCompressed:rec.aDispCompressed,
+      parentKey:par?par.data.key:null, helio:!!rec.helio, isMoon:!!rec.isMoon, spinY:rec.mesh.rotation.y });
+  }
+}
+// A deleted book world, rebuilt exactly as buildInner makes it.
+function rebuildBookBody(key){
+  let rec=null;
+  const p=DS.PLANETS.find(x=>x.key===key);
+  if(p) rec=addBody(p, sunHolder, { aDisp:distDisp(p.dist), incl:(p.incl!=null?p.incl:inclFor(p.key)),
+                                    node:nodeFor(p.key), orbitOpacity:0.34 });
+  else if(DS.HORUS && key===DS.HORUS.key) rec=addHorus();
+  else {
+    const m=DS.MOONS.find(x=>x.key===key) || (DS.HORUS_MOONS||[]).find(x=>x.key===key);
+    const parent=m && bodies.find(b=>b.data.key===m.parent && !b._custom && !b.destroyed);
+    if(m && parent) rec=addMoon(m, parent);
+  }
+  if(!rec) return null;
+  if(rec.data.rings) makeBodyRings(rec);
+  if(rec.data.evapTail) makeEvapTail(rec);
+  return rec;
+}
+function softReset(opts){
+  opts=opts||{};
+  // nothing live may still point at a world that is about to change
+  if(impBeam) stopBeam();
+  if(surfaceView) exitSurfaceView();
+  if(flying) exitFly();
+  for(const a of impAsteroids) releaseAstRig(a.rig);
+  impAsteroids.length=0;
+  for(const f of impFx){ f.o.visible=false; f.pool.push(f.o); }   // flashes and shock shells still in flight
+  impFx.length=0;
+  if(nbodyOn) nbDisable();
+  // Heal walks the scarred list; a world wrecked by any other road (a collision,
+  // a blast that landed while the list was being rebuilt) is registered first
+  for(const rec of bodies) if((rec.destroyed || rec.dmgJ>0) && impScarred.indexOf(rec)<0) getScars(rec);
+  impHeal(true);
+  // a biosphere can die without a scratch on the world (heat, cold, a boiled sea)
+  for(const rec of bodies) if(rec.extinct || rec.sterile) impHealExtinct(rec);
+  // custom worlds go; their saved list is the caller's to keep or clear
+  const keepCustoms=opts.keepSaved ? (()=>{ try{ return localStorage.getItem(crStoreKey()); }catch(_){ return null; } })() : null;
+  for(const b of bodies.filter(b=>b._custom)) removeBody(b, true);
+  if(opts.keepSaved && keepCustoms!=null){ try{ localStorage.setItem(crStoreKey(), keepCustoms); }catch(_){} }
+  // deleted book worlds come back, planets before their moons
+  const rank=k=>DS.PLANETS.some(x=>x.key===k)?0:(DS.HORUS&&k===DS.HORUS.key)?1:2;
+  const gone=deletedKeys.slice().sort((a,b)=>rank(a)-rank(b)); deletedKeys=[];
+  for(const key of gone) if(!bodies.some(b=>b.data.key===key)) rebuildBookBody(key);
+  // a book moon set loose by a deletion goes back to its planet
+  for(const m of DS.MOONS.concat(DS.HORUS_MOONS||[])){
+    const rec=bodies.find(b=>b.data.key===m.key), parent=bodies.find(b=>b.data.key===m.parent);
+    if(rec && parent && rec.parentHolder!==parent.holder){ removeBody(rec, true); rebuildBookBody(m.key); }
+  }
+  deletedKeys=[];
+  // every book world on its book orbit, at the phase this page opened with
+  for(const rec of bodies){
+    const P=_pristine.get(rec.data.key); if(!P) continue;
+    const par=P.parentKey ? bodies.find(b=>b.data.key===P.parentKey) : null;
+    rec.parentHolder=par?par.holder:sunHolder;
+    if(rec.holder.parent!==rec.parentHolder) rec.parentHolder.add(rec.holder);
+    rec.helio=P.helio; rec.isMoon=P.isMoon; rec.freeState=null; rec.orbitPerturbed=false;
+    rec._origOrbit=null; rec._preLib=null; rec._preFree=null;
+    rec.M=P.M; rec.e=P.e; rec.q.copy(P.q); rec.period=P.period;
+    rec.helioA=P.helioA; rec._physA=P.physA; rec.aDispReal=P.aDispReal; rec.aDispCompressed=P.aDispCompressed;
+    rec.mesh.rotation.y=P.spinY;
+    if(rec.orbitLine){
+      if(rec.orbitLine.parent!==rec.parentHolder) rec.parentHolder.add(rec.orbitLine);
+      rec.orbitLine.quaternion.copy(rec.q); rec.orbitLine.visible=showOrbits;
+    }
+  }
+  elapsedYears=0; lastSimDtYears=0; updateClock();
+  applyScaleMode();                      // distances for the current scale, orbit lines, positions
+  if(!opts.keepSaved){
+    try{ localStorage.removeItem(crStoreKey()); localStorage.removeItem(stateKey()); }catch(_){}
+    if(window.RAClimateView) RAClimateView.clearSaved();
+  }
+  if(window.RAClimateView) RAClimateView.resetAll();
+  closeInfo(); selected=null; frameSystem();
+  refreshNav();
+  if(!opts.keepSaved && NB_DEFAULT) nbEnable();
+}
+// 📂 Load and ⬆ Import: the saved world, put back in the page
+function loadInPlace(){
+  softReset({keepSaved:true});
+  restoreCustoms();
+  if(!restoreSystemState() && NB_DEFAULT) nbEnable();
+  if(window.RAClimateView) RAClimateView.applySaved();
+  refreshNav();
 }
 function resetSystem(){
   const sk=(LANG==='sk');
   if(!confirm(sk?'Obnoviť sústavu do pôvodného stavu? Odstráni VŠETKY poškodenia, vlastné telesá aj uložený stav.'
                :'Reset the system to its pristine original state? Removes ALL damage, custom bodies and the saved state.')) return;
-  try{ localStorage.removeItem(crStoreKey()); localStorage.removeItem(stateKey()); }catch(_){}
-  if(window.RAClimateView) RAClimateView.clearSaved();
-  location.reload();
+  softReset();
 }
 function setupStateUI(){
   const g=id=>document.getElementById(id);
@@ -5027,7 +5136,7 @@ function setupStateUI(){
     if(ok && window.RAClimateView) RAClimateView.save().then(c=>flash(btn, c?'💾 ✓':'💾 ✗'));
     else flash(btn, ok?'💾 ✓':'💾 ✗'); };
   if(g('t-load')) g('t-load').onclick=function(){
-    if(localStorage.getItem(stateKey())) location.reload();
+    if(localStorage.getItem(stateKey())) loadInPlace();
     else flash(this,'📂 —'); };
   if(g('t-export')) g('t-export').onclick=exportSystemState;
   if(g('t-import')) g('t-import').onclick=()=>g('t-import-file').click();

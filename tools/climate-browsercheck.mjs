@@ -201,6 +201,69 @@ try {
       ok(Math.abs(moonA - 384400) < 20000, 'the Moon\'s live orbit is about 384 400 km', Math.round(moonA) + ' km');
       await page.evaluate(() => { if (nbodyOn) toggleNbody(); });
 
+      section('sol: Reset and Load stay in the page');
+      // Reset used to reload the page: ~20 s on a slow link, all of it re-fetching,
+      // re-decoding and re-analysing what the page already had.
+      page.on('dialog', (d) => d.accept());
+      const pos = () => page.evaluate(() => Object.fromEntries(['earth', 'moon', 'mars', 'phobos', 'pluto']
+        .map((k) => { const r = bodies.find((b) => b.data.key === k); if (!r) return [k, null];
+          const v = new THREE.Vector3(); r.mesh.getWorldPosition(v); return [k, [v.x, v.y, v.z, r.M]]; })));
+      await page.evaluate(() => { const s = document.getElementById('speed'); s.value = 0; setSpeed(0); if (playing) togglePlay(); });
+      // the pristine state is the one this page opened with: two Resets with
+      // anything in between must land on exactly the same world
+      await page.evaluate(() => { window.__stay = 1; document.getElementById('t-sysreset').click(); });
+      await until(page, () => window.__stay === 1, null, 20000);
+      await page.waitForTimeout(300);
+      const p0 = await pos();
+      await page.evaluate(() => { window.__stay = 1;
+        applyOrbitEdit(bodies.find((b) => b.data.key === 'mars'), 2.2, 0.2);
+        removeBody(bodies.find((b) => b.data.key === 'phobos'));
+        impGoExtinct(bodies.find((b) => b.data.key === 'earth'), false);
+        toggleNbody(); nbStep(0.5); toggleNbody(); elapsedYears += 3; });
+      await page.evaluate(() => { saveSystemState(); window.__save = localStorage.getItem(stateKey()); });
+      const t0 = Date.now();
+      await page.evaluate(() => document.getElementById('t-sysreset').click());
+      await until(page, () => window.__stay === 1 && !!bodies.find((b) => b.data.key === 'phobos'), null, 20000);
+      const took = Date.now() - t0;
+      const r1 = await page.evaluate(() => ({ stay: window.__stay, t: elapsedYears, phobos: !!bodies.find((b) => b.data.key === 'phobos'),
+        marsA: orbCurrent(bodies.find((b) => b.data.key === 'mars')).a, earth: bodies.find((b) => b.data.key === 'earth').extinct,
+        saved: !!localStorage.getItem(stateKey()) }));
+      ok(r1.stay === 1 && took < 3000, 'Reset stays in the page', took + ' ms');
+      ok(r1.t === 0 && r1.phobos && Math.abs(r1.marsA - 1.5237) < 0.01 && !r1.earth && !r1.saved,
+        'Reset puts back time, a deleted moon, an edited orbit and a dead biosphere, and clears the save', JSON.stringify(r1));
+      const p1 = await pos();
+      const moved = Object.keys(p0).filter((k) => !p1[k] || p0[k].some((x, i) => Math.abs(x - p1[k][i]) > 1e-6 * Math.max(1, Math.abs(x))));
+      ok(moved.length === 0, 'every world is back where the page opened with it', moved.join(' ') || 'all in place');
+      // Load: the save made above, in place
+      await page.evaluate(() => { localStorage.setItem(stateKey(), window.__save); window.__stay = 2; });
+      await page.evaluate(() => document.getElementById('t-load').click());
+      await until(page, () => window.__stay === 2 && !bodies.find((b) => b.data.key === 'phobos'), null, 20000);
+      const r2 = await page.evaluate(() => ({ stay: window.__stay, t: elapsedYears, phobos: !!bodies.find((b) => b.data.key === 'phobos'),
+        marsA: orbCurrent(bodies.find((b) => b.data.key === 'mars')).a }));
+      ok(r2.stay === 2 && Math.abs(r2.t - 3) < 0.01 && !r2.phobos && Math.abs(r2.marsA - 2.2) < 0.02, 'Load restores the save in the page', JSON.stringify(r2));
+      await page.evaluate(() => document.getElementById('t-sysreset').click());
+      await page.waitForTimeout(500);
+      // and after wrecking the place: a shattered planet, a custom world, N-body,
+      // a supernova, flashes still in flight
+      const world = () => page.evaluate(() => ({ keys: bodies.map((b) => b.data.key).sort().join(','),
+        destroyed: bodies.filter((b) => b.destroyed).map((b) => b.data.key), customs: bodies.filter((b) => b._custom).length,
+        fx: impFx.length, debris: debrisFields.length }));
+      const w0 = await world();
+      await page.evaluate(() => {
+        const mars = bodies.find((b) => b.data.key === 'mars'); mars.dmgJ = impBindingJ(mars) * 1.2; shatterBody(mars);
+        createCustomBody({ kind: CR_KINDS[0].kind, a: 1.3, e: 0.1, massKg: 5e24, radiusKm: 6000 });
+        if (!nbodyOn) toggleNbody();
+        const sun = bodies.find((b) => b.data.kind === 'star'); sun.dmgJ = impBindingJ(sun) * 1.1; shatterStellar(sun);
+        if (!playing) togglePlay();
+      });
+      await page.waitForTimeout(2500);
+      await page.evaluate(() => { if (playing) togglePlay(); document.getElementById('t-sysreset').click(); });
+      await until(page, () => RAClimate.state('earth') && RAClimate.state('earth')[RAClimate.RS.TIME] === 0, null, 10000);
+      const w1 = await world();
+      ok(w1.keys === w0.keys && !w1.destroyed.length && !w1.customs && !w1.fx && !w1.debris,
+        'Reset after a supernova, a shattered planet and a custom world gives back the same system', JSON.stringify(w1.destroyed));
+      ok(await page.evaluate(() => RAClimate.state('earth')[RAClimate.RS.TIME] === 0 && elapsedYears === 0), 'with every clock at zero');
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());

@@ -223,7 +223,16 @@ V.init=function(){
   CL.on('stats', s=>{ V.stats=s; });
   CL.start();
   for(const rec of bodies) addWorld(rec);
-  // restore any saved climate for this system
+  V.applySaved();                       // any saved climate for this system
+  buildTempLegend();
+  const tb=document.getElementById('t-temp'); if(tb) tb.onclick=V.toggleTempView;
+};
+function climKey(){ return 'ra-climate-clim:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+// The saved climate for this system, onto the worlds as they are now.
+V.applySaved=function(){
+  // worlds rebuilt or re-created by a Load re-register on the next nav tick;
+  // make sure they exist before their saved climates arrive
+  for(const rec of bodies) addWorld(rec);
   try{
     const saved=JSON.parse(localStorage.getItem(climKey())||'null');
     if(saved && saved.worlds){
@@ -232,10 +241,18 @@ V.init=function(){
       CL.restore(saved.worlds);
     }
   }catch(_){}
-  buildTempLegend();
-  const tb=document.getElementById('t-temp'); if(tb) tb.onclick=V.toggleTempView;
 };
-function climKey(){ return 'ra-climate-clim:'+(typeof SYS!=='undefined'?SYS:'ra'); }
+// ♻ Reset: every climate back to the one its world opened with. Worlds whose
+// record was replaced (rebuilt after a deletion) are dropped and re-added fresh.
+V.resetAll=function(){
+  V.pendingJ.clear(); V.pendingW.clear();
+  V.lumScale={};
+  for(const [k,cv] of [...V.bodies]){
+    if(bodies.indexOf(cv.rec)<0 || !capable(cv.rec)) removeWorld(k);
+    else CL.reset(k);
+  }
+  for(const rec of bodies) addWorld(rec);
+};
 
 /* ---------------- per frame ---------------- */
 let _accReal=0;
