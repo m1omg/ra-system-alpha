@@ -69,7 +69,8 @@ async function openSystem(sys) {
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text().split('\n')[0]); });
   // both editions: the climate one keeps its own key
   await page.addInitScript((s) => { try { localStorage.setItem('ra-climate-system', s); localStorage.setItem('ra-system', s); } catch (_) {} }, sys);
-  await page.goto(BASE, { waitUntil: 'load' });
+  // the climate edition's maps take a while on a loaded machine; the load is not what is checked
+  await page.goto(BASE, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => typeof bodies !== 'undefined' && bodies.length > 5, null, { timeout: 60000 });
   await page.waitForTimeout(1500);
   // helpers inside the page: energy, angular momentum, orbits about a parent
@@ -352,6 +353,28 @@ try {
       ok(lit.n > 5 && lit.A[1] < 0.02 && lit.K[1] < 0.02, 'each world\'s yearly starlight in A and K matches full N-body',
         `worst A ${lit.A[0]} ${(lit.A[1] * 100).toFixed(2)} %, K ${lit.K[0]} ${(lit.K[1] * 100).toFixed(2)} %`);
     }
+    section(`${sys}: the sidebar keeps every world when the star goes`);
+    // With the star gone nothing is bound to anything heavier, and the strongest
+    // pull can come from a lighter world: two worlds each other's "parent" made a
+    // loop the list never reached, and every living world vanished from it.
+    const kept = await page.evaluate(async () => {
+      if (!nbodyOn) toggleNbody();
+      const star = bodies.find((b) => b.data.kind === 'star');
+      star.dmgJ = impBindingJ(star) * 1.1; shatterStellar(star);
+      const sp = document.getElementById('speed'); sp.value = 55; setSpeed(55); if (!playing) togglePlay();
+      const missing = new Set(); let looks = 0, dead = 0;
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 900));
+        refreshNav();                         // what the once-a-second check rebuilds
+        const shown = new Set([...document.querySelectorAll('#nav .navitem')].map((e) => e.dataset.key));
+        for (const b of bodies) if (!b._absorbedGone && !shown.has(b.data.key)) missing.add(b.data.key);
+        looks++; dead = bodies.filter((b) => b.destroyed).length;
+      }
+      if (playing) togglePlay();
+      return { missing: [...missing], looks, dead, n: bodies.filter((b) => !b._absorbedGone).length };
+    });
+    ok(kept.missing.length === 0, 'with the star gone, every world stays in the sidebar, destroyed or not',
+      kept.missing.length ? `missing: ${kept.missing.join(' ')}` : `${kept.n} listed at each of ${kept.looks} looks, ${kept.dead} destroyed by the end`);
     ok(errors.length === 0, 'nothing throws', errors.slice(0, 3).join(' | '));
     await page.close();
   }

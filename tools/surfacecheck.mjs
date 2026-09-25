@@ -58,7 +58,7 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text().split('\n')[0]); });
   await page.addInitScript(() => { try { localStorage.setItem('ra-climate-system', 'sol'); localStorage.setItem('ra-system', 'sol'); } catch (_) {} });
-  await page.goto(BASE, { waitUntil: 'load' });
+  await page.goto(BASE, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => typeof bodies !== 'undefined' && bodies.some((b) => b.data.key === 'earth'), null, { timeout: 60000 });
   await page.waitForTimeout(4000);
 

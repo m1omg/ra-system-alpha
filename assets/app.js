@@ -4070,7 +4070,9 @@ function nbTrailsDispose(){
 // measured against its planet), which ends at the heaviest body, whose sphere is
 // everything. Nothing binding it (a rogue, a flyby) falls back to the strongest
 // pull among heavier bodies, then among all.
-function nbDominantParent(rec, _depth){
+// `boundOnly`: just the heavier body `rec` is bound to (and inside the Hill
+// sphere of), or null -- never the fallbacks, which can point at a lighter one.
+function nbDominantParent(rec, _depth, boundOnly){
   const list=nbList();
   let top=null;
   for(const b of list) if(!b.destroyed && (!top || b.nb.gm>top.nb.gm)) top=b;
@@ -4096,7 +4098,7 @@ function nbDominantParent(rec, _depth){
     }
     best=b;
   }
-  return best||pullBest||anyBest;
+  return boundOnly ? best : (best||pullBest||anyBest);
 }
 function nbLiveOrbitTxt(rec){
   const p=nbDominantParent(rec); if(!p) return null;
@@ -6840,7 +6842,10 @@ function generatedFor(key){
 // Pluto does not swap places with Neptune twice an orbit.
 function navParentKey(b){
   if(nbodyOn && b.nb && !b.destroyed && !b.freeState){
-    const p=nbDominantParent(b);
+    // what it is bound to, which is always heavier: a chain of those cannot
+    // loop. The strongest pull can -- with the star gone, two worlds can each be
+    // the other's -- and a loop is a branch the list never reaches.
+    const p=nbDominantParent(b, 0, true);
     return (p && p.data.kind!=='star') ? p.data.key : null;
   }
   if(b.isMoon){
@@ -6870,7 +6875,7 @@ function navOrder(){
     if(seen.has(b.data.key)) return;          // a parent loop cannot hang the list
     seen.add(b.data.key);
     out.push({data:b.data, depth});
-    for(const g of generatedFor(b.data.key)) out.push({data:g.data, depth:depth+1});
+    for(const g of generatedFor(b.data.key)){ seen.add(g.data.key); out.push({data:g.data, depth:depth+1}); }
     for(const c of (kids[b.data.key]||[]).sort(byA)) emit(c, depth+1, seen);
   };
   const seen=new Set();
@@ -6878,7 +6883,16 @@ function navOrder(){
   for(const b of top.filter(b=>b!==horus).sort(byA)) emit(b, 0, seen);
   const main=out.splice(0);
   if(horus) emit(horus, 0, seen);
-  return {main, horus:out};
+  const hor=out.splice(0);
+  // Anything the links above did not reach is listed at the top rather than
+  // lost: a world out of place in the list is a smaller wrong than a missing one.
+  const starKey=DS.STAR && DS.STAR.key;
+  for(const b of bodies.filter(b=>!b._absorbedGone && b.data.kind!=='star' && !seen.has(b.data.key) &&
+      !(b._generated && b._originKey===starKey)).sort(byA)){
+    if(b._generated){ seen.add(b.data.key); out.push({data:b.data, depth:0}); } else emit(b, 0, seen);
+  }
+  main.push(...out.splice(0));
+  return {main, horus:hor};
 }
 function buildNav(){
   const nav=document.getElementById('nav');
