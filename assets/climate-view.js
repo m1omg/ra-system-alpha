@@ -808,7 +808,7 @@ const CTL=[
   ['ch4Bar','CH₄','CH₄','gas'],
   ['h2Bar','H₂ envelope','H₂ obal','gas'],
   ['water','Water (Earth oceans)','Voda (zemské oceány)','ocean'],
-  ['landAlbedo','Ground albedo','Albedo povrchu','frac'],
+  ['landAlbedo','Ground albedo (0–1)','Albedo povrchu (0–1)','frac'],
   ['obliquity','Axial tilt (°)','Sklon osi (°)','num'],
   ['internalHeat','Interior heat (W/m²)','Vnútorné teplo (W/m²)','num'],
   ['biosphere','Biosphere (× Earth)','Biosféra (× Zem)','num'],
@@ -817,6 +817,9 @@ function panelSkeleton(d){
   const t=(en,sk)=>L(en,sk);
   let rows='';
   for(const c of CTL){
+    if(c[3]==='gas' && c===CTL.find(x=>x[3]==='gas'))
+      rows+='<div class="clim-hint clim-gas-note">'+t('Gases: partial pressure at the surface. ppm = millionths of a bar (µbar), which on a 1-bar world like Earth is ppm of the air.',
+        'Plyny: parciálny tlak pri povrchu. ppm = milióntiny baru (µbar); na svete s tlakom 1 bar, ako je Zem, sú to ppm vzduchu.')+'</div>';
     rows+='<div class="clim-row"><label>'+t(c[1],c[2])+'</label><input type="text" inputmode="decimal" data-k="'+c[0]+'" data-u="'+c[3]+'" spellcheck="false"></div>';
   }
   rows+='<div class="clim-row"><label>'+t('Tidally locked to the star','Viazaná rotácia voči hviezde')+'</label><input type="checkbox" data-k="tidallyLocked"></div>';
@@ -851,10 +854,18 @@ function parseQty(s, kind){
   return v;
 }
 function fmtGas(bar){
-  if(!(bar>0)) return '0';
+  if(!(bar===bar)) return '—';
+  if(!(bar>0)) return '0 bar';
   if(bar>=0.1) return (+bar.toPrecision(3))+' bar';
   if(bar>=1e-3) return (+(bar*1e3).toPrecision(3))+' mbar';
   return (+(bar*1e6).toPrecision(3))+' ppm';
+}
+// "1 Earth ocean", "0.627 Earth oceans"; Slovak counts in four forms
+function oceansWord(n){
+  if(!(typeof LANG!=='undefined' && LANG==='sk')) return n==='1'?'Earth ocean':'Earth oceans';
+  if(/[.e]/.test(n)) return 'zemského oceánu';
+  const k=+n;
+  return k===1?'zemský oceán':(k>=2&&k<=4)?'zemské oceány':'zemských oceánov';
 }
 function fmtNum(v){ if(!(v===v)) return '—'; const a=Math.abs(v);
   if(a===0) return '0'; if(a>=1e4||a<1e-3) return v.toExponential(2); return String(+v.toPrecision(3)); }
@@ -916,7 +927,7 @@ function renderPanel(det){
     [t('Surface pressure','Tlak pri povrchu'), fmtGas(det.pTot)],
     [t('Air','Vzduch'), comp||t('none','žiadny')],
     [t('Reflects (albedo)','Odráža (albedo)'), Math.round(det.albedo*100)+' %'+' · '+t('cloud','oblačnosť')+' '+Math.round(det.cloud*100)+' %'],
-    [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+t('oceans','oceánov')+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],
+    [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+oceansWord(fmtNum(w.total))+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],
     [t('Sea / ice cover','Pokrytie morom / ľadom'), Math.round((det.flooded||0)*100)+' % / '+Math.round((det.iceArea||0)*100)+' %'],
     [t('Energy in − out','Energia dnu − von'), (det.imbalance>=0?'+':'')+det.imbalance.toFixed(2)+' W/m²'+(det.pulse>1?' · 💥 '+t('impact heat','teplo z dopadu'):'')],
   ];

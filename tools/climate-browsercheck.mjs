@@ -119,6 +119,31 @@ try {
         ok(Math.abs(d2.co2 - d0.co2) < d0.co2 * 1e-3 && Math.abs(d2.n2 - d0.n2) < 1e-3, 'Reset climate puts it back');
       }
 
+      section('sol: every number says what it is');
+      // An airless moon is where a bare "0" used to stand in for "0 bar".
+      // (with the 0.627 oceans of water a player gave it in the report that found this)
+      await page.evaluate(() => focusBody('moon', 'force'));
+      await until(page, () => RAClimate.detail && RAClimate.detail.key === 'moon' &&
+        document.querySelector('#i-climate .clim-tab tr'), null, 15000);
+      await page.evaluate(() => RAClimate.set('moon', { water: 0.627 }));
+      await until(page, () => RAClimate.detail && RAClimate.detail.key === 'moon' && RAClimate.detail.water.total > 0.6, null, 15000);
+      await page.waitForTimeout(600);
+      const u = await page.evaluate(() => {
+        const box = document.getElementById('i-climate');
+        const gas = [...box.querySelectorAll('input[data-u="gas"]')].map((i) => i.value);
+        const row = [...box.querySelectorAll('.clim-tab tr')].map((r) => [...r.cells].map((c) => c.textContent));
+        const p = (row.find((r) => /pressure|Tlak/i.test(r[0])) || [])[1];
+        const water = (row.find((r) => /^Water|^Voda/.test(r[0])) || [])[1];
+        const gasRows = box.querySelector('.clim-gas-note');
+        return { gas, p, water, note: gasRows && gasRows.textContent };
+      });
+      const unit = /^[-+]?[0-9.]+(e[-+]?\d+)?\s*(bar|mbar|ppm)$/;
+      ok(u.gas.length >= 5 && u.gas.every((v) => unit.test(v)), 'every gas value carries a unit', JSON.stringify(u.gas));
+      ok(unit.test(u.p || ''), 'the surface pressure carries a unit', JSON.stringify(u.p));
+      ok(/partial pressure/i.test(u.note || ''), 'the gas rows say what they measure', JSON.stringify(u.note));
+      ok(/Earth ocean/.test(u.water || ''), 'the water readout names its unit', JSON.stringify(u.water));
+      await page.evaluate(() => RAClimate.reset('moon'));
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());
