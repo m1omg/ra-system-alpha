@@ -35,7 +35,7 @@ export const TUNED = {
   },
   "anubis": {
    "h2Bar": 8.03692,
-   "outgassing": 4.70716
+   "outgassing": 1.31202
   },
   "khonsu": {
    "internalHeat": 37.9062

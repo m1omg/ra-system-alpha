@@ -133,6 +133,61 @@ section('An impact heats a world, and it cools again');
   ok(Math.abs(sys.worlds.get('earth').sim.world.water.ocean - w0 - 0.1) < 1e-9, 'delivered water reaches the ocean');
 }
 
+section('Energy goes into the climate at once, and where it lands');
+{
+  // a fresh Earth per case, so one strike does not colour the next
+  const earth = () => { const b = build('sol'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('earth') }; };
+  const band = (r, x) => Math.max(0, Math.min(17, Math.floor((x + 1) / (2 / 18))));
+  {
+    const { sys, r } = earth(), T0 = r.rs[RS.TMEAN];
+    sys.impact('earth', { J: 1e25, kind: 'asteroid', x: 0.3 });
+    ok(r.rs[RS.TMEAN] > T0 + 20, 'a 1e25 J strike is in the temperatures before the call returns', `+${(r.rs[RS.TMEAN] - T0).toFixed(1)} K`);
+    ok(Math.abs(r.lastInjected / 1e25 - 1) < 1e-6, 'every joule of it is accounted for', `${(r.lastInjected / 1e25).toFixed(9)}`);
+    ok(!(r.sim.world.params.internalHeat > r.baseHeat + 1e-9) && !(r.pulse > 0), 'and none of it poses as volcanism (no interior-heat pulse)');
+  }
+  {
+    const { sys, r } = earth(), w = r.sim.world, north = band(r, 0.95), south = band(r, -0.95);
+    const Tn = w.T[north], Ts = w.T[south];
+    sys.impact('earth', { J: 3e23, kind: 'laser', x: 0.95 });
+    ok(w.T[north] - Tn > 10 * Math.max(w.T[south] - Ts, 1e-3), 'a laser heats the band under the beam, not the planet', `north +${(w.T[north] - Tn).toFixed(2)} K, south +${(w.T[south] - Ts).toFixed(3)} K`);
+  }
+  {
+    const { sys, f, r } = earth(), T0 = r.rs[RS.TMEAN], co2 = r.sim.world.co2;
+    sys.impact('earth', { J: 4e23, kind: 'asteroid', x: 0.35, mKg: 1.4e15, vKms: 20 });
+    const dCO2kg = (r.sim.world.co2 - co2) * 5.1e14;
+    ok(dCO2kg > 1e14 && dCO2kg < 1e15, 'a Chicxulub frees CO2 from the carbonate it hits', `${dCO2kg.toExponential(1)} kg`);
+    advance(sys, 5, 1, 30, f);
+    const winter = r.rs[RS.TMEAN];
+    advance(sys, 300, 20, 30, f);
+    ok(winter < T0 - 5 && Math.abs(r.rs[RS.TMEAN] - T0) < 2, '...and brings an impact winter that lifts within centuries',
+      `${(winter - T0).toFixed(1)} K at 5 yr, ${(r.rs[RS.TMEAN] - T0).toFixed(2)} K at 300 yr`);
+  }
+  {
+    // a century of hot, wet runaway must not weather the air away into a snowball
+    const { sys, f, r } = earth(), T0 = r.rs[RS.TMEAN];
+    sys.impact('earth', { J: 5e26, kind: 'asteroid', x: 0 });
+    advance(sys, 100, 5, 30, f); const hot = r.rs[RS.TMEAN];
+    advance(sys, 1e4, 500, 30, f);
+    ok(hot > 373 && r.rs[RS.TMEAN] > T0 - 5, 'a century of steam after 5e26 J, and no snowball after it',
+      `${(hot - 273.15).toFixed(0)} °C at 100 yr, ${(r.rs[RS.TMEAN] - 273.15).toFixed(1)} °C at 10 kyr`);
+  }
+  {
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 1e29, kind: 'collision' });
+    advance(sys, 1, 0.5, 30, f);
+    const molten = r.rs[RS.MAGMA], Tmax = r.rs[RS.TMAX];
+    advance(sys, 3e4, 2000, 30, f);
+    ok(molten > 0.99 && Math.abs(Tmax - 1400) < 1, 'a 1e29 J collision leaves a magma ocean held at the solidus', `${(molten * 100).toFixed(0)} % molten, ${Tmax.toFixed(0)} K`);
+    ok(r.rs[RS.MAGMA] === 0 && !r.magma, '...which gives its heat up through the steam and crusts over', `${(r.rs[RS.TMEAN] - 273.15).toFixed(0)} °C at 30 kyr`);
+  }
+  {
+    const { sys, r } = earth(), n2 = r.sim.world.n2;
+    sys.impact('earth', { J: 7e31, kind: 'collision', mKg: 6.4e23, vKms: 15 });
+    const lost = 1 - r.sim.world.n2 / n2;
+    ok(lost > 0.03 && lost < 0.2, 'a Mars-sized body at 15 km/s blows away part of the air', `${(lost * 100).toFixed(1)} %`);
+  }
+}
+
 section('Edits reach the reservoirs');
 {
   const { sys } = build('sol');

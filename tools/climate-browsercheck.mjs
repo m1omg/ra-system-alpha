@@ -288,6 +288,58 @@ try {
       await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
       await page.waitForTimeout(600);
 
+      section('sol: energy reaches the climate at once, where it lands');
+      const hit = await page.evaluate(async () => {
+        const RS = RAClimate.RS, earth = bodies.find((b) => b.data.key === 'earth');
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        const sp = document.getElementById('speed'); sp.value = 0; setSpeed(0); if (!playing) togglePlay();
+        for (let i = 0; i < 10; i++) await frame();
+        // the lab's own asteroid: the frame it lands in, and the frame its heat shows in
+        const Ta = RAClimate.state('earth')[RS.TMEAN];
+        launchAsteroid(earth, { uv: { x: 0.7, y: 0.6 } });
+        const a = impAsteroids[impAsteroids.length - 1];
+        let landed = -1, seen = -1;
+        for (let f = 1; f < 600 && (landed < 0 || seen < 0); f++) {
+          await frame();
+          if (landed < 0 && !impAsteroids.includes(a)) landed = f;
+          if (seen < 0 && RAClimate.state('earth')[RS.TMEAN] !== Ta) seen = f;
+        }
+        const lab = { lag: seen - landed, dT: RAClimate.state('earth')[RS.TMEAN] - Ta };
+        const s0 = RAClimate.state('earth').slice();
+        // a Chicxulub-and-a-half at 30° south, as the lab lands it
+        applyStrike(earth, 0.3, (Math.asin(-0.5) / Math.PI) + 0.5, 1e25,
+          { mKg: 1e16, vKms: 20, matI: 1, dir: new THREE.Vector3(0, 0, 1) });
+        let n = 0;
+        while (n < 30 && RAClimate.state('earth')[RS.TMEAN] === s0[RS.TMEAN]) { await frame(); n++; }
+        const s1 = RAClimate.state('earth').slice();
+        // a laser held at 72° north: its heat stays in that band
+        for (let i = 0; i < 3; i++) await frame();
+        const s2 = RAClimate.state('earth').slice();
+        RAClimateView.deposit(earth, 2e22, { kind: 'laser', point: uvToWorld(earth, 0.5, 0.9) });
+        RAClimateView.flush();
+        n2: for (var m = 0; m < 30; m++) { await frame(); if (RAClimate.state('earth')[RS.TMEAN] !== s2[RS.TMEAN]) break n2; }
+        const s3 = RAClimate.state('earth').slice();
+        const dT = (a, b) => Array.from({ length: 18 }, (_, i) => b[RS.T + i] - a[RS.T + i]);
+        return { frames: n, dMean: s1[RS.TMEAN] - s0[RS.TMEAN], dt: (s1[RS.TIME] - s0[RS.TIME]) * 365.25 * 24,
+          bands: dT(s0, s1), laser: dT(s2, s3), lframes: m, lab };
+      });
+      ok(hit.lab.lag === 1 && hit.lab.dT > 0, 'at real-time speed a lab asteroid\'s heat shows in the frame after it lands',
+        `${hit.lab.lag} frame, +${hit.lab.dT.toFixed(2)} K`);
+      const hot = hit.bands.indexOf(Math.max(...hit.bands));
+      ok(hit.frames <= 2 && hit.dMean > 5, 'a 1e25 J strike warms Earth by tens of kelvin at once',
+        `${hit.frames} frames, +${hit.dMean.toFixed(1)} K, ${hit.dt.toFixed(2)} h of climate time`);
+      // 30° S is band 4 of 18 (sin lat = -0.5); half the heat goes there and to its
+      // neighbours, half round the globe. Evaporation takes up more and more of it
+      // as a sea warms, so ten times the heat is not ten times the warming; the
+      // struck band still warms most, and well past its mirror band at 30° N.
+      ok(Math.abs(hot - 4) <= 1 && hit.bands[4] > hit.bands[13] + 10, 'the struck band (30° S) warms most',
+        `band ${hot}: ${hit.bands.map((v) => v.toFixed(0)).join(' ')}`);
+      const lhot = hit.laser.indexOf(Math.max(...hit.laser));
+      ok(lhot === 17 && hit.laser.slice(0, 16).every((v) => Math.abs(v) < 1e-6), 'a laser heats only the band under the beam',
+        `${hit.lframes} frames; ${hit.laser.map((v) => v.toFixed(1)).join(' ')}`);
+      await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
+      await page.waitForTimeout(600);
+
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));
       await page.evaluate(() => document.getElementById('t-lang').click());

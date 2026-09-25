@@ -15,7 +15,8 @@
 import { Simulation } from './sim/clock.js';
 import { captureWorld, applyWorld } from './game/snapshot.js';
 import { classify, STATES } from './physics/classify.js';
-import { NBANDS, maxStep, setWaterInventory } from './physics/climate.js';
+import { NBANDS, X, DX, maxStep, setWaterInventory, update } from './physics/climate.js';
+import { partitionWater } from './physics/volatiles.js';
 import { derive } from './physics/planet.js';
 import { clamp, smoothstep, steamOpacity, YEAR, S_EARTH } from './physics/constants.js';
 import { atmosphereLook, cloudLook, surfaceHidden, volcanoLook } from './render/atmosphere.js';
@@ -35,7 +36,7 @@ export const RS = {
   VEGR: 67, VEGG: 68, VEGB: 69, VENTS: 70, ASH: 71,
   TMEAN: 72, TMIN: 73, TMAX: 74, STATE: 75, LAG: 76, TIME: 77,
   NOLIQ: 78, CLOUDMEAN: 79, INSOL: 80, AIR: 81, HASWATER: 82, TOTALWATER: 83,
-  SURFT: 84, OBLQ: 85,
+  SURFT: 84, OBLQ: 85, MAGMA: 86,
   SIZE: 88,
 };
 
@@ -55,6 +56,114 @@ const PULSE_TAU_YEARS = 0.1;
 // Share of the kinetic energy that ends up as heat spread over the whole
 // globe, rather than as melt, crater rock and ejecta that escape.
 export const IMPACT_GLOBAL_SHARE = 0.5;
+
+// ---- energy arriving at once --------------------------------------------------
+// Where on the planet a deposit lands, as the share of it each band takes. The
+// bands are equal-area, in x = sin(latitude) on a spinning world and x = cos(the
+// angle from the star) on a locked one; `x` is the struck spot's (or, for a
+// blast, the source direction's) coordinate in that scheme.
+//   asteroid   half spread round the globe (vapour plume, re-entering ejecta),
+//              half into the struck band and its neighbours
+//   laser      all into the beam's band
+//   blast      the hemisphere facing the source, by how squarely each band faces it
+//   collision  the whole globe
+// Transport spreads it further from there, on the model's own terms.
+function bandOf(x) { return Math.max(0, Math.min(NBANDS - 1, Math.floor((clamp(x, -1, 1) + 1) / DX))); }
+// Mean over a band's ring of max(0, n·s) for a source at s·axis = sd: the
+// daily-mean insolation formula, which is the same geometry.
+function facing(x, sd) {
+  const sp = clamp(x, -1, 1), cp = Math.sqrt(1 - sp * sp), cd = Math.sqrt(Math.max(0, 1 - sd * sd));
+  const t = cp * cd > 1e-12 ? clamp(-(sp * sd) / (cp * cd), -1, 1) : (sp * sd >= 0 ? -1 : 1);
+  const h0 = Math.acos(t);
+  return Math.max(0, (h0 * sp * sd + cp * cd * Math.sin(h0)) / Math.PI);
+}
+export function impactShares(kind, x) {
+  const w = new Float64Array(NBANDS);
+  if (kind === 'collision') { w.fill(1 / NBANDS); return w; }
+  if (kind === 'blast') {
+    let s = 0;
+    for (let i = 0; i < NBANDS; i++) { w[i] = facing(X[i], clamp(x ?? 0, -1, 1)); s += w[i]; }
+    if (s > 0) for (let i = 0; i < NBANDS; i++) w[i] /= s; else w.fill(1 / NBANDS);
+    return w;
+  }
+  const k = bandOf(x ?? 0);
+  const local = kind === 'laser' ? [[k, 1]] : [[k - 1, 0.25], [k, 0.5], [k + 1, 0.25]];
+  const localShare = kind === 'laser' ? 1 : 1 - IMPACT_GLOBAL_SHARE;
+  if (kind !== 'laser') w.fill(IMPACT_GLOBAL_SHARE / NBANDS);
+  let s = 0; for (const [i, f] of local) if (i >= 0 && i < NBANDS) s += f;
+  for (const [i, f] of local) if (i >= 0 && i < NBANDS) w[i] += localShare * f / s;
+  return w;
+}
+
+// Rock melts past this, and what melting it costs is then held as magma rather
+// than as a hotter surface: the band stays at the solidus while the ledger
+// drains, as fast as the air above lets it radiate (a steam lid keeps a magma
+// ocean alive; bare rock crusts over in years).
+export const T_SOLIDUS = 1400;      // K
+// Between recomputations of the heat capacity, a band climbs at most this far.
+const INJECT_STEP_K = 10;
+
+// Heat delivered now, E[i] joules per square metre of band i. Each band climbs
+// through the model's own heat capacity -- ocean mixed layer, air, the latent
+// heat of the water that evaporates as it warms, the ice that melts --
+// recomputed every INJECT_STEP_K, since it changes by orders of magnitude
+// between a frozen and a boiling sea. Past the critical point of water the cold
+// water still under a hot layer has to be converted too, at the model's own
+// price (hotCapacity), and past the solidus the rest melts rock. Then the water
+// follows the new temperatures (partitionWater), so a boiled sea is steam at once.
+function injectHeat(r, E) {
+  const w = r.sim.world;
+  if (!r.magma) r.magma = new Float64Array(NBANDS);
+  const left = Float64Array.from(E);
+  let spent = 0;
+  for (let it = 0; it < 2000; it++) {
+    const dg = w.diag;
+    let any = false, rest = 0;
+    for (let i = 0; i < NBANDS; i++) rest += left[i] / NBANDS;
+    if (!(rest > 0)) break;
+    // the hot layer: water past its critical point is not a sea any more, and the
+    // conversion is paid for before the surface climbs further
+    const need = ((dg.hotTarget ?? 0) - (w.hotLayer ?? 0)) * (dg.hotCapacity ?? 0);
+    if (need > 0) {
+      const take = Math.min(need, rest), f = 1 - take / rest;
+      w.hotLayer = (w.hotLayer ?? 0) + take / dg.hotCapacity;
+      for (let i = 0; i < NBANDS; i++) left[i] *= f;
+      spent += take;
+    }
+    const C = dg.C;
+    for (let i = 0; i < NBANDS; i++) {
+      if (!(left[i] > 0)) continue;
+      const room = T_SOLIDUS - w.T[i];
+      if (!(room > 1e-9)) { r.magma[i] += left[i]; spent += left[i] / NBANDS; left[i] = 0; continue; }
+      const c = Math.max(C[i], 1e5), dT = Math.min(left[i] / c, INJECT_STEP_K, room);
+      w.T[i] += dT; left[i] -= dT * c; spent += dT * c / NBANDS;
+      if (left[i] > 1e-12 * E[i]) any = true; else left[i] = 0;
+    }
+    update(w, 0);
+    if (!any && !(need > 0)) break;
+  }
+  partitionWater(w, 0);
+  update(w, 0);
+  return spent;
+}
+// A band with magma under it cannot be colder than the solidus: the melt gives
+// up its heat to hold it there, and the ledger is what is left.
+function drainMagma(r) {
+  const m = r.magma; if (!m) return;
+  const w = r.sim.world, C = w.diag.C;
+  let touched = false, left = false;
+  for (let i = 0; i < NBANDS; i++) {
+    if (!(m[i] > 0)) continue;
+    const deficit = T_SOLIDUS - w.T[i];
+    if (deficit > 0) {
+      const c = Math.max(C[i], 1e5), e = Math.min(m[i], deficit * c);
+      w.T[i] += e / c; m[i] -= e; touched = true;
+    }
+    if (m[i] > 1e-3) left = true; else m[i] = 0;
+  }
+  if (touched) update(w, 0);
+  if (!left) r.magma = null;
+}
 
 function sum(a) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]; return s; }
 function mean(a) { return sum(a) / a.length; }
@@ -87,6 +196,7 @@ export class ClimateSystem {
       starTemp: params.starTemp,
       baseHeat: params.internalHeat ?? 0,
       pulse: 0,                   // J/m^2 still to deliver
+      magma: null,                // J/m^2 of melt per band, or null
       lagReq: 0, lagDone: 0, lagDrop: 0, lag: 1,
       meta: profileMeta(sys, data),
       rs: new Float32Array(RS.SIZE),
@@ -129,6 +239,7 @@ export class ClimateSystem {
     applyWorld(rec.sim, snap, p);
     rec.baseHeat = snap.baseHeat ?? p.internalHeat ?? 0;
     rec.pulse = snap.pulse ?? 0;
+    rec.magma = Array.isArray(snap.magma) ? Float64Array.from(snap.magma) : null;
     rec.sim.world.params.internalHeat = snap.liveHeat
       ?? rec.baseHeat + (rec.pulse > 0 ? rec.pulse / (PULSE_TAU_YEARS * YEAR) : 0);
     rec.credit = snap.credit ?? 0;
@@ -236,6 +347,7 @@ export class ClimateSystem {
     }
     r.credit -= dt;
     sim.stepOnce(dt);
+    if (r.magma) drainMagma(r);
     r.lagDone += dt;
     this.stepsTaken++;
     if (r.pulse <= 0 && w.params.internalHeat !== r.baseHeat) {
@@ -247,8 +359,71 @@ export class ClimateSystem {
 
   // ---- things done to a world ---------------------------------------------------
 
-  // Energy from an impact, a laser or a supernova front. Only a share of it is
-  // ever global heat; the rest the orrery already spends on craters and melt.
+  // Energy arriving at once: {J, kind, x, xl, mKg, vKms, waterKg}. `x` places it
+  // on a spinning world (sin latitude), `xl` on a locked one (cos of the angle
+  // from the star); see impactShares. The heat is in the bands before this
+  // returns. An asteroid or a collision also raises dust and soot, frees CO2
+  // from carbonate rock, and with enough momentum blows air away.
+  impact(key, o = {}) {
+    const r = this.worlds.get(key); if (!r) return false;
+    const w = r.sim.world, d = derive(w.params);
+    const J = Math.max(+o.J || 0, 0), kind = o.kind || 'asteroid';
+    const x = w.params.tidallyLocked ? (o.xl ?? o.x ?? 0) : (o.x ?? 0);
+    if (J > 0) {
+      const sh = impactShares(kind, x), E = new Float64Array(NBANDS);
+      for (let i = 0; i < NBANDS; i++) E[i] = J * sh[i] * NBANDS / d.area;
+      r.lastInjected = injectHeat(r, E) * d.area;
+      if (kind === 'asteroid' || kind === 'collision') this.aftermath(r, J, o, d);
+    }
+    if (o.waterKg > 0) {
+      const eo = o.waterKg / 1.4e21;
+      w.water.ocean += eo;
+      w.waterInitial = (w.waterInitial ?? 0) + eo;
+      update(w, 0); partitionWater(w, 0);
+    }
+    r.sim.setParams({});
+    this.fillRender(r);
+    return true;
+  }
+
+  // What a strike does besides heating.
+  aftermath(r, J, o, d) {
+    const w = r.sim.world, dg = w.diag;
+    // Dust and soot: nothing below about 1e20 J, the model's darkest sky (+0.5
+    // albedo, its own ceiling) from 1e23 J up (Toon et al. 1997), where there is
+    // air to hold it up. The model relaxes w.aerosol towards its industrial
+    // level on a five-year timescale, which is the winter lifting.
+    const air = smoothstep(0.005, 0.1, dg.pTotMean);
+    const f = clamp((Math.log10(Math.max(J, 1)) - 20) / 3, 0, 1);
+    if (air > 0 && f > 0) {
+      const full = 0.5 * mean(dg.S) * (dg.swTrans ?? 1);
+      w.aerosol = Math.min(Math.max(w.aerosol ?? 0, 0) + f * air * full, Math.max(full, w.aerosol ?? 0));
+    }
+    // CO2 from the target rock, on a world with seas to have laid carbonate
+    // down. Chicxulub's 4e23 J freed some 3e14 kg; carbonate is a platform a few
+    // kilometres thick, so a bigger crater frees it by area, not by volume: the
+    // diameter grows as E^0.22 (gravity regime), the area as E^0.44.
+    if ((w.water.ocean + w.water.seaIce) > 0.01 && w.carbonDeep > 0 && J > 0) {
+      const kg = 3e14 * Math.pow(J / 4e23, 0.44);
+      const col = Math.min(kg / d.area, w.carbonDeep);
+      w.co2 += col; w.carbonDeep -= col;
+    }
+    // Air blown off by the impactor's momentum (Schlichting et al. 2015): the
+    // lost share of the atmosphere as a function of m v / (M vesc).
+    if (o.mKg > 0 && o.vKms > 0) {
+      const M = d.g * d.R * d.R / 6.674e-11, u = o.mKg * o.vKms * 1e3 / (M * d.vesc);
+      const X = clamp(0.4 * u + 1.4 * u * u - 0.8 * u * u * u, 0, 1);
+      if (X > 1e-9) {
+        const k = 1 - X;
+        w.n2 *= k; w.o2 *= k; w.co2 *= k; w.ch4 *= k; w.h2 *= k; w.he *= k;
+        const gone = w.water.vapour * X;
+        w.water.vapour -= gone; w.water.lost = (w.water.lost ?? 0) + gone;
+      }
+    }
+    update(w, 0);
+  }
+
+  // The old protocol: global heat and delivered water.
   impulse(key, joules, waterKg = 0) {
     const r = this.worlds.get(key); if (!r) return false;
     const w = r.sim.world;
@@ -352,6 +527,9 @@ export class ClimateSystem {
     const sT = surfaceTemperature(dg).surfaceT;
     o[RS.SURFT] = sT == null ? NaN : sT;
     o[RS.OBLQ] = p.obliquity ?? 0;
+    let meltShare = 0;
+    if (r.magma) for (let i = 0; i < NBANDS; i++) if (r.magma[i] > 0) meltShare += 1 / NBANDS;
+    o[RS.MAGMA] = meltShare;
     return o;
   }
 
@@ -399,6 +577,7 @@ export class ClimateSystem {
         salinity: p.salinity,
       },
       pulse: r.pulse,
+      magma: r.magma ? Array.from(r.magma) : null,
       bands: Array.from(w.T),
       ice: Array.from(r.rs.subarray(RS.ICE, RS.ICE + NBANDS)),
       history,
@@ -412,6 +591,7 @@ export class ClimateSystem {
     const s = captureWorld(r.sim.world);
     s.baseHeat = r.baseHeat;
     s.pulse = r.pulse;
+    if (r.magma) s.magma = Array.from(r.magma);
     s.flux = r.flux;
     // The clock's own state, so a restored world takes the same next step: the
     // credit it has not spent, the starlight banked since its last step, and

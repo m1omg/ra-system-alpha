@@ -139,6 +139,7 @@
     tick:(dt, rate, forcing)=>post({type:'tick', dt, rate, forcing}),
     set:(key, patch)=>post({type:'set', key, patch}),
     impulse:(key, joules, waterKg)=>post({type:'impulse', key, joules, waterKg:waterKg||0}),
+    impact:(key, o)=>post({type:'impact', key, o}),
     focus:(key)=>{ lastDetail=null; post({type:'focus', key}); },
     restore:(worlds)=>post({type:'restore', worlds}),
     analyzeUrl:(key, W, H, url, demUrl, hints, token)=>post({type:'analyzeUrl', key, W, H, url, demUrl, hints, token}),

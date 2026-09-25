@@ -23,6 +23,8 @@ const M_EARTH_KG = 5.9722e24;
 export const STILL = {
   brightening: 0, realisticGeology: false, xuvDecay: false, smoothInsolation: false,
   emissions: 0, fossilUsed: 0, fossilInfinite: false, resurfacingAge: 0,
+  // silicate weathering stops speeding up above 320 K: erosion-limited (PATCHES.md)
+  weatherCapK: 320,
 };
 
 // Kinds the orrery draws with a solid surface. Gas giants, brown dwarfs, stars

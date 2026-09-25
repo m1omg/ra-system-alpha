@@ -1288,9 +1288,12 @@ export function stepVolatiles(w, dtYears) {
   // and its climate simply drifted -- which is both wrong and inconsistent,
   // since the oxygen sink above already leans on seafloor oxidation for exactly
   // the same reason. The split is normalised so Earth's total is unchanged.
+  // [ra-climate patch] weatherCapK: above it the rate stops rising with
+  // temperature (see the note after wSea). Unset, this is altdev2 exactly.
+  const Tw = Math.min(dg.Tmean, p.weatherCapK ?? Infinity);
   const wLand = (landExposed / 0.3)
               * Math.pow(pCO2rel, 0.3)
-              * Math.exp(clamp((dg.Tmean - 288) / 13.7, -8, 8));
+              * Math.exp(clamp((Tw - 288) / 13.7, -8, 8));
   // Seafloor weathering is ocean water circulating through fresh basalt, so it
   // needs a seafloor made of basalt. On a world deep enough to freeze at its
   // base there is no water-rock contact at all -- the same shell of
@@ -1306,8 +1309,15 @@ export function stepVolatiles(w, dtYears) {
   // entirely fictional.
   const wSea = (dg.flooded / 0.7)
              * Math.pow(pCO2rel, 0.23)
-             * Math.exp(clamp((dg.Tmean - 288) / 28.0, -8, 8))
+             * Math.exp(clamp((Tw - 288) / 28.0, -8, 8))
              * sealFactor(w);
+  // [ra-climate patch] Why a ceiling. The exponential is a kinetic law, and past
+  // a few tens of kelvin above today weathering stops being limited by how fast
+  // the rock dissolves and becomes limited by how fast fresh rock is exposed to
+  // be dissolved -- erosion, not chemistry (West et al. 2005; Maher & Chamberlain
+  // 2014). Uncapped, a century of hot wet runaway after a big impact weathered
+  // at e^8 = 3000 times today's rate, stripped the air of CO2 and left Earth a
+  // snowball for a million years.
   const Wr = OUTGAS_EARTH * outgassingScale(p.mass)
            * ((1 - SEAFLOOR_SHARE) * wLand + SEAFLOOR_SHARE * wSea)
            * liquid;

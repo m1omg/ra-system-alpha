@@ -9,7 +9,9 @@
 //   reset    {key}                   back to its profile's settled start
 //   tick     {dt, rate, forcing}     dt simulated years; forcing {key:{flux,starTemp}}
 //   set      {key, patch}            a control edit
-//   impulse  {key, joules, waterKg}  an impact, a laser, a supernova front
+//   impulse  {key, joules, waterKg}  global heat and water (the old form of impact)
+//   impact   {key, o}                energy arriving now: o = {J, kind, x, xl, mKg, vKms,
+//                                    waterKg}, see ClimateSystem.impact
 //   focus    {key}                   stream detail for this world
 //   snapshot {id}                    reply with every world's saved state
 //   restore  {worlds}                {key: snapshot}
@@ -63,6 +65,8 @@ export function createHost(post, onAsync = null) {
       case 'tick': sys.tick(m.dt, m.rate, m.forcing); break;
       case 'set': sys.set(m.key, m.patch); dirty = true; lastDetail = 0; break;
       case 'impulse': sys.impulse(m.key, m.joules, m.waterKg); dirty = true; break;
+      // a strike is shown the moment it lands: the next flush posts it unthrottled
+      case 'impact': sys.impact(m.key, m.o || {}); dirty = true; lastState = -Infinity; lastDetail = 0; break;
       case 'focus': focus = m.key; lastDetail = 0; break;
       case 'snapshot': post({ type: 'snapshot', id: m.id, worlds: sys.snapshot() }); break;
       case 'restore':

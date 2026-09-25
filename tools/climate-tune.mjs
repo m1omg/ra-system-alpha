@@ -22,6 +22,7 @@ import { Simulation } from '../assets/climate/sim/clock.js';
 import { captureWorld } from '../assets/climate/game/snapshot.js';
 import { classify } from '../assets/climate/physics/classify.js';
 import { TUNED } from '../assets/climate/tuned.js';
+import { SPINUP } from '../assets/climate/spinup.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK = process.argv.includes('--check');
@@ -140,9 +141,15 @@ for (const sysName of ['sol', 'ra']) {
 }
 
 if (!CHECK) {
-  // Keep entries for bodies not re-tuned in this run.
-  for (const s of ['ra', 'sol']) {
-    for (const [k, v] of Object.entries(previous[s] || {})) if (!(k in tunedOut[s]) && ONLY.length) tunedOut[s][k] = v;
+  // With --only, the bodies not re-run keep their entries, in their places, so
+  // a partial run changes only the rows it re-ran.
+  if (ONLY.length) {
+    for (const s of ['ra', 'sol']) {
+      const merged = {};
+      for (const [k, v] of Object.entries(previous[s] || {})) merged[k] = k in tunedOut[s] ? tunedOut[s][k] : v;
+      for (const [k, v] of Object.entries(tunedOut[s])) if (!(k in merged)) merged[k] = v;
+      tunedOut[s] = merged;
+    }
   }
   const head = '// Written by tools/climate-tune.mjs -- one knob per described world, set so it\n'
     + '// holds its documented temperature at its documented orbit, and the outgassing\n'
@@ -150,11 +157,13 @@ if (!CHECK) {
     + '// tool after changing a profile.\n';
   writeFileSync(path.join(ROOT, 'assets/climate/tuned.js'),
     `${head}export const TUNED = ${JSON.stringify(tunedOut, null, 1)};\n`);
-  if (!ONLY.length) {
+  {
+    const out = ONLY.length ? { ra: { ...SPINUP.ra }, sol: { ...SPINUP.sol } } : spin;
+    if (ONLY.length) for (const s of ['ra', 'sol']) for (const [k, v] of Object.entries(spin[s])) out[s][k] = v;
     const sh = '// Written by tools/climate-tune.mjs: every climate body settled on its book\n'
       + '// orbit, captured with game/snapshot.js. The sandbox opens on these.\n';
     writeFileSync(path.join(ROOT, 'assets/climate/spinup.js'),
-      `${sh}export const SPINUP = ${JSON.stringify(spin)};\n`);
+      `${sh}export const SPINUP = ${JSON.stringify(out)};\n`);
   }
-  console.log('wrote tuned.js' + (ONLY.length ? '' : ' and spinup.js'));
+  console.log('wrote tuned.js and spinup.js' + (ONLY.length ? ' (' + ONLY.join(', ') + ' re-run)' : ''));
 }

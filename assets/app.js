@@ -2240,7 +2240,8 @@ function applyStrike(rec, u, v, E, imp){
     impPaintHeat(rec,s,true);
     if(imp && imp.matI===0){ const wkg=impDeliverWater(rec,imp); if(window.RAClimateView) RAClimateView.water(rec, wkg); }
     rec.dmgJ=(rec.dmgJ||0)+E;
-    if(window.RAClimateView) RAClimateView.deposit(rec, E);
+    if(window.RAClimateView) RAClimateView.deposit(rec, E, {kind:'asteroid', point:uvToWorld(rec,u,v),
+      mKg:imp?imp.mKg:0, vKms:imp?imp.vKms:0});
     rec._lastHit={u,v};                      // the killing blow shapes how the world breaks apart
     impUpdateMelt(rec);                      // craters → melt seas → global magma ocean
     if(rec.dmgJ>=U && !rec.shattered) shatterBody(rec);
@@ -2444,7 +2445,7 @@ function spawnMoonlet(D){
   D.moonlets.push({m:mesh, rec:rec2, vel:tan.multiplyScalar(vc), mat:moonMat,
     spin:new THREE.Vector3((Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2,(Math.random()-0.5)*1.2)});
 }
-function impApplyBlastEnergy(rec, E, source, states){
+function impApplyBlastEnergy(rec, E, source, states, vKms){
   if(!(E>0) || rec.destroyed || impImmune(rec)) return;
   const srcW=worldPosOf(source), recW=worldPosOf(rec);
   const toSource=srcW.clone().sub(recW);
@@ -2461,7 +2462,13 @@ function impApplyBlastEnergy(rec, E, source, states){
   impDepositHeat(rec,s,uv.u,1-uv.v,rPx,Math.min(3.1,0.55+0.32*f));
   impPaintHeat(rec,s,true);
   rec.dmgJ=(rec.dmgJ||0)+E;
-  if(window.RAClimateView) RAClimateView.deposit(rec, E);
+  if(window.RAClimateView){
+    // a star's front lights the hemisphere facing it; a body running into this
+    // one is a collision, its heat everywhere, its momentum able to take air
+    const coll=source && source.data && !impIsStellar(source);
+    RAClimateView.deposit(rec, E, {kind:coll?'collision':'blast', dir:toSource,
+      mKg:coll?impBodyMassKg(source):0, vKms:coll?(vKms||0):0});
+  }
   rec._lastHit={u:uv.u,v:uv.v};
   if(source && source.data) rec._lastHitBy={name:locName(source.data), sn:impIsStellar(source)};
   // rolling forensics log (console: impDmgLog) — every non-lab energy hit
@@ -3556,7 +3563,7 @@ function updateImpacts(dt){
     if(a.startRel) a.start.copy(worldPosOf(a.rec)).add(a.startRel);
     const k=a.t/a.T;
     if(k>=1){
-      applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
+      applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, matI:a.matI, dir:tgt.clone().sub(a.start).normalize()});
       releaseAstRig(a.rig);                  // back to the pool — no dispose (reused next shot)
       impAsteroids.splice(i,1); continue;
     }
@@ -3596,7 +3603,7 @@ function updateImpacts(dt){
           if(cold) impPaintHeat(rec,s,true);
         }
         rec.dmgJ=(rec.dmgJ||0)+EJ;
-        if(window.RAClimateView) RAClimateView.deposit(rec, EJ);
+        if(window.RAClimateView) RAClimateView.deposit(rec, EJ, {kind:'laser', point:hit.point});
         if(hit.uv) rec._lastHit={u:hit.uv.x, v:hit.uv.y};
         impUpdateMelt(rec);
         if(rec.dmgJ>=impBindingJ(rec) && !rec.shattered) shatterBody(rec);
@@ -5123,8 +5130,8 @@ function nbCollidePair(a,b){
   const small=mA<=mB?a:b, big=small===a?b:a;
   const mSmall=mA<=mB?mA:mB;
   small.nb.r.addScaledVector(dr, small===b?push:-push);
-  if(!small.destroyed) impApplyBlastEnergy(small, E, big, null);
-  if(!big.destroyed)   impApplyBlastEnergy(big, E*0.25, small, null);
+  if(!small.destroyed) impApplyBlastEnergy(small, E, big, null, vRelMs/1000);
+  if(!big.destroyed)   impApplyBlastEnergy(big, E*0.25, small, null, vRelMs/1000);
   if(small.destroyed && !big.destroyed){
     nbAccreteImpactMass(big, mSmall, E);
     nbAbsorbDestroyedImpact(small, big);
@@ -6245,6 +6252,7 @@ function animate(){
   updateEvapTails(lastSimDtYears);
   updateBelt(lastSimDtYears);                 // fragment swarm rides sim time
   updateImpacts(dt);                          // wall-clock: strikes land even while paused
+  if(window.RAClimateView) RAClimateView.flush();   // ...and reach the climate in the same frame
   if(starfieldPts) starfieldPts.position.copy(camera.position);   // sky at any zoom depth
 
   if(flying){

@@ -10,7 +10,8 @@
 // step; in Surface view the clock, the orbits (and the climate, where there is
 // one) keep running while the focused world's spin stops and the camera stays
 // on it; an asteroid launched at a world moving on its orbit still lands on the
-// spot it was aimed at; leaving Surface view gives the spin back.
+// spot it was aimed at, and an icy one delivers its water; leaving Surface view
+// gives the spin back.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -88,7 +89,13 @@ try {
   ok(s1.spinE === s0.spinE && s1.spinM !== s0.spinM, 'Earth\'s spin holds still while other worlds keep turning',
     `Earth Δ${(s1.spinE - s0.spinE).toExponential(1)}, Mars Δ${(s1.spinM - s0.spinM).toExponential(1)}`);
   ok(Math.abs(s1.cam - s0.cam) < 1e-3 * s0.cam && s1.tgt < 1e-3 * s0.cam, 'the camera stays on Earth as it goes round');
-  if (s0.clim != null) ok(s1.clim > s0.clim, 'the climate keeps running', `${s0.clim.toPrecision(4)} → ${s1.clim.toPrecision(4)} yr`);
+  if (s0.clim != null) {
+    // the worker reads each surface map once after the page loads, and stops
+    // stepping for a second or two to do it; it then catches up with the clock
+    const clim = await page.waitForFunction((c) => surfaceView && RAClimate.state('earth')[RAClimate.RS.TIME] > c
+      ? RAClimate.state('earth')[RAClimate.RS.TIME] : false, s0.clim, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => s0.clim);
+    ok(clim > s0.clim, 'the climate keeps running', `${s0.clim.toPrecision(4)} → ${clim.toPrecision(4)} yr`);
+  }
   // an asteroid at the moving Earth lands where it was aimed
   const hit = await page.evaluate(async () => {
     const e = bodies.find((b) => b.data.key === 'earth');
@@ -110,12 +117,25 @@ try {
   });
   ok(hit.landed && hit.dmg > 0, 'an asteroid launched at the moving Earth lands on it', `${hit.dmg.toExponential(1)} J`);
   ok(hit.worst < 1e-6, 'and flies straight at its spot the whole way, carried along with Earth', hit.worst.toExponential(1));
+  // an icy one brings its water down with it
+  const wet = await page.evaluate(async () => {
+    const e = bodies.find((b) => b.data.key === 'earth'), w0 = e._impWaterKg || 0, m0 = impMatI;
+    impMatI = 0;
+    launchAsteroid(e, { uv: { x: 0.6, y: 0.4 } });
+    impMatI = m0;
+    const a = impAsteroids[impAsteroids.length - 1];
+    for (let i = 0; i < 400 && impAsteroids.includes(a); i++) await new Promise((r) => requestAnimationFrame(r));
+    return { landed: !impAsteroids.includes(a), kg: (e._impWaterKg || 0) - w0 };
+  });
+  ok(wet.landed && wet.kg > 0, 'an icy asteroid delivers its water when it lands', `${wet.kg.toExponential(1)} kg`);
   await page.evaluate(() => document.getElementById('imp-surface').click());
   const off = await page.evaluate(() => ({ sv: surfaceView, bar: document.getElementById('t-surface').classList.contains('on') }));
+  // a few drawn frames, however long they take
   const r0 = await page.evaluate(() => bodies.find((b) => b.data.key === 'earth').mesh.rotation.y);
-  await page.waitForTimeout(800);
+  await page.evaluate(async () => { for (let i = 0; i < 5; i++) await new Promise((r) => requestAnimationFrame(r)); });
   const r1 = await page.evaluate(() => bodies.find((b) => b.data.key === 'earth').mesh.rotation.y);
-  ok(!off.sv && !off.bar && r1 !== r0, 'the lab\'s button turns it off, the toolbar shows it, and Earth turns again');
+  ok(!off.sv && !off.bar && r1 !== r0, 'the lab\'s button turns it off, the toolbar shows it, and Earth turns again',
+    `${JSON.stringify(off)}, Δspin ${(r1 - r0).toExponential(1)}`);
   await page.evaluate(() => document.getElementById('t-lang').click());
   const sk = await page.evaluate(() => document.getElementById('t-surface').textContent);
   await page.evaluate(() => document.getElementById('t-lang').click());

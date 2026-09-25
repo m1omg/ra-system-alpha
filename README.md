@@ -30,16 +30,29 @@ book gives it.
 - The speed slider runs to 10 Myr/s. Climates take time steps of their own and
   never run ahead of the orrery's clock; if the machine cannot keep up, the card
   says so rather than silently dropping time.
-- Impacts, lasers and supernova fronts deposit their energy as heat; icy
-  impactors bring water. 🧽 Heal restores the climate with the orbit.
-  💾 Save and ⬇ Export carry the climate with the system.
+- Energy is heat the moment it lands, and where it lands: an asteroid's half
+  into the struck latitude and half round the globe (plume and re-entering
+  ejecta), a laser's into the band under the beam, a supernova front's into
+  the hemisphere facing it, a collision's everywhere. Seas warm through their
+  own heat capacity, evaporate and boil into steam; past 1400 K rock melts,
+  and the magma holds the surface at the solidus until the air above lets it
+  cool. A big strike also raises dust and soot (an impact winter that lifts
+  over years), frees CO₂ from carbonate rock on worlds with seas, and blows
+  air away (Schlichting et al. 2015); icy impactors bring water. On Earth
+  (`node tools/impactladder.mjs`): 10²³ J is a few years of winter, 10²⁵ J a
+  decade of 45 °C, 10²⁶ J a century of moist greenhouse, and from about
+  6×10²⁶ J the model keeps the steam: at today's sunlight its Earth has a warm
+  branch, an unstable root above it and a runaway beyond, the topology Wolf &
+  Toon (2015) found. 🧽 Heal restores the climate with the orbit. 💾 Save
+  and ⬇ Export carry the climate with the system.
 
 **How it fits together**
 
 | file | what |
 |---|---|
 | `assets/climate/physics/`, `sim/`, `game/`, `render/` | the climate model, verbatim from planet-climate-sandbox `altdev2/src` |
-| `assets/climate/system.js` | many worlds on one clock: forcing, time credit, impacts, snapshots |
+| `assets/climate/system.js` | many worlds on one clock: forcing, time credit, snapshots; impacts: heat by band, magma, winter, CO₂, lost air |
+| `assets/climate/PATCHES.md` | the one change to the physics copy, behind a parameter whose default is altdev2 |
 | `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds tuned to their documented temperatures |
 | `assets/climate/tuned.js`, `spinup.js` | written by `tools/climate-tune.mjs`: tuned knobs and settled starting states |
 | `assets/climate/analysis.js` | reads each surface map for its seas, ice and forests, so the climate can be drawn as a change from the map |
@@ -57,7 +70,8 @@ so. With the CPU throttled 3× (about a 2017 MacBook Air) the climate costs unde
 ```bash
 node tools/climatecheck.mjs           # load, stability, forcing, impacts, edits, save/restore, analysis
 node tools/climate-tune.mjs --check   # every tuned world still at its target
-node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, language, views
+node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, reset, strikes, views
+node tools/impactladder.mjs           # a measurement: what 1e23..1e30 J does to Earth and Satis, over 1 Myr
 node tools/nbodycheck.mjs             # in Chromium: the gravity tiers, their accuracy and switching
 node tools/surfacecheck.mjs           # in Chromium: ▣ Surface holds a world still while time runs on
 ```

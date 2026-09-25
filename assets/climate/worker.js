@@ -32,6 +32,7 @@ function loop() {
 
 self.onmessage = (e) => {
   host.handle(e.data);
+  if (e.data && e.data.type === 'impact') host.flush();   // before any physics slice
   kick();
 };
 

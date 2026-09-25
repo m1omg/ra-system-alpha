@@ -35,7 +35,7 @@ const DEM={ earth:'earth', mars:'mars' };
 const S_EARTH=1361, TWO_PI=Math.PI*2, LN2000=Math.log(2000);
 const ICE_EASE=1.5;               // full swing of a band's ice in ~0.7 s of wall clock
 
-const V={ bodies:new Map(), tempView:false, lumScale:{}, pendingJ:new Map(), pendingW:new Map(),
+const V={ bodies:new Map(), tempView:false, lumScale:{}, pending:[], pendingW:new Map(),
   started:false, available:true, unavailableWhy:null, navT:0, panelKey:null, analysisBusy:false,
   demImg:{}, stats:null };
 window.RAClimateView=V;
@@ -265,7 +265,7 @@ V.applySaved=function(){
 // ♻ Reset: every climate back to the one its world opened with. Worlds whose
 // record was replaced (rebuilt after a deletion) are dropped and re-added fresh.
 V.resetAll=function(){
-  V.pendingJ.clear(); V.pendingW.clear();
+  V.pending.length=0; V.pendingW.clear();
   V.lumScale={};
   for(const [k,cv] of [...V.bodies]){
     if(bodies.indexOf(cv.rec)<0 || !capable(cv.rec)) removeWorld(k);
@@ -287,10 +287,7 @@ V.frame=function(dtReal, simDt, rateYps){
     for(const [k,cv] of V.bodies) forcing[k]=fluxOver(cv.rec, simDt, lums);
     CL.tick(simDt, rateYps, forcing);
   }
-  for(const [k,j] of V.pendingJ){ CL.impulse(k, j, V.pendingW.get(k)||0); V.pendingW.delete(k); }
-  V.pendingJ.clear();
-  for(const [k,w] of V.pendingW){ CL.impulse(k, 0, w); }
-  V.pendingW.clear();
+  V.flush();
   if(CL.mode==='local') CL.frame(Math.min(8, 4+2*dtReal*60));
   _accReal+=dtReal;
   const t=performance.now()/1000;
@@ -310,9 +307,35 @@ V.frame=function(dtReal, simDt, rateYps){
 };
 
 /* ---------------- deposits ---------------- */
-V.deposit=function(rec, joules){
+// Energy arriving now. opts: {kind: 'asteroid'|'laser'|'blast'|'collision',
+// point: the struck spot (world), or dir: the direction the energy comes from
+// (world), mKg, vKms}. Where it lands is handed over in both of the climate's
+// band schemes -- sin(latitude) for a spinning world, cos(angle from the star)
+// for a locked one -- and the climate picks its own.
+const _dv=new THREE.Vector3(), _ax=new THREE.Vector3(), _dq=new THREE.Quaternion();
+function bandCoords(rec, n){
+  rec.mesh.updateWorldMatrix(true, false);
+  _ax.set(0,1,0).applyQuaternion(rec.mesh.getWorldQuaternion(_dq)).normalize();
+  // the star a locked world faces is the one its globe is drawn facing (starDir)
+  const star=luminous().find(s=>s.rec!==rec);
+  const toStar=star ? worldPos(star.rec).sub(worldPos(rec)).normalize() : _ax;
+  return { x:n.dot(_ax), xl:n.dot(toStar) };
+}
+V.deposit=function(rec, joules, opts){
   if(!rec || !V.bodies.has(rec.data.key) || !(joules>0)) return;
-  V.pendingJ.set(rec.data.key, (V.pendingJ.get(rec.data.key)||0)+joules);
+  const o=opts||{}, kind=o.kind||'asteroid';
+  let x=0, xl=1;
+  if(o.point) ({x, xl}=bandCoords(rec, _dv.copy(o.point).sub(worldPos(rec)).normalize()));
+  else if(o.dir) ({x, xl}=bandCoords(rec, _dv.copy(o.dir).normalize()));
+  V.pending.push({key:rec.data.key, o:{J:joules, kind, x, xl, mKg:o.mKg||0, vKms:o.vKms||0}});
+};
+// Send what has arrived, in the frame it arrived in.
+V.flush=function(){
+  if(!V.pending.length && !V.pendingW.size) return;
+  for(const d of V.pending){ const w=V.pendingW.get(d.key); if(w){ d.o.waterKg=w; V.pendingW.delete(d.key); } CL.impact(d.key, d.o); }
+  V.pending.length=0;
+  for(const [k,w] of V.pendingW) CL.impact(k, {J:0, waterKg:w});
+  V.pendingW.clear();
 };
 V.water=function(rec, kg){
   if(!rec || !V.bodies.has(rec.data.key) || !(kg>0)) return;
@@ -326,7 +349,7 @@ V.beforeHeal=function(){
 V.afterHeal=function(){
   // Heat or water banked this frame but not yet sent belongs to the damage
   // being healed; sending it after the reset would re-damage the healed world.
-  V.pendingJ.clear(); V.pendingW.clear();
+  V.pending.length=0; V.pendingW.clear();
   for(const k of (V._healKeys||[])){
     const rec=bodies.find(b=>b.data.key===k); if(!rec) continue;
     if(V.bodies.has(k)) CL.reset(k); else addWorld(rec);
