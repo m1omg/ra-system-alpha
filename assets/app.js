@@ -3547,7 +3547,7 @@ function updateImpacts(dt){
     if(a.startRel) a.start.copy(worldPosOf(a.rec)).add(a.startRel);
     const k=a.t/a.T;
     if(k>=1){
-      applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, dir:tgt.clone().sub(a.start).normalize()});
+      applyStrike(a.rec,a.u,a.v,a.E,{mKg:a.mKg, vKms:a.vKms, matI:a.matI, dir:tgt.clone().sub(a.start).normalize()});
       releaseAstRig(a.rig);                  // back to the pool — no dispose (reused next shot)
       impAsteroids.splice(i,1); continue;
     }

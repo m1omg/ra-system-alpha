@@ -10,7 +10,8 @@
 // step; in Surface view the clock, the orbits (and the climate, where there is
 // one) keep running while the focused world's spin stops and the camera stays
 // on it; an asteroid launched at a world moving on its orbit still lands on the
-// spot it was aimed at; leaving Surface view gives the spin back.
+// spot it was aimed at, and an icy one delivers its water; leaving Surface view
+// gives the spin back.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -110,6 +111,17 @@ try {
   });
   ok(hit.landed && hit.dmg > 0, 'an asteroid launched at the moving Earth lands on it', `${hit.dmg.toExponential(1)} J`);
   ok(hit.worst < 1e-6, 'and flies straight at its spot the whole way, carried along with Earth', hit.worst.toExponential(1));
+  // an icy one brings its water down with it
+  const wet = await page.evaluate(async () => {
+    const e = bodies.find((b) => b.data.key === 'earth'), w0 = e._impWaterKg || 0, m0 = impMatI;
+    impMatI = 0;
+    launchAsteroid(e, { uv: { x: 0.6, y: 0.4 } });
+    impMatI = m0;
+    const a = impAsteroids[impAsteroids.length - 1];
+    for (let i = 0; i < 400 && impAsteroids.includes(a); i++) await new Promise((r) => requestAnimationFrame(r));
+    return { landed: !impAsteroids.includes(a), kg: (e._impWaterKg || 0) - w0 };
+  });
+  ok(wet.landed && wet.kg > 0, 'an icy asteroid delivers its water when it lands', `${wet.kg.toExponential(1)} kg`);
   await page.evaluate(() => document.getElementById('imp-surface').click());
   const off = await page.evaluate(() => ({ sv: surfaceView, bar: document.getElementById('t-surface').classList.contains('on') }));
   const r0 = await page.evaluate(() => bodies.find((b) => b.data.key === 'earth').mesh.rotation.y);
