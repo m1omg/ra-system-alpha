@@ -62,8 +62,12 @@ const info = (msg) => console.log(`  info ${msg}`);
 const section = (s) => console.log(`\n${s}`);
 
 const browser = await pw.chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-async function openSystem(sys) {
+// `seed`: the orbital phases the page draws at random come from this seed, so a
+// configuration that once showed a fault shows it every time
+async function openSystem(sys, seed = null) {
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+  if (seed != null) await page.addInitScript((s) => { let a = s >>> 0; Math.random = () => { a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }, seed);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text().split('\n')[0]); });
@@ -229,6 +233,21 @@ try {
     info(`K costs ${(runK.msPerStep * 1000).toFixed(0)} µs per frame`);
     await page.evaluate((js) => __nb.put(js), s0);
 
+    if (sys === 'ra') {
+      // Past Horus the orbits about Ra alone swing with Horus's phase: in this
+      // configuration Kauket's dipped under Yamm's for a step now and then, the
+      // Jacobi order flipped under them, and tier K kept different orbits after.
+      const q = await openSystem('ra', 1);
+      const k1 = await q.page.evaluate(() => {
+        if (playing) togglePlay(); if (!nbodyOn) toggleNbody();
+        const P0 = __nb.jacobi(); for (let i = 0; i < 1000; i++) nbStepK(1000, nbHierarchy()); const P1 = __nb.jacobi();
+        let w = ['', 0]; for (const k of Object.keys(P0)) { const d = Math.abs(P1[k] / P0[k] - 1); if (d > w[1]) w = [k, d]; }
+        return w;
+      });
+      ok(k1[1] < 1e-9, 'K keeps the orbits exactly where one world\'s orbit crosses another\'s (Ra, seed 1)', `worst ${k1[0]} ${k1[1].toExponential(1)}`);
+      await q.page.close();
+    }
+
     section(`${sys}: the round trip`);
     const trip = await page.evaluate(() => {
       const P0 = __nb.jacobi(), moons = __nb.bookMoons();
@@ -294,6 +313,7 @@ try {
       // a Mars-mass body passing the first planet with moons, close enough that
       // its tide on them rivals the star's (inside 2·D·∛(m/M★)), sideways at 0.5 km/s
       const H0 = nbHierarchy(), s = H0.star; const P = H0.roots.find((b) => (H0.desc.get(b) || []).length > 0 && b !== s);
+      _nbEncounter = false; nbPlan(1e-12, 1 / 30); const quietA = _nbCaps.A;   // tier A's cap with nothing passing
       const m = 6.4e23;
       createCustomBody({ kind: CR_KINDS[0].kind, a: 1.0, e: 0.0, massKg: m, radiusKm: 3390 });
       const c = bodies[bodies.length - 1];
@@ -308,11 +328,17 @@ try {
       // and the next frame, asked for tier A's speed, gets full N-body at its cap
       nbPlan(1e-12, 1 / 30);                      // the caps for a 30 fps frame
       const want = 1.5 * _nbCaps.F / 30, plan = nbPlan(want, 1 / 30);
-      return { P: P.data.key, lim: +lim.toPrecision(3), before, clear, t: +t.toPrecision(3), enc: _nbEncounter,
+      // and a clock tier A would have taken in its stride with nothing passing:
+      // the passer cuts A's step, and that must not hand the encounter to K
+      const easy = 0.5 * quietA / 30, planE = nbPlan(easy, 1 / 30), tierE = nbTier, cappedE = _nbCapped && planE.dt < easy;
+      nbPlan(want, 1 / 30);
+      return { P: P.data.key, lim: +lim.toPrecision(3), before, clear, t: +t.toPrecision(3), enc: _nbEncounter, easy: [tierE, cappedE, +quietA.toPrecision(3)],
         tier: nbTier, capped: _nbCapped && plan.dt < want, why: document.getElementById('speedval') ? (updateSpeedCapUI(), document.getElementById('speedval').title) : '' };
     });
     ok(enc.before && !enc.clear && enc.enc && enc.t < 0.5, 'a passer whose tide on a planet\'s moons rivals the star\'s stops tier A and flags the encounter', JSON.stringify(enc));
     ok(enc.tier === 'F' && enc.capped, 'while it passes, the clock runs full N-body at its cap', `${enc.tier} ${enc.why}`);
+    ok(enc.easy[0] === 'F' && enc.easy[1], '...even at a rate tier A takes in its stride with nothing passing (half its quiet cap)',
+      `${enc.easy[0]}${enc.easy[1] ? ' capped' : ''} at ${(enc.easy[2] / 2).toPrecision(3)} yr/s`);
     await page.evaluate(() => { const c = bodies.filter((b) => b._custom).pop(); if (c) removeBody(c, true); });
     await page.evaluate((js) => __nb.put(js), s0);
 
