@@ -203,6 +203,31 @@ section('The surface analysis finds the sea');
   ok(heightForShare(a.cdf, a.s0) > 0.47 && heightForShare(a.cdf, a.s0) < 0.53, 'today\'s sea puts it at today\'s coast');
 }
 
+section('The surface field is the right way up');
+{
+  // A DataTexture is not flipped on upload the way an image is: its row 0 is
+  // the south pole (v = 0), where the map's row 0 is the north. Written the
+  // map's way round, every sea, cap and forest came out mirrored pole to pole.
+  const W = 128, H = 64;
+  const rgba = new Uint8ClampedArray(W * H * 4), dem = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    // map row 0 is the north: a white cap, then sea down to the equator, land south of it
+    const c = y < 4 ? [240, 244, 248] : y < H / 2 ? [20, 50, 120] : [60, 120, 40];
+    rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = 255;
+    const v = Math.round(255 * y / (H - 1));             // and the ground lowest in the north
+    dem[i] = dem[i + 1] = dem[i + 2] = v; dem[i + 3] = 255;
+  }
+  const rowMean = (a, y, ch) => { let s = 0; for (let x = 0; x < W; x++) s += a.bytes[(y * W + x) * 4 + ch]; return s / W; };
+  const a = analyseSurface(W, H, rgba, null, { srcOcean: 0.45, seed: 5 });
+  ok(rowMean(a, H - 12, 0) < 128 && rowMean(a, 12, 0) >= 128, 'the northern sea is in the top rows of the texture, the southern land in the bottom',
+    `north ${rowMean(a, H - 12, 0).toFixed(0)}, south ${rowMean(a, 12, 0).toFixed(0)}`);
+  ok(rowMean(a, H - 1, 2) > 128 && rowMean(a, 0, 2) < 64, 'the northern cap is in the last row');
+  const d = analyseSurface(W, H, rgba, dem, { srcOcean: 0.45, seed: 5 });
+  ok(rowMean(d, H - 1, 0) < rowMean(d, H / 2 - 2, 0) && rowMean(d, H / 2 + 2, 0) < rowMean(d, 0, 0),
+    'on a height map, the low north floods first', `north ${rowMean(d, H - 1, 0).toFixed(0)}, south ${rowMean(d, 0, 0).toFixed(0)}`);
+}
+
 section('Throughput');
 {
   const { sys, ins, keys } = build('ra');

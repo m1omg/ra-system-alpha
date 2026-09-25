@@ -448,8 +448,11 @@ function applySysTitles(){
     document.title=T('doc-title-sol');
   }
   // Climate edition badge — survives language switches and the Sol retitle
-  if(h && h.innerHTML.indexOf('CLIMATE')<0)
-    h.innerHTML+=' <small style="opacity:.65;font-size:.55em;color:#7fe6a8">CLIMATE</small>';
+  if(h){
+    h.innerHTML=h.innerHTML.replace(/\s*<small class="clim-badge"[^]*?<\/small>/, '');
+    h.insertAdjacentHTML('beforeend', ' <small class="clim-badge" style="opacity:.65;font-size:.55em;color:#7fe6a8">'+
+      (LANG==='sk'?'KLÍMA':'CLIMATE')+'</small>');
+  }
   if(document.title.indexOf('Climate')<0) document.title+=' · Climate Sandbox';
 }
 function updateLangBtn(){ const b=document.getElementById('t-lang'); if(b) b.textContent = LANG==='sk'?'🌐 EN':'🌐 SK'; }

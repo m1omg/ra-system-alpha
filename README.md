@@ -5,6 +5,64 @@ This fork of the [experimental edition](https://github.com/m1omg/ra-system-exper
 is where real physics lands first. The [stable](https://github.com/m1omg/ra-system-simulation)
 and experimental editions keep the curated fictional-system experience.
 
+## Climate edition (this branch)
+
+Every rocky, icy and ocean world in both systems carries a live climate: the
+18-band energy-balance model of the
+[Planet Climate Sandbox](https://github.com/m1omg/planet-climate-sandbox)
+(its `altdev2` physics, copied unchanged into `assets/climate/`), forced by the
+starlight each world actually receives on its current orbit. Move a planet,
+knock it onto an eccentric orbit, let N-body rearrange the system, blow up the
+star, or rewrite the air in the 🌡 **Climate** panel, and the world answers:
+seas rise, drain or freeze, ice caps advance and retreat, forests wither, the
+greenhouse runs away into steam, rock melts. Idle, it holds the temperature the
+book gives it.
+
+**How to play**
+
+- Open any planet or moon: the 🌡 Climate card shows its state, mean and range
+  of temperature, a band-by-band chart, a history, and what its air and water
+  are doing. **⚙ Change this world** edits CO₂, N₂, O₂, CH₄, H₂, water, ground
+  albedo, axial tilt, interior heat, the biosphere and tidal locking; values
+  take units (`420 ppm`, `0.5 bar`, `2 atm`, `3 mbar`).
+- The sidebar shows every world's temperature live. **🌡 Temperature** paints
+  the globes in false colour, with a legend.
+- The speed slider runs to 10 Myr/s. Climates take time steps of their own and
+  never run ahead of the orrery's clock; if the machine cannot keep up, the card
+  says so rather than silently dropping time.
+- Impacts, lasers and supernova fronts deposit their energy as heat; icy
+  impactors bring water. 🧽 Heal restores the climate with the orbit.
+  💾 Save and ⬇ Export carry the climate with the system.
+
+**How it fits together**
+
+| file | what |
+|---|---|
+| `assets/climate/physics/`, `sim/`, `game/`, `render/` | the climate model, verbatim from planet-climate-sandbox `altdev2/src` |
+| `assets/climate/system.js` | many worlds on one clock: forcing, time credit, impacts, snapshots |
+| `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds tuned to their documented temperatures |
+| `assets/climate/tuned.js`, `spinup.js` | written by `tools/climate-tune.mjs`: tuned knobs and settled starting states |
+| `assets/climate/analysis.js` | reads each surface map for its seas, ice and forests, so the climate can be drawn as a change from the map |
+| `assets/climate/hostcore.js`, `worker.js` | the physics runs in a Web Worker (on the main thread where no worker can be had) |
+| `assets/climate-bridge.js`, `climate-view.js`, `climate-sk.js` | page side: transport, rendering hooks and the panel, Slovak strings |
+| `assets/climate/dem/` | Earth and Mars height maps, for the order in which ground floods ([credits](assets/climate/dem/CREDITS.md)) |
+
+The worker needs the page served over http(s) (module workers do not load from
+`file://`); opened from disk, the orrery runs as before without climate and says
+so. With the CPU throttled 3× (about a 2017 MacBook Air) the climate costs under
+1 ms of main-thread time per frame on average; the physics runs on another core.
+
+**Checks** (Node 18+):
+
+```bash
+node tools/climatecheck.mjs           # load, stability, forcing, impacts, edits, save/restore, analysis
+node tools/climate-tune.mjs --check   # every tuned world still at its target
+node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, language, views
+```
+
+The last needs Playwright (`npm i --no-save playwright`) and says "skipping"
+without it; a skipped check is not a passed one.
+
 ## Alpha-only physics
 
 - **🌌 N-body gravity** — flip the toolbar toggle and the Kepler clockwork is replaced by
