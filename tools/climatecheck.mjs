@@ -67,6 +67,39 @@ function advance(sys, years, rate, fps, forcing) {
   }
 }
 
+section('The numbers a panel quotes are the ones the physics runs on');
+{
+  // The stats rows quote "Satis v10"; mass, orbit and composition are what the
+  // physics uses. Where they part, one of them is wrong: "145 % Earth" once
+  // read as 145 times, a Set of 0.24 Earth masses under a row saying 0.37.
+  const ME = 5.9722e24, UNIT = { '⊕': ME, 'Luna': 7.342e22, 'Jupiter': 1.898e27, '☉': 1.989e30 };
+  const L = LUMINOUS.ra.L;
+  const num = (t) => parseFloat(t.replace(/,/g, ''));
+  const bad = { mass: [], insolation: [], composition: [] };
+  let n = 0;
+  for (const d of systems.ra.bodies) {
+    const row = (name) => (d.stats || []).find((r) => r[0] === name)?.[1];
+    const m = row('Mass');
+    if (m && d.massKg > 0) {
+      const u = Object.keys(UNIT).find((k) => m.includes(k));
+      const said = num(m.replace(/^[~≈]/, '')) * UNIT[u];
+      n++; if (!(Math.abs(said / d.massKg - 1) < 0.02)) bad.mass.push(`${d.key} says ${m}, runs on ${(d.massKg / ME).toPrecision(3)} M⊕`);
+    }
+    const s = row('Insolation');
+    if (s && d.parent === 'ra' && d.dist > 0) {
+      const said = s.includes('%') ? num(s) / 100 : num(s), is = L / (d.dist * d.dist);
+      n++; if (!(Math.abs(said / is - 1) < 0.05)) bad.insolation.push(`${d.key} says ${s}, its orbit gives ${is.toPrecision(3)} × Earth`);
+    }
+    const c = row('Composition');
+    if (c && d.comp) for (const [, v, what] of c.matchAll(/([\d.]+)% (water|rock|iron|H\/He)/g)) {
+      const k = what === 'H/He' ? 'gas' : what;
+      n++; if (!(Math.abs(parseFloat(v) - 100 * (d.comp[k] ?? 0)) < 0.5)) bad.composition.push(`${d.key} says ${v}% ${what}, runs on ${(100 * (d.comp[k] ?? 0)).toFixed(1)} %`);
+    }
+  }
+  for (const [what, list] of Object.entries(bad))
+    ok(list.length === 0, `every ${what} row agrees with the physics`, list.join('; ') || `${n} figures in all`);
+}
+
 section('Every described body loads, from its spin-up, where the book puts it');
 for (const sysName of ['sol', 'ra']) {
   const { sys, keys } = build(sysName);
@@ -215,8 +248,9 @@ section('Life follows the climate');
   {
     const s = build('sol'), q = build('ra');
     const L = (b, k) => b.sys.worlds.get(k).rs[RS.LIFE];
-    ok(L(s, 'earth') === 3 && L(q, 'satis') === 3 && L(q, 'uatur') === 1 && L(q, 'nu') === 1 && L(q, 'nephtys') === 1,
-      'documented life opens as documented: Earth and Satis intelligent; Uat-Ur, Nu and Nephtys microbial',
+    // Uat-Ur: Nu's microbes, and the Satis colonists' "bioluminescent cloud-forests"
+    ok(L(s, 'earth') === 3 && L(q, 'satis') === 3 && L(q, 'uatur') === 2 && L(q, 'nu') === 1 && L(q, 'nephtys') === 1,
+      'documented life opens as documented: Earth and Satis intelligent; Uat-Ur complex; Nu and Nephtys microbial',
       ['earth', 'satis', 'uatur', 'nu', 'nephtys'].map((k) => `${k} ${L(k === 'earth' ? s : q, k)}`).join(', '));
     const none = [...s.keys.filter((k) => k !== 'earth').map((k) => [s, k]), ...q.keys.filter((k) => !['satis', 'uatur', 'nu', 'nephtys'].includes(k)).map((k) => [q, k])];
     const wrong = none.filter(([b, k]) => L(b, k) !== 0 || b.sys.worlds.get(k).sim.world.life.pro > 0).map(([, k]) => k);
@@ -348,10 +382,14 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
     const dg = w.diag, g = dg.g, pa = (x) => x * g / 1e5;
     const gas = { n2: pa(w.n2), o2: pa(w.o2), co2: pa(w.co2), ch4: pa(w.ch4), h2: pa(w.h2 + w.he) };
     const tot = Object.values(gas).reduce((a, x) => a + x, 0) || 1;
-    const acid = (q.sys.detail(k) || {}).acid;
+    const det = q.sys.detail(k) || {}, acid = det.acid;
+    // the ice lid over the sea, as the cross-section draws it
+    const ice = (det.layers || []).filter((l) => l.kind === 'iceIh' || l.kind === 'seaice').reduce((m, l) => m + l.metres, 0);
     return { T: dg.Tmean - 273.15, p: dg.pTotMean, o2: gas.o2 / tot, n2: gas.n2 / tot,
       share: Object.fromEntries(Object.entries(gas).map(([g2, x]) => [g2, x / tot])),
-      haze: dg.hazeTau ?? 0, cover: (dg.flooded ?? 0), acid: acid ? acid.cover * (1 - acid.frozen) : 0 };
+      haze: dg.hazeTau ?? 0, cover: (dg.flooded ?? 0), acid: acid ? acid.cover * (1 - acid.frozen) : 0,
+      heat: w.params.internalHeat, noon: det.extremes ? det.extremes.dayK - 273.15 : null, ice,
+      mass: w.params.mass, g: dg.g / 9.80665, outgassing: w.params.outgassing ?? 0 };
   };
   const ks = q.keys.filter((k) => BOOK[k]);
   const start = Object.fromEntries(ks.map((k) => [k, look(k)]));
@@ -380,6 +418,16 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
       if (Math.abs(x - b.acid) > 0.05) bad.push(`${when} with liquid acid over ${(x * 100).toFixed(0)} %, book ${b.acid * 100} %`);
     if (b.sea != null && Math.abs(a.cover - b.sea) > 0.05) bad.push(`water covers ${(a.cover * 100).toFixed(0)} %, book ${b.sea * 100} %`);
     if (b.sea != null && Math.abs(z.cover - a.cover) > 0.05) bad.push(`cover drifts to ${(z.cover * 100).toFixed(0)} %`);
+    if (b.mass != null && !(Math.abs(a.mass / b.mass - 1) < 0.02)) bad.push(`weighs ${a.mass.toPrecision(3)} M⊕, book ${b.mass}`);
+    if (b.g != null && !(Math.abs(a.g / b.g - 1) < 0.03)) bad.push(`surface gravity ${a.g.toFixed(2)} g, book ${b.g}`);
+    if (b.outgassingMax != null && !(a.outgassing <= b.outgassingMax))
+      bad.push(`volcanoes at ${a.outgassing.toPrecision(2)} of Earth's, book at most ${b.outgassingMax}`);
+    // the heat the tides give, where the book says how it compares with Io's
+    if (b.tides && !(a.heat >= b.tides[0] && a.heat <= b.tides[1]))
+      bad.push(`tidal heat ${a.heat.toPrecision(3)} W/m², book ${b.tides[0]}${isFinite(b.tides[1]) ? '-' + b.tides[1] : ' or more'}`);
+    if (b.noonMin != null && !(a.noon >= b.noonMin)) bad.push(`its ground reaches ${a.noon == null ? 'no' : a.noon.toFixed(0) + ' °C'} at noon, book ${b.noonMin} °C`);
+    if (b.iceM) for (const [when, x] of [['opens', a.ice], ['after 20 Myr', z.ice]])
+      if (!(x >= b.iceM[0] && x <= b.iceM[1])) bad.push(`${when} under ${x.toPrecision(3)} m of ice, book ${b.iceM[0]}-${b.iceM[1]} m`);
     const what = `${k}: ${a.T.toFixed(1)} → ${z.T.toFixed(1)} °C, ${a.p.toPrecision(3)} → ${z.p.toPrecision(3)} bar`;
     if (GAPS[k]) { console.log(`  GAP  ${k}: ${GAPS[k]}${bad.length ? '  (' + bad.join('; ') + ')' : ''}`); continue; }
     ok(bad.length === 0, what, bad.join('; '));

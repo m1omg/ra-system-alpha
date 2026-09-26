@@ -16,25 +16,31 @@ import { S_EARTH } from '../assets/climate/physics/constants.js';
 
 // What the book says, in the book's own numbers (stats rows and the text).
 export const BOOK = {
-  set:       { T: 120, p: 0.011 * 1.01325, note: 'bone-dry; thin air, twice Mars\'s' },
+  // "no geological activity aside from an occasional quake": at most a trickle
+  set:       { T: 120, p: 0.011 * 1.01325, mass: 0.37, g: 1.02, outgassingMax: 0.15, note: 'bone-dry; thin air, twice Mars\'s' },
   // "soaked in an ocean of sulfuric acid, with just a few transient volcanic islands"
-  nephtys:   { T: 231, acid: 0.8, note: 'a sea of nearly pure sulfuric acid; alien life' },
-  satis:     { T: 24, p: 0.62 * 1.01325, o2: 0.66, n2: 0.29, sea: 0.60, note: '41 % O2 at Earth-like pressure; shallow seas; complex life' },
+  nephtys:   { T: 231, acid: 0.95, mass: 2.1, g: 1.25, note: 'a sea of nearly pure sulfuric acid; alien life' },
+  satis:     { T: 24, p: 0.62 * 1.01325, o2: 0.66, n2: 0.29, sea: 0.60, mass: 0.25, g: 0.68, note: '41 % O2 at Earth-like pressure; shallow seas; complex life' },
   // "a thick atmosphere composed of nitrogen, methane, CO2 and nitric acid", "a
   // high hydrogen and methane content", and "a true blue marble": no haze
-  uatur:     { T: 8, p: 5.51 * 1.01325, mins: { h2: 0.1, ch4: 0.01, n2: 0.05, co2: 0.05 }, hazeMax: 0.05,
+  uatur:     { T: 8, p: 5.51 * 1.01325, mass: 9.1, g: 1.96, mins: { h2: 0.1, ch4: 0.01, n2: 0.05, co2: 0.05 }, hazeMax: 0.05,
                note: 'H2- and CH4-rich air, CO2 clouds; ~100 km ocean on high-pressure ice' },
-  shu:       { T: -130 },
+  shu:       { T: -122, mass: 1.71 },
   yamm:      { T: -242, note: 'frozen oceans' },
   kauket:    { T: -263, note: 'its thin envelope frozen on the ice' },
-  sekhmet:   { T: 450, note: 'near-vacuum; 450 C in its calmest spots' },
+  // "Even on the calmest and most stable places, temperatures can reach 450 °C"
+  // and "its degree of tidal heating is similar" to Io's (2.2 W/m2); no mean
+  sekhmet:   { tides: [1.1, 4.4], noonMin: 450, mass: 0.761 * 0.0122936, g: 0.229, note: 'near-vacuum; calm ground can reach 450 C; tides like Io\'s' },
   satismoon: { note: 'airless moon' },
-  nu:        { T: -93, note: 'global ocean a few degrees above freezing under ice metres thick; near-vacuum; life' },
-  naunet:    { T: -100, pRange: [0.003, 0.004], note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
+  // "a heat flux as strong or greater than Io", and "most of the ocean is
+  // encrusted by hundreds of meters of ice"
+  nu:        { T: -93.15, tides: [2.2, Infinity], iceM: [100, 1000], mass: 1.4 * 0.0122936, g: 0.208,
+               note: 'global ocean a few degrees above freezing under ice hundreds of metres thick; near-vacuum; life' },
+  naunet:    { T: -100, pRange: [0.003, 0.004], mass: 3.45 * 0.0122936, g: 0.281, note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
   // "rich in free oxygen": at least the fifth of the air Earth's is
-  anubis:    { T: 81.2, mins: { o2: 0.2 }, sea: 1, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
-  khonsu:    { T: -99.5, note: 'mostly rock; 13.6 % water' },
-  nut:       { T: -190, note: 'deeply frozen, water-rich (54 %)' },
+  anubis:    { T: 81.2, mins: { o2: 0.2 }, sea: 1, mass: 0.468, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
+  khonsu:    { T: -99.5, mass: 0.554, note: 'mostly rock; 13.6 % water' },
+  nut:       { T: -190, mass: 1.74, note: 'deeply frozen, water-rich (54 %)' },
 };
 
 // Worlds not yet made to match: reported by climatecheck on every run, never a

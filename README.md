@@ -96,7 +96,7 @@ air and seas the book gives it.
 | `assets/climate/system.js` | many worlds on one clock: forcing, time credit, snapshots; impacts: heat by band, magma, winter, CO₂, lost air |
 | `assets/climate/acid.js` | a second liquid beside the water: Nephtys's sulfuric-acid sea |
 | `assets/climate/PATCHES.md` | the changes to the physics copy, each behind a parameter whose default is altdev2 |
-| `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds tuned to their documented temperatures |
+| `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds held to what “Satis v10” says of them: its temperatures, air, seas, tides and life |
 | `assets/climate/tuned.js`, `spinup.js` | written by `tools/climate-tune.mjs`: tuned knobs and settled starting states |
 | `assets/climate/analysis.js` | reads each surface map for its seas, ice and forests, so the climate can be drawn as a change from the map |
 | `assets/climate/hostcore.js`, `worker.js` | the physics runs in a Web Worker (on the main thread where no worker can be had) |

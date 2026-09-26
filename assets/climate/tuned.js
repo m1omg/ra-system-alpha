@@ -6,10 +6,10 @@ export const TUNED = {
  "ra": {
   "set": {
    "landAlbedo": 0.437773,
-   "outgassing": 0.511133
+   "outgassing": 0.10929
   },
   "nephtys": {
-   "co2Bar": 11.3579
+   "co2Bar": 11.2234
   },
   "satis": {
    "co2Bar": 0.00618764,
@@ -23,7 +23,7 @@ export const TUNED = {
    "biosphere": 0.327459
   },
   "shu": {
-   "h2Bar": 4.69805
+   "h2Bar": 6.71478
   },
   "yamm": {
    "internalHeat": 0.0500166
@@ -32,7 +32,7 @@ export const TUNED = {
    "internalHeat": 0.00100904
   },
   "nu": {
-   "internalHeat": 25.0187
+   "iceAlbedo": 0.332734
   },
   "naunet": {
    "iceAlbedo": 0.373125
@@ -47,9 +47,6 @@ export const TUNED = {
   },
   "nut": {
    "iceAlbedo": 0.497969
-  },
-  "sekhmet": {
-   "internalHeat": 1618.02
   }
  },
  "sol": {

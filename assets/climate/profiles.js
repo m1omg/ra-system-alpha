@@ -113,14 +113,15 @@ export const PROFILES = {
     charon:  { base: { ...EARTH, ...icy(0.4), internalHeat: 0.002, startT: 50 }, clouds: 'full' },
   },
   ra: {
-    // A hot, bone-dry desert under 0.011 bar. Tuned: the albedo.
-    // Set: 120 C, bone-dry, "thin air (twice Mars's)", 0.011 atm. Past the
-    // cosmic shoreline at seven times Earth's light, the star strips that air in
-    // about three megayears (thermal loss ~8 Myr, the wind ~5 Myr, no field),
-    // so the air the book describes is air being resupplied: the volcanoes are
-    // balanced against the escape, at half Earth's rate (0.51) -- the book's
-    // "geology fell silent" read as no longer remaking the surface. Tuned: the
-    // albedo for the temperature, the outgassing to hold the air.
+    // Set: 120 C, "the driest world in the Ra system", its air "barely 2x as
+    // dense as that of Mars" -- 0.011 atm -- and "no geological activity aside
+    // from an occasional quake". At the book's 0.37 M⊕ (1.02 g; the .ubox save's
+    // 0.24 M⊕ gave 0.66 g) the star's wind, with no field to turn it, strips
+    // that air in some 15 Myr; the book's sky is resupplied, by a trickle of
+    // outgassing, the author's choice over a sky thinning away. It comes to a
+    // ninth of Earth's rate (a Mercury-like field would make it 3 %; at the
+    // save's mass it took half of Earth's). Tuned: the albedo for the
+    // temperature, the outgassing to hold the air.
     // Its nitrogen is stripped and nothing makes more, so the air it keeps is
     // the volcanoes' CO2 with a trace, as on Mars; it starts that way.
     set: { base: { ...EARTH, ...airless, n2Bar: 0.0002, co2Bar: 0.0108, outgassing: 0.02,
@@ -128,8 +129,9 @@ export const PROFILES = {
            target: 393, knob: 'landAlbedo', balance: ['air'], clouds: 'full' },
     // "Soaked in an ocean of sulfuric acid, with just a few transient volcanic
     // islands." Nearly pure acid, which this model does not have, kept beside
-    // it in acid.js: 80 % of the map, 3 km deep ("a deep ocean", but "too
-    // shallow" for high-pressure ice). It boils at 338 C under an atmosphere
+    // it in acid.js: 95 % of the world, as the book's text and its picture have
+    // it (the generated map has more land, which the sea drowns), 3 km deep
+    // ("a deep ocean", but "too shallow" for high-pressure ice). It boils at 338 C under an atmosphere
     // and near 450 C under this air, so at 231 C it is a sea, giving off a few
     // hundredths of a bar that warm the sky and cloud it. (Water, at 1.45 S(+),
     // runs away however the sky is set up.)
@@ -138,9 +140,9 @@ export const PROFILES = {
     // volcanoes have given: its CO2 over Ra's 5.3 Gyr is 0.04 bar per 20 Myr,
     // a fiftieth of Earth's outgassing. At a fifth of Earth's it warmed 4 K in
     // 20 Myr on CO2 it could not have kept for long. Tuned: the CO2.
-    nephtys: { base: { ...EARTH, ...airless, landFraction: 0.18, n2Bar: 2, co2Bar: 10,
+    nephtys: { base: { ...EARTH, ...airless, landFraction: 0.05, n2Bar: 2, co2Bar: 10,
             obliquity: 15, landAlbedo: 0.2, internalHeat: 0.1, outgassing: 0.02, startT: 504 },
-           target: 504, knob: 'co2Bar', clouds: 'delta', acid: { cover: 0.8, depth: 3000 },
+           target: 504, knob: 'co2Bar', clouds: 'delta', acid: { cover: 0.95, depth: 3000 },
            note: 'acid' },
     // 0.62 atm, 66% oxygen and 29% nitrogen, violet forests. "Water covers 60
     // percent of Satis, but Satis has only a fraction of Earth's water ... its
@@ -151,8 +153,11 @@ export const PROFILES = {
     // oxygen -- the volcanic gases that balance the carbon eat oxygen seven
     // times Earth's rate, and an Earth-strength biosphere let it fall to a
     // tenth in 20 Myr and the planet cool to 7 C.
+    // "The planet has a magnetic field, albeit a weaker one than Earth": half,
+    // the book giving no figure; over 20 Myr it takes nothing measurable.
+    // Krypton and xenon, 3.7 % of its air, are not gases this model has.
     satis: { base: { ...EARTH, landFraction: 0.10, water: 0.2, n2Bar: 0.18, o2Bar: 0.41,
-            co2Bar: 1e-3, ch4Bar: 1e-6, biosphere: 1, obliquity: 20, landAlbedo: 0.22,
+            co2Bar: 1e-3, ch4Bar: 1e-6, biosphere: 1, magneticField: 0.5, obliquity: 20, landAlbedo: 0.22,
             internalHeat: 0.06, startT: 297 },
            target: 297, knob: 'co2Bar', balance: ['oxygen'], clouds: 'delta', veg: 'purple' },
     // A 9 M⊕ world, 28% water by mass, 8 C at a quarter of Earth's light under
@@ -177,10 +182,10 @@ export const PROFILES = {
             co2Bar: 1.5, ch4Bar: 0.12, o2Bar: 0, biosphere: 0.33, obliquity: 10,
             internalHeat: 0.3, outgassing: 0.5, h2SinksO2: true, startT: 281 }, waterShare: 0.281,
            target: 281, knob: 'h2Bar', pressure: 5.58, fill: 'n2Bar', balance: ['methane'], clouds: 'delta' },
-    // A low-density world 4% gas by mass, -130 C at 1.2% of Earth's light.
+    // A low-density world 4% gas by mass, -122 C at 1.2% of Earth's light.
     // Tuned: the hydrogen.
     shu: { base: { ...EARTH, ...icy(0.375), heliumFrac: 0.1, h2Bar: 2, internalHeat: 0.2,
-            obliquity: 18, startT: 143 }, target: 143, knob: 'h2Bar', clouds: 'delta' },
+            obliquity: 18, startT: 151 }, target: 151.15, knob: 'h2Bar', clouds: 'delta' },
     // Frozen super-Earth 560 AU out. Tuned: the interior heat.
     yamm: { base: { ...EARTH, ...icy(0.151), landFraction: 0.3, internalHeat: 0.05,
             obliquity: 10, startT: 31 }, target: 31, knob: 'internalHeat', clouds: 'full' },
@@ -190,28 +195,34 @@ export const PROFILES = {
     kauket: { base: { ...EARTH, ...icy(0.625), internalHeat: 5e-4, obliquity: 5, startT: 10,
                 volatileIces: true, n2IceBar: 0.01 },
               target: 10, knob: 'internalHeat', clouds: 'full' },
-    // Wadjet's lava moon at 49 times Earth's sunlight: "a hellish blend of Io
-    // and Venus, leaning hard toward Io ... 450 C even in its calmest spots --
-    // all under a near-vacuum sky", its tides "reignited" by a strike that made
-    // its orbit eccentric again. Starlight alone gives it 428 C on average; the
-    // book's 450 takes tidal heat from Wadjet of 1.6 kW/m2 -- hundreds of
-    // Ios, a crust over magma. "Calmest spots" read as the ground away from the
-    // volcanoes, so the mean: holding even its poles at 450 would take 15
-    // kW/m2 and a 600 C world the book does not describe. Tuned: the tidal heat.
-    sekhmet: { base: { ...EARTH, ...airless, internalHeat: 5, landAlbedo: 0.1, obliquity: 2,
-            startT: 723 }, target: 723, knob: 'internalHeat', clouds: 'full', heat: 'tidal' },
+    // Wadjet's lava moon at 49 times Earth's sunlight, its tides reinvigorated
+    // by a strike that made its orbit eccentric again: "a hellish mix of Io and
+    // Venus, although heavily leaning to the former ... Even on the calmest and
+    // most stable places, temperatures can reach 450 C ... some places in the
+    // nighttime near the poles can actually reach a few degrees below 0 C ...
+    // Sekhmet's environment is more extreme than Io's, though its degree of
+    // tidal heating is similar. It owes that to the intense irradiation from
+    // Ra." So the tides are Io's 2.2 W/m2 and the heat is the star's. The book
+    // gives no mean temperature: 450 C is what calm ground reaches, which the
+    // day side passes, and the mean is what the starlight makes of it.
+    sekhmet: { base: { ...EARTH, ...airless, internalHeat: 2.2, landAlbedo: 0.1, obliquity: 2,
+            startT: 700 }, clouds: 'full', heat: 'tidal' },
     // Satis's moon: half the Moon's mass (the book says so; data.js has no figure).
     satismoon: { base: { ...EARTH, ...airless, internalHeat: 0.01, landAlbedo: 0.12,
             obliquity: 3, startT: 270 }, massKg: 3.67e22, clouds: 'full' },
     // Uat-Ur's moons: -93 C and -100 C, airless. Tuned: the albedo.
-    // Nu: -93 C on its ice, "a global ocean a few degrees above freezing,
-    // crusted by ice often only metres thick", 4.6 % water (3.4 of Earth's
-    // oceans), a near-vacuum sky, "among the most tidally heated bodies in the
-    // system". Ice metres thick over a sea at the freezing point conducts
-    // 651 ln(273/180)/d W/m² (Ojakangas & Stevenson 1989) -- about 30 for ten
-    // metres, tidal heat far past Io's 2. Tuned: that heat, for the temperature.
-    nu: { base: { ...EARTH, ...icy(0.046), internalHeat: 30, obliquity: 3, startT: 180 },
-          target: 180, knob: 'internalHeat', clouds: 'full', heat: 'tidal' },
+    // Nu: -93.15 C on its ice, "a global ocean just a few degrees above
+    // freezing", 4.6 % water (3.4 of Earth's oceans), a near-vacuum sky, "with
+    // a heat flux as strong or greater than Io". "Most of the ocean is
+    // encrusted by hundreds of meters of ice", with "patches of almost open
+    // ocean, crusted by ice merely meters thick" over hot springs. Ice over a
+    // sea at the freezing point carries 651 ln(273/180)/d W/m2 (Ojakangas &
+    // Stevenson 1989), so Io's 2.2 makes it 120 m, as thick as the book's
+    // heat allows: ten metres of it everywhere would take 30. The oases are
+    // where the heat comes up in hot spots. Tuned: the ice's albedo, its
+    // "ice and rock" stained "with sulfurous yellow".
+    nu: { base: { ...EARTH, ...icy(0.046), internalHeat: 2.2, iceAlbedo: 0.4, obliquity: 3, startT: 180 },
+          target: 180, knob: 'iceAlbedo', clouds: 'full', heat: 'tidal' },
     // Naunet: -100 C, "a 2-14 km crust of water, ammonia and CO2 ice, with a
     // thin (3-4 mbar) atmosphere". 0.3 % water is about 6 km of ice over its
     // rock. The air is not the CO2: at -100 C its frost holds it to half a

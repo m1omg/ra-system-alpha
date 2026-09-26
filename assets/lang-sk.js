@@ -354,7 +354,7 @@ data: {
     tagline:'Horúci sub-Neptún — kríženec Venuše a Neptúna, stopercentne pekelný',
     stats:[['Typ','Horúci mini/sub-Neptún'],['Hmotnosť','10,4 M⊕'],['Priemer','30 936 km'],
            ['Gravitácia','1,76 g (vrchol oblakov)'],['Obežná vzdialenosť','0,25 AU'],['Oslnenie','48,67 × Zem'],
-           ['Teplota','359 °C hore · 2170 °C na dne'],['Tlak','36,2 → 530 kiloatmosfér'],
+           ['Teplota','359 °C hore · 1205 °C na oceáne · 2170 °C na dne'],['Tlak','36,2 → 530 kiloatmosfér'],
            ['Mesiace','Sekhmet + niekoľko veľkosti asteroidov']],
     images:['Wadjet — pásikavý sub-Neptún v špinavých, žiarivých farbách',
             'Sekhmet (v popredí) plávajúci pred materským Wadjetom',
@@ -365,7 +365,7 @@ data: {
     tagline:'AreanXerický — najsuchší svet sústavy Ra',
     stats:[['Typ','AreanXerický (horúci suchý svet marsovského typu)'],['Hmotnosť','0,37 M⊕'],
            ['Priemer','7 680 km (0,6 × Zem)'],['Gravitácia','1,02 g'],['Obežná vzdialenosť','0,66 AU'],
-           ['Oslnenie','721 × … 7,21 × Zem'],['Teplota','120 °C'],['Tlak','0,011 atm'],['Mesiace','Žiadne']],
+           ['Oslnenie','7,21 × Zem'],['Teplota','120 °C'],['Tlak','0,011 atm'],['Mesiace','Žiadne']],
     images:['Set — hrdzavočervený púštny svet bohatý na železo',
             'Erodované červené veže pod Setovou zahmlenou, rozpálenou oblohou',
             'Parou vyrezané kaňony, zachované od Setovej búrlivej mladosti'],
@@ -374,7 +374,7 @@ data: {
   nephtys: {
     tagline:'Vitriolický BathyGaián — oceán kyseliny sírovej, a cudzí život',
     stats:[['Typ','Vitriolický BathyGaián'],['Hmotnosť','2,1 M⊕'],['Priemer','16 540 km'],['Gravitácia','1,25 g'],
-           ['Obežná vzdialenosť','1,448 AU'],['Oslnenie','145 × Zem'],['Teplota','231 °C'],
+           ['Obežná vzdialenosť','1,448 AU'],['Oslnenie','1,45 × Zem'],['Teplota','231 °C'],
            ['Život','Cudzí — rozpúšťadlom kyselina sírová, biomolekuly zo silikónov'],
            ['Mesiace','Žiadne (jeden do nej dávno narazil)']],
     images:['Nephtys — utopená v červenohnedých sírových „vodách“, bodkovaná pominuteľnými sopečnými ostrovmi'],
@@ -384,7 +384,7 @@ data: {
     tagline:'AreanLakustrický — svet veľkosti Marsu, ktorý zrodil inteligentný život',
     stats:[['Typ','AreanLakustrický'],['Hmotnosť','0,25 M⊕ (2,37 × Mars)'],['Priemer','7 780 km'],
            ['Gravitácia','0,68 g'],['Obežná vzdialenosť','1,71 AU'],['Oslnenie','103,7 % Zeme'],
-           ['Pokrytie vodou','60 %'],['Teplota','24 °C'],['Tlak','0,62 atm (66 % O₂, 29 % N₂)'],
+           ['Pokrytie vodou','60 %'],['Teplota','24 °C'],['Tlak','0,62 atm (66 % O₂, 29 % N₂, 2,6 % Kr, 1,1 % Xe)'],
            ['Život','Komplexný — dal vzniknúť inteligencii'],['Mesiace','1 (polovica hmotnosti Luny)']],
     images:['Satis — modré moria a fialové lesy, s jediným mesiacom',
             'Týčiace sa fialové lesy počas epochy Rozkvetu',
@@ -395,7 +395,7 @@ data: {
     tagline:'BathyPelagický — dokonalá modrá guľôčka, ktorá je pre život púšťou',
     stats:[['Typ','BathyPelagický (svet hlbokého oceánu)'],['Hmotnosť','9,1 M⊕'],['Priemer','27 456 km'],
            ['Gravitácia','1,96 g'],['Obežná vzdialenosť','3,50 AU'],['Excentricita','0,179'],
-           ['Oslnenie','24,83 % Zeme'],['Teplota','8 °C'],['Tlak','5,51 atm'],
+           ['Oslnenie','24,78 % Zeme'],['Teplota','8 °C'],['Tlak','5,51 atm'],
            ['Život','Riedke prokaryoty (zanesené z Nu) + kolónie zo Satis'],['Mesiace','Nu, Naunet']],
     images:['Uat-Ur — skutočná modrá guľôčka, zohrievaná zvnútra'],
     desc:'Z vesmíru je Uat-Ur najkrajším svetom Ra — skutočná modrá guľôčka. Je naozaj mierny: napriek vzdialenosti ho hreje atmosféra bohatá na vodík a metán, oblaky CO₂ a vnútorné teplo sveta s takmer Neptúnovou hmotnosťou.\n\nA predsa je takmer bez života. Uat-Ur je z 28 % voda: pod jeho ~100 km hlbokým oceánom leží hrubý plášť vysokotlakového ľadu, ktorý skalnaté vnútro od oceánu odrezáva a necháva vodu takmer čistú — sterilnú, na živiny chudobnú obriu kvapku. Pri osvetlenej hladine sa vznáša len jednoduchý život, z veľkej časti zanesený z mesiaca Nu. Biomyseľ Satis ho kolonizovala — bioluminiscenčné oblačné lesy dnes rozsvecujú jeho noci — no pre ňu je len dočasným predmostím.'
@@ -403,8 +403,8 @@ data: {
   shu: {
     tagline:'Studený svet nízkej hustoty na zamrznutej hranici sústavy',
     stats:[['Hmotnosť','1,71 M⊕'],['Hustota','2 g/cm³ (ľadová)'],['Obežná vzdialenosť','15,7 AU'],
-           ['Excentricita','0,113'],['Oslnenie','1,234 % Zeme'],['Teplota','−130 °C']],
-    desc:'Shu je vzdialený svet nízkej hustoty v studenej vonkajšej sústave — dostáva len asi 1 % zemského slnečného svitu a pri −130 °C sedí na hranici medzi planétami Ra a ríšou jej hnedotrpasličieho spoločníka Horusa. (Autorove poznámky k Shu ešte len vznikajú.)'
+           ['Excentricita','0,113'],['Oslnenie','1,234 % Zeme'],['Teplota','−122 °C']],
+    desc:'Shu je vzdialený svet nízkej hustoty v studenej vonkajšej sústave — dostáva len asi 1 % zemského slnečného svitu a pri −122 °C sedí na hranici medzi planétami Ra a ríšou jej hnedotrpasličieho spoločníka Horusa. (Autorove poznámky k Shu ešte len vznikajú.)'
   },
   salibe: {
     tagline:'Prízračne bledý štvrtý plynný obor ďaleko za Horusom',
@@ -437,7 +437,7 @@ data: {
     images:['Sekhmet — horúci, zahmlený kamenný mesiac; za ním planie Ra',
             'Sekhmet (v popredí) v silhuete pred materským Wadjetom',
             'Na povrchu Sekhmetu: nad roztavenými sopečnými pláňami sa týči Wadjet'],
-    desc:'Kedysi, na geologický okamih počas Wadjetovej migrácie, bol Sekhmet oceánskym svetom bohatým na organické látky — potom vyvrel dosucha, dobili ho impakty a sčasti sa roztavil do morí lávy a roztavenej soli. Po pokojnom veku mu nedávny dopad asteroidu znova zvýšil excentricitu dráhy a rozdúchal Wadjetovo slapové zohrievanie.\n\nDnes je pekelnou zmesou Io a Venuše, s ťažkým príklonom k Io: sopky, roztavené pláne a podzemné jazerá síry, 450 °C aj na najpokojnejších miestach — to všetko pod takmer vákuovou oblohou, keďže jeho riedku odplynenú „atmosféru“ strháva žiarenie tak rýchlo, ako vzniká. Unikajúca hmota sa za ním tiahne ako jemný, kométam podobný chvost, ktorý často zametá cez Wadjet a korení jeho oblaky.'
+    desc:'Kedysi, na geologický okamih počas Wadjetovej migrácie, bol Sekhmet oceánskym svetom bohatým na organické látky — potom vyvrel dosucha, dobili ho impakty a sčasti sa roztavil do morí lávy a roztavenej soli. Po pokojnom veku mu nedávny dopad asteroidu znova zvýšil excentricitu dráhy a rozdúchal Wadjetovo slapové zohrievanie.\n\nDnes je pekelnou zmesou Io a Venuše, s ťažkým príklonom k Io: sopky, roztavené pláne a podzemné jazerá síry, kde aj najpokojnejšia pôda môže dosiahnuť 450 °C — to všetko pod takmer vákuovou oblohou, keďže jeho riedku odplynenú „atmosféru“ strháva žiarenie tak rýchlo, ako vzniká. Unikajúca hmota sa za ním tiahne ako jemný, kométam podobný chvost, ktorý často zametá cez Wadjet a korení jeho oblaky. Slapy ho zohrievajú zhruba ako Io; zvyšok robí žiara Ra, a keďže teplo nedrží žiadny vzduch, miesta pri póloch v noci klesnú pár stupňov pod bod mrazu.'
   },
   satismoon: {
     tagline:'Malý spoločník, ktorý drží Satis pri živote',
@@ -449,7 +449,7 @@ data: {
     stats:[['Hmotnosť','1,4 × Luna'],['Hustota','3,98 g/cm³'],['Priemer','3 672 km'],['Gravitácia','0,208 g'],
            ['Zloženie','72,9 % hornina · 22,7 % železo · 4,6 % voda'],['Priem. teplota','−93 °C (oázy 0–90 °C)'],
            ['Život','Pôvodný — mikrobiálny, s kyslíkovou fotosyntézou'],['Materská planéta','Uat-Ur']],
-    desc:'Chiméra Io, Európy a Zeme. Nu, sotva väčší než Luna, patrí k slapovo najzohrievanejším telesám sústavy — no vysoký obsah vody ho ušetril osudu Io. Namiesto sopečného pekla je hydrotermálnym rajom: globálny oceán pár stupňov nad bodom mrazu, pokrytý ľadom často len metre hrubým, so vzácnymi oázami otvorenej modrej vody pariacej sa pod takmer vákuovou, takmer čiernou oblohou.\n\nHoci má menej než 5 % vody podľa hmotnosti, aj to je 3,4-násobok všetkej pozemskej vody. Život tu nielen existuje, ale prekvitá — vyvinul dokonca kyslíkovú fotosyntézu. Genetika ukazuje, že život na Nu aj Uat-Ur začal práve tu, a odolní domorodci z Nu zatiaľ odrazili každý pokus biomysle Satis o zamorenie.'
+    desc:'Chiméra Io, Európy a Zeme. Nu, sotva väčší než Luna, patrí k slapovo najzohrievanejším telesám sústavy — no vysoký obsah vody ho ušetril osudu Io. Namiesto sopečného pekla je hydrotermálnym rajom: globálny oceán pár stupňov nad bodom mrazu pod ľadom väčšinou stovky metrov hrubým a miestami len metre, so vzácnymi oázami otvorenej modrej vody pariacej sa pod takmer vákuovou, takmer čiernou oblohou.\n\nHoci má menej než 5 % vody podľa hmotnosti, aj to je 3,4-násobok všetkej pozemskej vody. Život tu nielen existuje, ale prekvitá — vyvinul dokonca kyslíkovú fotosyntézu. Genetika ukazuje, že život na Nu aj Uat-Ur začal práve tu, a odolní domorodci z Nu zatiaľ odrazili každý pokus biomysle Satis o zamorenie.'
   },
   naunet: {
     tagline:'Kde končia svety marsovského typu a začínajú ľadové mesiace?',

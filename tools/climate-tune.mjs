@@ -262,7 +262,11 @@ if (!CHECK) {
   if (ONLY.length) {
     for (const s of ['ra', 'sol']) {
       const merged = {};
-      for (const [k, v] of Object.entries(previous[s] || {})) merged[k] = k in tunedOut[s] ? tunedOut[s][k] : v;
+      // a body re-run with nothing left to tune loses its row, not keeps a stale one
+      for (const [k, v] of Object.entries(previous[s] || {})) {
+        if (k in tunedOut[s]) merged[k] = tunedOut[s][k];
+        else if (!ONLY.includes(k)) merged[k] = v;
+      }
       for (const [k, v] of Object.entries(tunedOut[s])) if (!(k in merged)) merged[k] = v;
       tunedOut[s] = merged;
     }

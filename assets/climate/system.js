@@ -79,7 +79,9 @@ export const RS = {
 // it counts again. The level never exceeds the book's: a world documented
 // lifeless stays so, whatever the model could grow on it.
 export const LIFE_CAUSES = ['heat', 'boiled', 'cooked', 'magma', 'frozen', 'dry', 'anoxia', 'starved'];
-const LIFE_LEVEL = { intelligent: 3, complex: 2, alien: 1, seeded: 1, native: 1, microbial: 1 };
+// 'seeded' is Uat-Ur: microbes from Nu, and over them the Satis colonies -- "the
+// bioluminescent cloud-forests light up the night" -- which is complex life.
+const LIFE_LEVEL = { intelligent: 3, complex: 2, alien: 1, seeded: 2, native: 1, microbial: 1 };
 const INTELLIGENCE_YEARS = 5e8;
 // A magma ocean melts the refuge where it reaches it: melt costs latent heat
 // plus the warming to the solidus, about 1.8 MJ per kilogram of rock.
