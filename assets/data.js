@@ -114,7 +114,7 @@ const PLANETS = [
       ["Gravity", "1.76 g (cloudtops)"],
       ["Orbital distance", "0.25 AU"],
       ["Insolation", "48.67 × Earth"],
-      ["Temperature", "359 °C tops · 2170 °C seafloor"],
+      ["Temperature", "359 °C tops · 1205 °C ocean · 2170 °C seafloor"],
       ["Pressure", "36.2 → 530 kiloatmospheres"],
       ["Moons", "Sekhmet + several asteroid-sized"]
     ],
@@ -139,7 +139,7 @@ const PLANETS = [
     tagline: "AreanXeric — the driest world in the Ra system",
     dist: 0.66, ecc: 0.0, period: 0.5024,
     radiusKm: 3840, rotationPeriod: 1.4,
-    massKg: 1.430e24, comp: { iron: 0.488, rock: 0.512, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
+    massKg: 2.210e24, comp: { iron: 0.488, rock: 0.512, water: 0,     gas: 0     },   // mass: Satis v10, 0.37 M⊕ (its density, diameter and 1.02 g agree; the .ubox has 1.430e24); comp: .ubox depots
     color: 0xa83c1e,
     palette: ["#6e2410","#b8431e","#d6562a","#8a2e14","#c8552a","#e07a3c"],
     rocky: { base:"#8a2c12", a:"#c4501f", b:"#5e1e0c", c:"#e08038" },
@@ -150,7 +150,7 @@ const PLANETS = [
       ["Diameter", "7,680 km (0.6 × Earth)"],
       ["Gravity", "1.02 g"],
       ["Orbital distance", "0.66 AU"],
-      ["Insolation", "721 × … 7.21 × Earth"],
+      ["Insolation", "7.21 × Earth"],
       ["Temperature", "120 °C"],
       ["Pressure", "0.011 atm"],
       ["Moons", "None"]
@@ -187,7 +187,7 @@ const PLANETS = [
       ["Diameter", "16,540 km"],
       ["Gravity", "1.25 g"],
       ["Orbital distance", "1.448 AU"],
-      ["Insolation", "145 × Earth"],
+      ["Insolation", "1.45 × Earth"],
       ["Temperature", "231 °C"],
       ["Life", "Alien — sulfuric-acid solvent, silicone biomolecules"],
       ["Moons", "None (one crashed into it long ago)"]
@@ -225,7 +225,7 @@ const PLANETS = [
       ["Insolation", "103.7 % of Earth"],
       ["Water coverage", "60 %"],
       ["Temperature", "24 °C"],
-      ["Pressure", "0.62 atm (66% O₂, 29% N₂)"],
+      ["Pressure", "0.62 atm (66% O₂, 29% N₂, 2.6% Kr, 1.1% Xe)"],
       ["Life", "Complex — gave rise to intelligence"],
       ["Moons", "1 (half the mass of Luna)"]
     ],
@@ -263,7 +263,7 @@ const PLANETS = [
       ["Gravity", "1.96 g"],
       ["Orbital distance", "3.50 AU"],
       ["Eccentricity", "0.179"],
-      ["Insolation", "24.83 % Earth"],
+      ["Insolation", "24.78 % Earth"],
       ["Temperature", "8 °C"],
       ["Pressure", "5.51 atm"],
       ["Life", "Sparse prokaryotes (seeded from Nu) + Satis colonies"],
@@ -288,7 +288,7 @@ const PLANETS = [
     tagline: "A cold, low-density world on the system's frozen frontier",
     dist: 15.7, ecc: 0.113, period: 58.29,
     radiusKm: 10680, rotationPeriod: 9,
-    massKg: 6.519e24, comp: { iron: 0.146, rock: 0.439, water: 0.375, gas: 0.041 },   // Universe Sandbox .ubox depots
+    massKg: 1.021e25, comp: { iron: 0.146, rock: 0.439, water: 0.375, gas: 0.041 },   // mass: Satis v10, 1.71 M⊕ (the .ubox has 6.519e24); comp: .ubox depots
     color: 0xaebfcf,
     palette: ["#7f93a8","#b6c6d6","#dde8f0","#9aaabd"],
     atmo: 0x9fb6cc,
@@ -298,12 +298,12 @@ const PLANETS = [
       ["Orbital distance", "15.7 AU"],
       ["Eccentricity", "0.113"],
       ["Insolation", "1.234 % Earth"],
-      ["Temperature", "−130 °C"]
+      ["Temperature", "−122 °C"]
     ],
     images: [],
     desc:
       "Shu is a distant, low-density world of the cold outer system — only about 1% of Earth's sunlight reaches "+
-      "it, and at −130 °C it sits on the frontier between Ra's planets and the realm of its brown-dwarf companion, "+
+      "it, and at −122 °C it sits on the frontier between Ra's planets and the realm of its brown-dwarf companion, "+
       "Horus. (The worldbuilding notes for Shu are still in progress.)"
   },
   /* ---- The trans-Horus worlds. All three exist in the author's Universe
@@ -436,9 +436,11 @@ const MOONS = [
       "then it boiled dry, was battered by impacts, and partly melted into seas of lava and molten salt. After "+
       "a quiet age, a recent asteroid strike re-eccentrified its orbit and reignited Wadjet's tidal heating.\n\n"+
       "Today it is a hellish blend of Io and Venus, leaning hard toward Io: volcanoes, molten plains and "+
-      "underground sulfur lakes, 450 °C even in its calmest spots — all under a near-vacuum sky, since its thin "+
+      "underground sulfur lakes, where even the calmest ground can reach 450 °C — all under a near-vacuum sky, since its thin "+
       "outgassed 'atmosphere' is stripped away as fast as it forms. That escaping matter trails behind it as a "+
-      "subtle comet-like tail that often sweeps across Wadjet, seasoning its clouds."
+      "subtle comet-like tail that often sweeps across Wadjet, seasoning its clouds. Its tides heat it about as "+
+      "much as Io's heat Io; the rest is Ra's glare, and with no air to keep the warmth, spots near the poles dip a "+
+      "few degrees below freezing at night."
   },
   {
     key: "satismoon", name: "Khnum", parent: "satis", kind: "rocky",
@@ -483,7 +485,8 @@ const MOONS = [
     desc:
       "A chimera of Io, Europa and Earth. Barely larger than Luna, Nu is among the most tidally heated bodies in "+
       "the system — but its high water content spared it Io's fate. Instead of a volcanic hell it is a hydrothermal "+
-      "paradise: a global ocean a few degrees above freezing, crusted by ice often only metres thick, with rare "+
+      "paradise: a global ocean a few degrees above freezing under ice mostly a few hundred metres thick and in "+
+      "places only metres, with rare "+
       "oases of open blue water steaming under a near-vacuum, near-black sky.\n\n"+
       "Despite under 5% water by mass, that is still 3.4× all of Earth's water. Life not only exists here but "+
       "thrives — it even evolved oxygen-producing photosynthesis. Genetics show life on both Nu and Uat-Ur "+
@@ -572,7 +575,7 @@ const HORUS_MOONS = [
   {
     key:"khonsu", name:"Khonsu", parent:"horus", kind:"rocky",
     tagline:"A cold, rocky moon of the brown dwarf",
-    dist:0.0125, ecc:0.0066, period:0.030, radiusKm:4900, rotationPeriod:2,
+    dist:0.0125, ecc:0.00664, period:0.030, radiusKm:4900, rotationPeriod:2,
     massKg: 3.307e24, comp: { iron: 0.136, rock: 0.728, water: 0.136, gas: 0     },   // Universe Sandbox .ubox depots
     color:0x9a8d7a,
     rocky:{ base:"#6f6354", a:"#a89880", b:"#463d32", c:"#c8bba6" },
@@ -590,7 +593,7 @@ const HORUS_MOONS = [
     key:"nut", name:"Nut", parent:"horus", kind:"icemoon",
     tagline:"A frigid, ice-shelled, Europa-like world of Horus",
     dist:0.0156, ecc:0.0104, period:0.042, radiusKm:7500, rotationPeriod:3,
-    massKg: 1.036e25, comp: { iron: 0.255, rock: 0.745, water: 0,     gas: 0     },   // Universe Sandbox .ubox depots
+    massKg: 1.036e25, comp: { iron: 0.163, rock: 0.297, water: 0.541, gas: 0     },   // mass: .ubox depots; comp: Satis v10 (the .ubox has no water)
     color:0xbcd0d8,
     rocky:{ base:"#cdd9e2", a:"#eaf1f6", b:"#7d96a8", c:"#c7a487" },  // pale ice + tan lineae
     atmoThin:true, atmo:0xaccad6,
