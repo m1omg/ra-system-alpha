@@ -20,7 +20,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '878b8d6';          // "Climate sandbox: every terrestrial world runs the Planet Climate Sandbox model"
 // every parameter a patch reads; unset, each must leave altdev2 exactly as it was
 const PATCH_PARAMS = ['weatherCapK', 'originWait', 'abiogenesis', 'heatKillsDry', 'heatDeathFastYears',
-  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas', 'h2SinksO2', 'overlay'];
+  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas', 'h2SinksO2', 'overlay',
+  'volatileIces', 'n2IceBar', 'ch4IceBar'];
 
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {
@@ -83,6 +84,8 @@ const cases = [
   ['A Hycean ocean on ice VII under 0.2 bar of O2, 1 Myr', 'hycean', { o2Bar: 0.2 }, null, 1e6, 2e4],
   // a small frozen waterworld, whose own model sets its ice's albedo (Enceladus)
   ['A small frozen waterworld, 1 Myr', 'icySmallWaterworld', {}, null, 1e6, 2e4],
+  // a nitrogen world near its frost point, where frost would lie (Titan)
+  ['Titan, 1 Myr', 'titan', {}, null, 1e6, 2e4],
 ];
 for (const [label, name, extra, poke, years, step] of cases) {
   if (!ours.presets.PRESETS[name]) { ok(false, label, `no preset ${name}`); continue; }
@@ -106,9 +109,14 @@ ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition
 }
 // Enceladus's ice on the small-waterworld model
 {
-  const [, name, extra, poke, years, step] = cases.at(-1);
+  const [, name, extra, poke, years, step] = cases.find((c) => c[1] === 'icySmallWaterworld');
   const r = run(name, extra, poke, years, step, { iceAlbedo: 0.81 });
   ok(!r.same, 'control: with its ice as bright as Enceladus\'s, the small waterworld differs', r.where);
+}
+// Pluto's frost, on Titan: a bar of nitrogen and methane frost to give or take
+{
+  const r = run('titan', {}, null, 1e6, 2e4, { volatileIces: true, n2IceBar: 1, ch4IceBar: 0.05 });
+  ok(!r.same, 'control: with nitrogen and methane frost, Titan differs', r.where);
 }
 // the overlay a system layer hands in (Nephtys's acid sea): half of Mars under a
 // dark sea, with its vapour and its heat

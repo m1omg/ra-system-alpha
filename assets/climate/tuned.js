@@ -29,7 +29,7 @@ export const TUNED = {
    "internalHeat": 0.0500166
   },
   "kauket": {
-   "internalHeat": 0.000999834
+   "internalHeat": 0.00100904
   },
   "nu": {
    "internalHeat": 25.0187
@@ -52,5 +52,12 @@ export const TUNED = {
    "internalHeat": 1618.02
   }
  },
- "sol": {}
+ "sol": {
+  "pluto": {
+   "iceAlbedo": 0.534687
+  },
+  "triton": {
+   "iceAlbedo": 0.69625
+  }
+ }
 };

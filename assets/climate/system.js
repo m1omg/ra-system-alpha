@@ -815,6 +815,10 @@ export class ClimateSystem {
         realisticGeology: !!p.realisticGeology, xuvDecay: !!p.xuvDecay,
         mantleInfinite: !!p.mantleInfinite, fossilInfinite: !!p.fossilInfinite,
       },
+      // gas lying frozen on the ground, as the pressure it would make in the air:
+      // the model's CO2 caps and, where a world has them, nitrogen and methane frost
+      frost: { co2: Math.max(w.co2Frozen ?? 0, 0) * g / 1e5, n2: Math.max(w.n2Frozen ?? 0, 0) * g / 1e5,
+               ch4: Math.max(w.ch4Frozen ?? 0, 0) * g / 1e5 },
       // what the carbon controls draw on: the mantle's, as bar of CO2, and the
       // share of the fossil reserve left
       mantleBar: Math.max(w.carbonDeep ?? 0, 0) * g / 1e5,

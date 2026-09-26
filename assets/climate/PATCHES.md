@@ -155,6 +155,35 @@ doubles the world's heat capacity, so a 3×10²⁵ J strike takes the coldest ba
 to 347 °C where the same world dry goes to 528 °C; 10²⁷ J puts 30 % of the sea in the
 air, and 2×10²⁸ J all of it, which rains back as the world cools.
 
+## volatileIces, n2IceBar, ch4IceBar — nitrogen and methane frost — volatiles.js, climate.js, snapshot.js
+
+altdev2 freezes CO₂ out onto cold ground and nothing else, so Pluto and Triton
+kept whatever air they were given, and a Pluto moved inward grew none. With
+`volatileIces` a world has nitrogen and methane frost (CO rides with the
+nitrogen, which it matches), `n2IceBar` and `ch4IceBar` of it, the pressure each
+would make if it all rose. Where there is frost, the air holds the vapour
+pressure over it at the cold trap, as far as the frost can supply, and snows out
+onto it past that. The vapour pressure is one Clausius–Clapeyron slope each:
+nitrogen through its triple point and Pluto's 11.5 µbar over ice at 37.0 K
+(Gladstone et al. 2016), which is 6.9 kJ/mol; methane through its triple point
+at 9.2 kJ/mol.
+
+The frost's latent heat is carried as heat capacity in the bands at the cold
+trap, as the model carries its water's, so a frosted world is held near its
+frost point while the frost lasts. That is what keeps Pluto's ice at 37 K. A
+first version relaxed the air towards the vapour pressure over 2000 years and
+paid no latent heat. Moved to 1 AU, it kept a trace of nitrogen in the air that
+the small-waterworld wind carried off as fast as it rose, and the step
+controller held the world to fourteen-minute steps. With the heat paid, Pluto at
+1 AU stays below 90 K for years while its frost rises. It holds 1.1 bar of
+nitrogen and 0.05 of methane after 25 years, and loses it to escape within 600;
+brought back first, it snows back to 12.5 µbar over its frost in 11 kyr. That
+takes 570 steps.
+
+Snapshots carry the frost where a world has any, and nothing otherwise, so
+altdev2's saves are unchanged. Unset, the model is altdev2's to the bit
+(patchcheck: Titan, and a control).
+
 ## Not a patch: how the energy of a strike gets in
 
 `system.js` puts a strike's heat into the bands directly (`injectHeat`), through

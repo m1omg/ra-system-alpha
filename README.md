@@ -69,6 +69,13 @@ air and seas the book gives it.
   sky, and boils on the acid's own curve, 338 °C under an atmosphere and 450 °C
   under Nephtys's 13 bar. A big enough strike puts the whole sea in the sky; it
   rains back as the world cools, and freezes pale, at +3 °C, far from Ra.
+- Nitrogen and methane lie frozen on the cold worlds, and their air is the
+  vapour over the frost: Pluto's 12 µbar over the bar of nitrogen in Sputnik
+  Planitia at 37 K, Triton's over its frost at 38 K, Kauket's thin envelope
+  frozen on its ice. Move Pluto inward and the frost rises into a bar of
+  nitrogen and methane, holding the ground near its frost point while it
+  goes; left there, escape takes it within centuries; brought back first, it
+  snows out onto the ice again.
 - One story of the damage: on a climate world the impact lab, the hover text
   and the climate card read the same state. The lab weighs the climate's own
   water (Earth's ocean is 2×10⁻⁴ of the planet), "oceans boiled" is the share

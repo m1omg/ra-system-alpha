@@ -1022,6 +1022,18 @@ export function photosynthesis(w) {
 const BIO_DIE = 200;      // yr
 const BIO_GROW = 5000;    // yr
 
+// [ra-climate patch] volatileIces: vapour pressure over nitrogen and methane
+// ice, in Pa, each on one Clausius-Clapeyron slope. Nitrogen through its triple
+// point (63.15 K, 0.1253 bar) and Pluto's surface, 11.5 microbar over ice at
+// 37.0 K (Gladstone et al. 2016; Hinson et al. 2017): 6.9 kJ/mol, its heat of
+// sublimation. Methane through its triple point (90.69 K, 0.117 bar) at 9.2
+// kJ/mol, its heats of fusion and vaporisation there. CO rides with the
+// nitrogen, which it matches in both.
+export function psatN2(T) { return 0.1253e5 * Math.exp(N2_SLOPE * (1 / 63.15 - 1 / T)); }
+export function psatCH4(T) { return 0.117e5 * Math.exp(CH4_SLOPE * (1 / 90.69 - 1 / T)); }
+// the slopes, in K, and the heats of sublimation they are, in J/kg
+export const N2_SLOPE = 830.6, CH4_SLOPE = 1107, L_N2 = 830.6 * 8.314 / 0.028, L_CH4 = 1107 * 8.314 / 0.016;
+
 export function stepVolatiles(w, dtYears) {
   const dg0 = w.diag ?? {};
   // The band ice this step arrived at, and the one the step before it did, so
@@ -1673,6 +1685,32 @@ export function stepVolatiles(w, dtYears) {
     const target = Math.min(w.co2Frozen, (pEq / dg.g - w.co2));
     const move = Math.max(0, target) * relax;
     w.co2 += move; w.co2Frozen -= move;
+  }
+
+  // [ra-climate patch] volatileIces: nitrogen and methane frost. Where there is
+  // frost, the air holds the vapour pressure over it at the cold trap, as far as
+  // the frost can supply it, and snows out onto it past that; the heat each
+  // kelvin of the cold trap puts into or takes out of the frost is in the band
+  // heat capacity (climate.js), which is what holds a frosted world at its
+  // frost point while the frost lasts -- the buffering that keeps Pluto's ice
+  // at 37 K -- and paid as the model's water pays for its vapour. What Pluto and
+  // Triton have for air is this and nothing else: warm them and the frost
+  // becomes an atmosphere, which the escape below then works on; cool them and
+  // it snows out. Frozen gas is out of the escape's reach, as the CO2 caps are.
+  // The reservoirs start from n2IceBar and ch4IceBar, the pressure each would
+  // make if it all rose. Unset, this is altdev2 exactly.
+  if (p.volatileIces) {
+    if (w.n2Frozen == null) {
+      w.n2Frozen = Math.max(p.n2IceBar ?? 0, 0) * 1e5 / dg.g;
+      w.ch4Frozen = Math.max(p.ch4IceBar ?? 0, 0) * 1e5 / dg.g;
+    }
+    const frost = (gas, frozen, psat) => {
+      const eq = psat(Tcold) / dg.g;
+      if (w[gas] > eq) { const m = w[gas] - eq; w[gas] -= m; w[frozen] += m; }
+      else if (w[frozen] > 0) { const m = Math.min(w[frozen], eq - w[gas]); w[gas] += m; w[frozen] -= m; }
+    };
+    frost('n2', 'n2Frozen', psatN2);
+    frost('ch4', 'ch4Frozen', psatCH4);
   }
 
   // --- the envelope goes first ---------------------------------------------

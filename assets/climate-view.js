@@ -1174,6 +1174,9 @@ function renderPanel(det){
     [t('Surface pressure','Tlak pri povrchu'), fmtPressure(det.pTot)],
     ...(buried ? [[t('Buried ocean, top','Pochovaný oceán, vrch'), fmtT(buried)+' '+t('under the steam','pod parou')]] : []),
     [t('Air','Vzduch'), comp||t('none','žiadny')],
+    // frozen gases: what would stand in the air if it all rose
+    ...((()=>{ const fr=det.frost||{}, parts=[['N₂',fr.n2],['CH₄',fr.ch4],['CO₂',fr.co2]].filter(x=>x[1]>1e-7);
+      return parts.length ? [[t('Frozen on the ground','Zamrznuté na povrchu'), parts.map(x=>x[0]+' '+fmtPressure(x[1])).join(' · ')]] : []; })()),
     [t('Reflects (albedo)','Odráža (albedo)'), Math.round(det.albedo*100)+' %'+' · '+t('cloud','oblačnosť')+' '+Math.round(det.cloud*100)+' %'],
     [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+oceansWord(fmtNum(w.total))+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],
     // open water and ice, never "sea" for a sea that is frozen solid

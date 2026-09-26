@@ -93,10 +93,23 @@ export const PROFILES = {
     // is the visual geometric albedo, which is not. At 0.60, the model's sea
     // ice, its noon was 103 K; at 0.81 it is 85 K, where Cassini saw about 80.
     enceladus: { base: { ...EARTH, ...icy(0.6), internalHeat: 0.02, iceAlbedo: 0.81, startT: 62 }, clouds: 'full' },
-    triton:  { base: { ...EARTH, ...icy(0.35), n2Bar: 1.4e-5, internalHeat: 0.005, startT: 38 },
-               clouds: 'full' },
+    // Nitrogen frost (volatileIces, PATCHES.md): the air of both is the vapour
+    // over their ice, so each is held at the temperature its frost was measured
+    // at -- which is what sets its air -- by the frost's albedo. Triton: 14
+    // microbar over N2 ice at 38 K (Voyager 2); how much frost lies on it is
+    // not known, and ten metres of it worldwide is taken here.
+    triton:  { base: { ...EARTH, ...icy(0.35), n2Bar: 1.4e-5, internalHeat: 0.005, startT: 38,
+                volatileIces: true, n2IceBar: 0.08, iceAlbedo: 0.7 },
+               target: 38, knob: 'iceAlbedo', clouds: 'full' },
+    // Pluto: 11.5 microbar over N2 ice at 37 K (New Horizons; the "-229 C" of its
+    // data row is a mean over dark ground as well, which the frost does not
+    // see, and at that the ice would hold forty times the air). Its frost is
+    // Sputnik Planitia, some 3e18 kg of N2 (McKinnon et al. 2016), 1.1 bar if it
+    // all rose; its methane the bladed deposits, hundreds of metres of CH4
+    // over a million square kilometres (Moore et al. 2018), about 0.05 bar.
     pluto:   { base: { ...EARTH, ...icy(0.35), n2Bar: 1.1e-5, internalHeat: 0.003, obliquity: 57,
-                startT: 44 }, clouds: 'full' },
+                startT: 37, volatileIces: true, n2IceBar: 1.1, ch4IceBar: 0.05, iceAlbedo: 0.6 },
+               target: 37, knob: 'iceAlbedo', clouds: 'full' },
     charon:  { base: { ...EARTH, ...icy(0.4), internalHeat: 0.002, startT: 50 }, clouds: 'full' },
   },
   ra: {
@@ -171,8 +184,11 @@ export const PROFILES = {
     // Frozen super-Earth 560 AU out. Tuned: the interior heat.
     yamm: { base: { ...EARTH, ...icy(0.151), landFraction: 0.3, internalHeat: 0.05,
             obliquity: 10, startT: 31 }, target: 31, knob: 'internalHeat', clouds: 'full' },
-    // Sednoid at 11,000 AU: 10 K. Tuned: the interior heat.
-    kauket: { base: { ...EARTH, ...icy(0.625), internalHeat: 5e-4, obliquity: 5, startT: 10 },
+    // Sednoid at 11,000 AU: 10 K. "Even its thin envelope of gases lies frozen
+    // on the ice": how thin the book does not say, and 10 mbar of nitrogen is
+    // taken, as frost (volatileIces). Tuned: the interior heat.
+    kauket: { base: { ...EARTH, ...icy(0.625), internalHeat: 5e-4, obliquity: 5, startT: 10,
+                volatileIces: true, n2IceBar: 0.01 },
               target: 10, knob: 'internalHeat', clouds: 'full' },
     // Wadjet's lava moon at 49 times Earth's sunlight: "a hellish blend of Io
     // and Venus, leaning hard toward Io ... 450 C even in its calmest spots --

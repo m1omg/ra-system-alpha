@@ -10,7 +10,8 @@ import { oceanStructure, coldPoolStructure, T_COLD_POOL, iceShell,
 import { floodedFraction } from './hypsometry.js';
 import { waterworldWeight, waterworldFlux, waterLifetime } from './waterworld.js';
 
-import { EARTH_INTERNAL_FLUX, OTHER_GHG_FULL, AEROSOL_FULL, MIX_EFF_DOWN, escapeRates } from './volatiles.js';
+import { EARTH_INTERNAL_FLUX, OTHER_GHG_FULL, AEROSOL_FULL, MIX_EFF_DOWN, escapeRates,
+  psatN2, psatCH4, N2_SLOPE, CH4_SLOPE, L_N2, L_CH4 } from './volatiles.js';
 
 export const NBANDS = 18;
 
@@ -639,6 +640,25 @@ export function update(w, dt) {
   const C = B.C;
   const oceanDepth = (w.water.ocean + w.water.seaIce) * d.eoColumn / RHO_WATER;
 
+  // [ra-climate patch] volatileIces: the latent heat of the frost (volatiles.js),
+  // where the frost is -- the bands at the cold trap, within a couple of kelvin
+  // of the coldest -- and as far as there is frost or air to give it: per
+  // kelvin, the vapour the cold trap's pressure takes up, times the heat of
+  // sublimation, shared among those bands and scaled to their area.
+  let frostC = null;
+  if (p.volatileIces) {
+    let Tc = Infinity;
+    for (let i = 0; i < NBANDS; i++) if (w.T[i] < Tc) Tc = w.T[i];
+    const perK = (psat, slope, frozen, air) => Math.min(psat(Tc) * slope / (Tc * Tc) / g, (frozen ?? 0) + air);
+    const cl = L_N2 * perK(psatN2, N2_SLOPE, w.n2Frozen, w.n2) + L_CH4 * perK(psatCH4, CH4_SLOPE, w.ch4Frozen, w.ch4);
+    if (cl > 0) {
+      frostC = B.frostC || (B.frostC = new Float64Array(NBANDS));
+      let wsum = 0;
+      for (let i = 0; i < NBANDS; i++) { frostC[i] = 1 - smoothstep(0, 2, w.T[i] - Tc); wsum += frostC[i]; }
+      for (let i = 0; i < NBANDS; i++) frostC[i] *= cl * NBANDS / wsum;
+    }
+  }
+
   for (let i = 0; i < NBANDS; i++) {
     const deep = MIXED_LAYER + Math.max(0, oceanDepth - MIXED_LAYER) * smoothstep(315, 350, w.T[i]);
     const cOcean = deep * RHO_WATER * CP_WATER * (1 - 0.9 * (hasWater ? iceFraction(w.T[i], fShift) : 0));
@@ -665,6 +685,7 @@ export function update(w, dt) {
     const cSea = cOcean * (1 - 0.92 * seal) + C_LAND * 0.92 * seal;
     C[i] = clamp(flooded * cSea + (1 - flooded) * C_LAND + cAtm + cLat + cFus, 1e5, 1e14);
     if (ov) C[i] = clamp(C[i] + ov.C[i], 1e5, 1e14);     // [ra-climate patch] overlay
+    if (frostC) C[i] = clamp(C[i] + frostC[i], 1e5, 1e14);   // [ra-climate patch] volatileIces
   }
 
   // Above 647 K and 220.6 bar the liquid and the vapour stop being different

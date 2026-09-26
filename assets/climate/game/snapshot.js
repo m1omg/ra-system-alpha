@@ -89,6 +89,9 @@ export function captureWorld(w) {
     landIceMass: w.landIceMass,
     life: w.life ? { ...w.life } : null,
     co2Frozen: w.co2Frozen,
+    // [ra-climate patch] volatileIces: the nitrogen and methane frost, where a
+    // world has any (absent otherwise, so altdev2's saves are unchanged)
+    ...(w.n2Frozen != null ? { n2Frozen: w.n2Frozen, ch4Frozen: w.ch4Frozen ?? 0 } : {}),
     fossil: w.fossil,
     // The two industrial reservoirs. The aerosol clears in a decade and the
     // gases do not, and a save that dropped them would resume every world in
@@ -127,6 +130,8 @@ export function applyWorld(sim, s, params = s.params) {
   w.landIceMass = s.landIceMass ?? null;
   w.life = s.life ? { ...s.life } : { pro: 0, euk: 0 };
   w.co2Frozen = s.co2Frozen ?? 0;
+  // [ra-climate patch] volatileIces: a save without frost starts its frost afresh
+  w.n2Frozen = s.n2Frozen ?? null; w.ch4Frozen = s.ch4Frozen ?? null;
   w.fossil = s.fossil ?? null;
   w.otherGHG = s.otherGHG ?? w.otherGHG;
   w.aerosol = s.aerosol ?? w.aerosol;

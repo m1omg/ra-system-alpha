@@ -466,6 +466,47 @@ section('An airless world swings from night to noon');
   ok(!e, 'a world with air keeps its bands\' range');
 }
 
+section('Nitrogen and methane lie frozen where it is cold, and rise where it is not');
+{
+  // Pluto's air is the vapour over its nitrogen ice, 11.5 µbar at 37 K (New
+  // Horizons), its frost the Sputnik Planitia glacier; Triton's 14 µbar at 38 K
+  // (Voyager 2); Kauket's thin envelope frozen on the ice (the book)
+  const sol = () => { const b = build('sol'); return { sys: b.sys, f: forcingOf(b.ins, b.keys) }; };
+  const at = (sys, k) => { const w = sys.worlds.get(k).sim.world, g = w.diag.g;
+    return { T: w.diag.Tmean, n2: w.n2 * g / 1e5, frost: (w.n2Frozen ?? 0) * g / 1e5, ch4: w.ch4 * g / 1e5, ch4frost: (w.ch4Frozen ?? 0) * g / 1e5 }; };
+  const { sys, f } = sol(), pl = at(sys, 'pluto'), tr = at(sys, 'triton');
+  ok(pl.frost > 1 && pl.n2 > 5e-6 && pl.n2 < 2e-5, 'Pluto: a bar of nitrogen lies frozen, and its air is the vapour over it',
+    `${(pl.n2 * 1e6).toFixed(1)} µbar over ${pl.frost.toFixed(2)} bar of frost at ${pl.T.toFixed(1)} K`);
+  ok(tr.frost > 0 && tr.n2 > 7e-6 && tr.n2 < 3e-5 && Math.abs(tr.T - 38) < 1.5, 'Triton: its 14 µbar over nitrogen frost at 38 K',
+    `${(tr.n2 * 1e6).toFixed(1)} µbar at ${tr.T.toFixed(1)} K`);
+  // moved to Earth's distance the frost holds the ground near its frost point
+  // while it rises, and is a bar of air within decades
+  const warm = { ...f, pluto: { flux: S_EARTH, starTemp: 5772 } };
+  advance(sys, 5, 0.5, 10, warm);
+  const early = at(sys, 'pluto');
+  ok(early.frost > 0.1 && early.T < 90, 'moved to 1 AU, Pluto\'s frost holds its ground near the frost point while it rises',
+    `${early.T.toFixed(0)} K after 5 yr with ${early.frost.toFixed(2)} bar of frost left (bare, it settles at 202 K)`);
+  advance(sys, 25, 2.5, 10, warm);
+  const hot = at(sys, 'pluto');
+  ok(hot.n2 > 0.9 * (pl.n2 + pl.frost) && hot.ch4 > 0.01, '...and within thirty years it is a bar of nitrogen and methane air',
+    `${hot.n2.toFixed(2)} bar N₂, ${(hot.ch4 * 1e3).toFixed(0)} mbar CH₄, ${hot.T.toFixed(0)} K`);
+  // brought back then, it snows back onto the ice
+  const { sys: s2, f: f2 } = sol();
+  advance(s2, 30, 3, 10, { ...f2, pluto: { flux: S_EARTH, starTemp: 5772 } });
+  advance(s2, 2e4, 2e3, 10, f2);
+  const back = at(s2, 'pluto');
+  ok(back.frost > 1 && back.n2 < 3e-5, '...taken back out then, it snows back onto the ice',
+    `${(back.n2 * 1e6).toFixed(1)} µbar in the air, ${back.frost.toFixed(2)} bar of frost, ${back.T.toFixed(1)} K after 20 kyr`);
+  // left there, it loses the lot to space
+  advance(sys, 1e3, 100, 10, warm);
+  const gone = at(sys, 'pluto');
+  ok(gone.n2 + gone.frost < 0.01, '...and left there, escape takes all of it within a millennium',
+    `${((gone.n2 + gone.frost) * 1e3).toFixed(2)} mbar of nitrogen left, ${gone.T.toFixed(0)} K`);
+  const { sys: rs } = build('ra'), kw = rs.worlds.get('kauket').sim.world;
+  ok((kw.n2Frozen ?? 0) > 0 && kw.n2 * kw.diag.g / 1e5 < 1e-9, 'Kauket: its thin envelope lies frozen on the ice',
+    `${((kw.n2Frozen ?? 0) * kw.diag.g / 1e5 * 1e3).toFixed(1)} mbar of frost`);
+}
+
 section('Nephtys has a sea of sulfuric acid');
 {
   const neph = () => { const b = build('ra'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('nephtys') }; };
