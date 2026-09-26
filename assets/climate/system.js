@@ -798,7 +798,11 @@ export class ClimateSystem {
       o[RS.FLOOD] = acid.cover;
       for (let i = 0; i < NBANDS; i++) o[RS.ICE + i] = acidFrozen(w.T[i]);
       o[RS.BOILED] = acid.airShare;
-      o[RS.TOTALWATER] = (dg.totalWater ?? 0) + acid.kgPerM2 * 4 * Math.PI * dg.d.R * dg.d.R / 1.4e21;
+      const acidEO = acid.kgPerM2 * 4 * Math.PI * dg.d.R * dg.d.R / 1.4e21;
+      o[RS.TOTALWATER] = (dg.totalWater ?? 0) + acidEO;
+      // how full its basins are, on the model's own scale for water (waterCap):
+      // the land it covers is drawn as sea, and the bed it leaves goes pale
+      o[RS.WATERCAP] = smoothstep(0.004, 0.12, acidEO * (1 - acid.airShare));
     }
     const g = r.ledger;
     o[RS.LIFE] = g ? g.level : 0;

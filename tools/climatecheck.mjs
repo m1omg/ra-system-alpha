@@ -598,6 +598,8 @@ section('Nephtys has a sea of sulfuric acid');
       a ? `${a.boilC.toFixed(0)} °C under ${pAir.toFixed(1)} bar` : '');
     ok(a && a.vapourBar > 0.005 && a.vapourBar < 0.05, 'and at 231 C gives off a few hundredths of a bar',
       a ? `${(a.vapourBar * 1e3).toFixed(1)} mbar` : '');
+    // the globe draws the land it covers as sea, not as the pale bed of one drying out
+    ok(r.rs[RS.WATERCAP] > 0.99, 'the globe draws it as a full sea', `sea fill ${r.rs[RS.WATERCAP].toFixed(2)} (0 is a dry, briny bed)`);
     // it holds heat like a sea: the same strike warms it less than the same world dry
     // (a custom body, so it gets Nephtys's params and not its profile's sea)
     const dry = new ClimateSystem(), d = { ...r.data, key: 'dry-nephtys', custom: true };

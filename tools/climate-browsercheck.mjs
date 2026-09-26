@@ -532,6 +532,24 @@ try {
       ok(legend, 'the temperature view shows its legend');
       await page.evaluate(() => RAClimateView.toggleTempView());
     }
+    if (sys === 'ra') {
+      section('ra: Nephtys opens nearly all sea, as the book has it');
+      {
+        // The globe opens on the map as painted; where the model's sea is more
+        // than the painting's, the lowest land goes under. Nephtys's generated
+        // map paints 80 % sea, and its acid covers 95 %.
+        await page.evaluate(() => focusBody('nephtys', 'force'));
+        await until(page, () => { const cv = RAClimateView.bodies.get('nephtys'); return cv && cv.cdf && cv.u && cv.u.uClimA.value.x !== 0.5; }, null, 30000);
+        const sea = await page.evaluate(() => {
+          const cv = RAClimateView.bodies.get('nephtys'), x = cv.u.uClimA.value.x, c = cv.cdf;
+          const k = Math.min(Math.floor(x * 255), 255), f = x * 255 - k;
+          return { x, share: c[k] + f * ((c[k + 1] ?? c[k]) - c[k]), cover: RAClimate.state('nephtys')[RAClimate.RS.FLOOD] };
+        });
+        ok(sea.x > 0.51 && Math.abs(sea.share - sea.cover) < 0.01 && sea.cover > 0.94,
+          'its acid stands over the map\'s lowest land, up to the 95 % the book gives',
+          `sea level ${sea.x.toFixed(3)} (painted shore at 0.5), ${(sea.share * 100).toFixed(1)} % of the map under it, acid ${(sea.cover * 100).toFixed(1)} %`);
+      }
+    }
     ok(errors.length === 0, 'nothing throws', errors.slice(0, 3).join(' | '));
     await page.close();
   }

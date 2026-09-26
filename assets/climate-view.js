@@ -30,7 +30,11 @@ const PROFILE_MASS={ satismoon:3.67e22 };
 // The share of each map that is painted sea, where the climate's own number
 // is not the right one to find it by: Nephtys's is acid, which the climate
 // keeps beside its water (acid.js) and reports as its sea; Satis's and
-// Uat-Ur's follow the climate's water.
+// Uat-Ur's follow the climate's water. It is also the sea the painting stands
+// for: where the model's sea differs, the map is flooded or drained from there.
+// Nephtys's generated map paints a fifth of it land, and the book has "just a
+// few transient volcanic islands": it opens with its acid at 95 %, the map's
+// lowest land under it and only its highest crests left as islands.
 const SRC_OCEAN={ nephtys:0.80 };
 const DEM={ earth:'earth', mars:'mars' };
 const S_EARTH=1361, TWO_PI=Math.PI*2, LN2000=Math.log(2000);
@@ -634,7 +638,7 @@ function heightForShare(cdf, share){
   return (k+f)/255;
 }
 function seaShare(cv, f){
-  const RS=CL.RS, f0=cv.rs0?cv.rs0[RS.FLOOD]:f, s0=cv.s0;
+  const RS=CL.RS, f0=SRC_OCEAN[cv.key]!=null?SRC_OCEAN[cv.key]:cv.rs0?cv.rs0[RS.FLOOD]:f, s0=cv.s0;
   if(!(f0>0.005)) return s0+(1-s0)*clamp(f,0,1);   // painted sea that is not water
   if(f<=f0) return s0*f/f0;
   return s0+(1-s0)*(f-f0)/Math.max(1-f0,1e-6);
@@ -847,6 +851,9 @@ function applyReading(cv, a){
   // one worth the name; a basin on Mars is the colour of Mars, not of water.
   if(a.s0>0.1) cv.u.uClimSea.value.setRGB(a.seaAvg[0],a.seaAvg[1],a.seaAvg[2]);
   else cv.u.uClimSea.value.setRGB(0.04,0.14,0.32);
+  // the sea level is read off this field: set it now, not at the next state,
+  // which at real-time speed can be a simulated day away
+  cv.dirty=true;
 }
 
 /* ---------------- nav + hud ---------------- */
