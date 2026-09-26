@@ -243,6 +243,12 @@ export const PROFILES = {
     // volcanoes erupt then decides the level, and a mantle that soaked up the
     // oxygen of the oceans Anubis lost to young Horus is an oxidised one: the
     // reduced share of its gas is balanced to hold the 0.3 bar.
+    //
+    // The tides are its orbit's: 0.00852 AU, e 0.0158, a month of a day and a
+    // third round 46.6 Jupiter masses. The eccentricity tide
+    // (21/2)(k2/Q) G M^2 R^5 n e^2 / a^6 makes that 2.25 kW/m2 at Io's k2/Q of
+    // 0.016; the 285 tuned here is a k2/Q of 0.0020, an interior an eighth as
+    // yielding as Io's.
     // Tuned: the tidal heat; balanced: outgassing (CO2) and reducedGas (O2).
     anubis: { base: { ...EARTH, landFraction: 0, h2Bar: 0, n2Bar: 0.7, co2Bar: 0.01, ch4Bar: 0,
             o2Bar: 0.3, biosphere: 0, obliquity: 2, internalHeat: 285, outgassing: 0.07,
