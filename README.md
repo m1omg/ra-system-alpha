@@ -25,7 +25,12 @@ air and seas the book gives it.
   of temperature, a band-by-band chart, a history, and what its air and water
   are doing. **⚙ Change this world** edits CO₂, N₂, O₂, CH₄, H₂, water, ground
   albedo, axial tilt, interior heat, the biosphere and tidal locking; values
-  take units (`420 ppm`, `0.5 bar`, `2 atm`, `3 mbar`).
+  take units (`420 ppm`, `0.5 bar`, `2 atm`, `3 mbar`). **Advanced** under it
+  holds the rest of the Planet Climate Sandbox's controls: volcanism, magnetic
+  field, salinity, basin geometry, the star's XUV, industrial CO₂, the world's
+  age, resurfacing, and switches for a cooling interior, a spinning-down star
+  and bottomless carbon. Mass, starlight, the star and the day are the
+  orrery's, and shown there.
 - The sidebar shows every world's temperature live. **🌡 Temperature** paints
   the globes in false colour, with a legend. An airless world's card gives its
   ground's night and noon (Mercury: −178 °C and, at perihelion, +430 °C), which

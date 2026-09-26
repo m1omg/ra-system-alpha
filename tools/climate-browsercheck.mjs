@@ -120,10 +120,36 @@ try {
         await n2.click(); await n2.fill('2 atm'); await n2.press('Enter');
         await until(page, () => RAClimate.detail && Math.abs(RAClimate.detail.gas.n2 - 2.0265) < 1e-3, null, 5000);
         ok(Math.abs((await det()).n2 - 2.0265) < 1e-3, 'a typed value with units: 2 atm of N₂');
+        // ⚙ Advanced: what the orrery does not own, shown in its own units
+        await page.evaluate(() => { document.querySelector('details.clim-adv').open = true; });
+        await until(page, () => { const i = document.querySelector('input[data-k="xuvFraction"]'); return i && i.value && i.value !== '—'; }, null, 5000);
+        const adv = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.clim-adv input[data-k]')]
+          .map((i) => [i.dataset.k, i.type === 'checkbox' ? i.checked : i.value])));
+        ok(adv.outgassing === '1' && adv.magneticField === '1' && adv.xuvFraction === '1' && adv.salinity === '35'
+          && adv.realisticGeology === false, 'Advanced shows Earth\'s volcanism, field, salt and star as the sandbox does',
+          JSON.stringify(adv));
+        const own = await page.evaluate(() => document.querySelector('.clim-owned').textContent);
+        ok(/1 M⊕/.test(own) && /S⊕/.test(own) && /5772 K/.test(own), 'and names what the orrery sets', own);
+        const mf = page.locator('input[data-k="magneticField"]');
+        await mf.click(); await mf.fill('0'); await mf.press('Enter');
+        await page.click('input[data-k="realisticGeology"]');
+        await until(page, () => RAClimate.detail && RAClimate.detail.params.magneticField === 0 && RAClimate.detail.params.realisticGeology, null, 5000);
+        const xu = page.locator('input[data-k="xuvFraction"]');
+        await xu.click(); await xu.fill('100'); await xu.press('Enter');
+        await until(page, () => RAClimate.detail && Math.abs(RAClimate.detail.params.xuvFraction - 3.4e-4) < 1e-9, null, 5000);
+        const p1 = await page.evaluate(() => RAClimate.detail.params);
+        ok(p1.magneticField === 0 && p1.realisticGeology === true && Math.abs(p1.xuvFraction - 3.4e-4) < 1e-9,
+          'its edits reach the model: no field, a cooling interior, a star 100× as active', `${p1.magneticField} ${p1.realisticGeology} ${p1.xuvFraction}`);
+        const bad = page.locator('input[data-k="outgassing"]');
+        await bad.click(); await bad.fill('50'); await bad.press('Enter');
+        ok(await page.evaluate(() => document.querySelector('input[data-k="outgassing"]').classList.contains('bad')),
+          'and a value past the sandbox\'s range is refused');
         await page.click('[data-q="reset"]');
         await until(page, (c) => RAClimate.detail && Math.abs(RAClimate.detail.gas.co2 - c) < c * 1e-3, d0.co2, 5000);
         const d2 = await det();
         ok(Math.abs(d2.co2 - d0.co2) < d0.co2 * 1e-3 && Math.abs(d2.n2 - d0.n2) < 1e-3, 'Reset climate puts it back');
+        const p2 = await page.evaluate(() => RAClimate.detail.params);
+        ok(p2.magneticField === 1 && !p2.realisticGeology && Math.abs(p2.xuvFraction - 3.4e-6) < 1e-12, '...the advanced ones too');
       }
 
       section('sol: every number says what it is');

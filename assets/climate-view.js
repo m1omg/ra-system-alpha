@@ -957,9 +957,56 @@ const CTL=[
   ['internalHeat','Interior heat (W/m²)','Vnútorné teplo (W/m²)','num'],
   ['biosphere','Biosphere (× Earth)','Biosféra (× Zem)','num'],
 ];
+// Every other control of the sandbox the orrery does not own, behind ⚙
+// Advanced: altdev2 src/game/controls.js, its ranges and what they mean. The
+// orrery owns the body and its star -- mass, starlight, the star's temperature,
+// the rotation -- and they are shown here, not set. `scale` turns the unit shown
+// into the model's (XUV is shown against the Sun's 3.4e-6).
+const ADV=[
+  // key, label EN, label SK, scale, min, max, note EN, note SK
+  ['outgassing','Volcanic outgassing (× Earth)','Sopečné odplyňovanie (× Zem)',1,0,20,
+    'The CO₂ source, and a trickle of methane. Scaled by the interior heat: melt is what carries the gas up.',
+    'Zdroj CO₂ a trochy metánu. Škáluje sa vnútorným teplom: plyn vynáša tavenina.'],
+  ['magneticField','Magnetic field (× Earth)','Magnetické pole (× Zem)',1,0,5,
+    'Holds the star\'s wind off the air. With none, the wind strips it ion by ion, as it did Mars.',
+    'Drží vietor hviezdy od atmosféry. Bez neho ju vietor obrusuje ión po ióne, ako Mars.'],
+  ['salinity','Ocean salinity (g/kg)','Slanosť oceánu (g/kg)',1,0,350,
+    'Salt lowers the freezing point: Earth\'s 35 g/kg by 1.9 °C, a saturated brine by 21.',
+    'Soľ znižuje bod mrazu: zemských 35 g/kg o 1,9 °C, nasýtená soľanka o 21.'],
+  ['landFraction','Basin geometry (share of high ground)','Tvar paniev (podiel vyvýšenín)',1,0,1,
+    'High ground at one Earth ocean. Basins have finite depth, so enough water overtops any setting.',
+    'Vyvýšeniny pri jednom zemskom oceáne. Panvy majú konečnú hĺbku, takže dosť vody zaleje čokoľvek.'],
+  ['xuvFraction','Stellar XUV activity (× Sun)','Aktivita XUV hviezdy (× Slnko)',3.4e-6,1e-6,1e-2,
+    'Drives hydrogen escape. Young suns and red dwarfs are 100–1000× more active.',
+    'Poháňa únik vodíka. Mladé slnká a červení trpaslíci sú 100–1000× aktívnejší.'],
+  ['emissions','Industrial CO₂ (× today)','Priemyselný CO₂ (× dnes)',1,0,10,
+    'Burning fossil carbon, 40 Gt of CO₂ a year at 1×, until the reserve of about 5000 Gt of carbon runs out.',
+    'Spaľovanie fosílneho uhlíka, 40 Gt CO₂ ročne pri 1×, kým sa zásoba asi 5000 Gt uhlíka neminie.'],
+  ['startAge','Age of the world (Gyr)','Vek sveta (mld. rokov)',1,0,10,
+    'How old it is at the start of the climate clock; with an interior that cools, how far it has cooled.',
+    'Koľko má rokov na začiatku hodín klímy; ak vnútro chladne, ako veľmi už vychladlo.'],
+  ['resurfacingAge','Resurfacing at (climate clock, Gyr)','Pretavenie povrchu (hodiny klímy, mld. r.)',1,0,10,
+    'When the mantle turns over and its carbon comes up at once, as Venus\'s did. 0 is never.',
+    'Kedy sa plášť prevráti a jeho uhlík vyjde naraz, ako na Venuši. 0 znamená nikdy.'],
+  ['resurfacingBoost','Resurfacing size (× outgassing)','Rozsah pretavenia (× odplyňovanie)',1,1,5000,
+    'How far it lifts the volcanoes at its peak, as a smooth pulse.',
+    'Koľkokrát zosilní sopky na vrchole, ako plynulý impulz.'],
+];
+const ADV_SW=[
+  // key, label EN, label SK
+  ['realisticGeology','The interior cools with age','Vnútro s vekom chladne'],
+  ['xuvDecay','The star spins down (its XUV fades)','Hviezda sa spomaľuje (jej XUV slabne)'],
+  ['mantleInfinite','Bottomless mantle carbon','Nevyčerpateľný uhlík v plášti'],
+  ['fossilInfinite','Unlimited fossil carbon','Neobmedzený fosílny uhlík'],
+];
 function panelSkeleton(d){
   const t=(en,sk)=>L(en,sk);
-  let rows='';
+  let rows='', adv='';
+  for(const c of ADV)
+    adv+='<div class="clim-row" title="'+t(c[6],c[7]).replace(/"/g,'&quot;')+'"><label>'+t(c[1],c[2])+'</label>'
+      +'<input type="text" inputmode="decimal" data-k="'+c[0]+'" data-u="adv" data-s="'+c[3]+'" data-min="'+c[4]+'" data-max="'+c[5]+'" spellcheck="false"></div>';
+  for(const c of ADV_SW)
+    adv+='<div class="clim-row"><label>'+t(c[1],c[2])+'</label><input type="checkbox" data-k="'+c[0]+'"></div>';
   for(const c of CTL){
     if(c[3]==='gas' && c===CTL.find(x=>x[3]==='gas'))
       rows+='<div class="clim-hint clim-gas-note">'+t('Gases: partial pressure at the surface. Type a pressure (0.5 bar, 3 mbar, 2 atm, 10 Pa) or a share of the air (21 %, 420 ppm).',
@@ -981,7 +1028,10 @@ function panelSkeleton(d){
     +'<button class="btn sm" data-q="terra">🌍 '+t('Earth-like air','Vzduch ako na Zemi')+'</button>'
     +'<button class="btn sm" data-q="reset">↺ '+t('Reset climate','Obnoviť klímu')+'</button></div>'
     +rows+'<div class="clim-hint">'+t('Click a value to type it; units work.',
-      'Hodnotu môžete napísať aj s jednotkou.')+'</div></details>'
+      'Hodnotu môžete napísať aj s jednotkou.')+'</div>'
+    +'<details class="clim-adv"><summary>'+t('Advanced','Pokročilé')+'</summary>'
+    +'<div class="clim-hint clim-owned"></div>'+adv+'<div class="clim-hint clim-reserves"></div></details>'
+    +'</details>'
     +'<p class="clim-note"></p>';
 }
 function parseQty(s, kind){
@@ -1047,7 +1097,7 @@ const GAS_OF={co2Bar:'co2', n2Bar:'n2', o2Bar:'o2', ch4Bar:'ch4', h2Bar:'h2'};
 function wirePanel(box, d){
   box.querySelectorAll('input[data-k]').forEach(inp=>{
     if(inp.type==='checkbox'){
-      inp.onchange=()=>CL.set(d.key, {tidallyLocked: inp.checked});
+      inp.onchange=()=>CL.set(d.key, {[inp.dataset.k]: inp.checked});
       return;
     }
     inp.addEventListener('focus', ()=>{ inp.dataset.editing='1'; });
@@ -1056,6 +1106,14 @@ function wirePanel(box, d){
     inp.addEventListener('change', ()=>{
       const k=inp.dataset.k, det=CL.detail&&CL.detail.key===d.key?CL.detail:null;
       const own=det&&det.gas?det.gas[GAS_OF[k]]:0;
+      if(inp.dataset.u==='adv'){
+        // shown in its own unit; the model's is `scale` of it, and the range is the sandbox's
+        const x=parseQty(inp.value, k==='landFraction'?'frac':'num')*(+inp.dataset.s||1);
+        if(!(x>=+inp.dataset.min && x<=+inp.dataset.max)) { inp.classList.add('bad'); return; }
+        inp.classList.remove('bad');
+        CL.set(d.key, {[k]: x});
+        return;
+      }
       const v=inp.dataset.u==='gas' ? parseGas(inp.value, own, det?det.pTot:0) : parseQty(inp.value, inp.dataset.u);
       if(!(v>=0) && !(k==='obliquity' && v===v)) { inp.classList.add('bad'); return; }
       inp.classList.remove('bad');
@@ -1144,11 +1202,19 @@ function renderPanel(det){
     biosphere:det.params.biosphere};
   box.querySelectorAll('input[data-k]').forEach(inp=>{
     const k=inp.dataset.k;
-    if(inp.type==='checkbox'){ inp.checked=!!det.params.tidallyLocked; return; }
+    if(inp.type==='checkbox'){ inp.checked=!!det.params[k]; return; }
     if(inp.dataset.editing==='1') return;
-    const v=live[k];
+    const v=inp.dataset.u==='adv' ? (det.params[k]??0)/(+inp.dataset.s||1) : live[k];
     inp.value = inp.dataset.u==='gas' ? fmtPressure(v) : fmtNum(v);
   });
+  // what the orrery sets, and the reserves the carbon controls draw on
+  const own=box.querySelector('.clim-owned');
+  if(own) own.textContent=t('Set by the orrery: mass ','Určené sústavou: hmotnosť ')+fmtNum(det.params.mass)+' M⊕ · '
+    +t('starlight ','svetlo ')+(+(det.flux/S_EARTH).toPrecision(3))+' S⊕ · '+t('star ','hviezda ')+Math.round(det.params.starTemp||0)+' K · '
+    +t('day ','deň ')+(det.params.rotationHours<47.95?fmtNum(det.params.rotationHours)+' h':fmtNum(det.params.rotationHours/24)+' d');
+  const res=box.querySelector('.clim-reserves');
+  if(res) res.textContent=t('Carbon left in the mantle: ','Uhlík v plášti: ')+fmtPressure(det.mantleBar)+' CO₂ · '
+    +t('fossil carbon left: ','fosílny uhlík: ')+Math.round((det.fossilLeft??1)*100)+' %';
   const note=box.querySelector('.clim-note');
   const mt=det.meta||{};
   note.textContent = mt.note==='acid'

@@ -414,6 +414,37 @@ section('The state a world is shown in fits it');
   ok(missing.length === 0, 'every state has its Slovak name and text', missing.length ? `missing: ${missing.join(', ')}` : `${SYSTEM.STATE_IDS.length} states`);
 }
 
+section('Every control of the sandbox is in the panel, or is the orrery\'s');
+{
+  // altdev2 src/game/controls.js, its 23 SLIDERS and its switches. The orrery
+  // owns the body and its star: mass, starlight, star temperature, rotation,
+  // and the star's own brightening and its smoothing. Everything else is the
+  // player's, in the panel or behind ⚙ Advanced (a source-level guard: the
+  // panel is built in climate-view.js from CTL, ADV and ADV_SW).
+  const SANDBOX = ['mass', 'water', 'landFraction', 'insolation', 'starTemp', 'xuvFraction', 'rotationHours',
+    'obliquity', 'n2Bar', 'o2Bar', 'co2Bar', 'ch4Bar', 'h2Bar', 'salinity', 'landAlbedo', 'biosphere', 'emissions',
+    'internalHeat', 'magneticField', 'resurfacingAge', 'resurfacingBoost', 'startAge', 'outgassing',
+    'tidallyLocked', 'realisticGeology', 'xuvDecay', 'mantleInfinite', 'fossilInfinite', 'brightening', 'smoothInsolation'];
+  const ORRERY = ['mass', 'insolation', 'starTemp', 'rotationHours', 'brightening', 'smoothInsolation'];
+  const view = readFileSync(new URL('../assets/climate-view.js', import.meta.url), 'utf8');
+  const listed = new Set();
+  for (const name of ['CTL', 'ADV', 'ADV_SW']) {
+    const body = (view.match(new RegExp(`const ${name}=\\[([\\s\\S]*?)\\n\\];`)) || [, ''])[1];
+    for (const m of body.matchAll(/\[\s*'([A-Za-z0-9]+)'/g)) listed.add(m[1]);
+  }
+  if (/data-k="tidallyLocked"/.test(view)) listed.add('tidallyLocked');
+  const missing = SANDBOX.filter((k) => !ORRERY.includes(k) && !listed.has(k));
+  ok(missing.length === 0, 'every one the orrery does not own can be set', missing.length ? `missing: ${missing.join(', ')}` : `${listed.size} in the panel`);
+  // what a state's text tells the player to reach for has to be there to reach
+  const NAMES = [[/volcan/i, 'outgassing'], [/magnetic/i, 'magneticField'], [/salt|salin|brine/i, 'salinity'],
+    [/biosphere|photosynth/i, 'biosphere'], [/internal heat|interior heat/i, 'internalHeat'],
+    [/industr|fossil/i, 'emissions'], [/\bXUV\b|ultraviolet/i, 'xuvFraction'], [/tidally locked/i, 'tidallyLocked']];
+  const unreachable = [];
+  for (const [id, st] of Object.entries(SYSTEM.ALL_STATES))
+    for (const [re, k] of NAMES) if (re.test(st.blurb) && !listed.has(k)) unreachable.push(`${id} names ${k}`);
+  ok(unreachable.length === 0, 'every control a state\'s text points to is in the panel', unreachable.join('; '));
+}
+
 section('An airless world swings from night to noon');
 {
   // the book's Mercury, Diviner's Moon (Williams et al. 2017) and Cassini's

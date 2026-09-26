@@ -16,7 +16,7 @@ import { Simulation } from './sim/clock.js';
 import { captureWorld, applyWorld } from './game/snapshot.js';
 import { classify, STATES } from './physics/classify.js';
 import { NBANDS, X, DX, maxStep, setWaterInventory, update } from './physics/climate.js';
-import { partitionWater, sealFactor } from './physics/volatiles.js';
+import { partitionWater, sealFactor, FOSSIL_TOTAL } from './physics/volatiles.js';
 import { habitableShare, meltRefuge, initRefuge, heatShock, HEAT_FAST_AT, dieOffYears, LIFE_EXTINCT, LIFE_SPREAD, REFUGE_DEPTH, REFUGE_CEILING } from './physics/biosphere.js';
 import { derive } from './physics/planet.js';
 import { clamp, smoothstep, steamOpacity, YEAR, S_EARTH } from './physics/constants.js';
@@ -808,8 +808,17 @@ export class ClimateSystem {
         landAlbedo: p.landAlbedo, obliquity: p.obliquity, rotationHours: p.rotationHours,
         tidallyLocked: !!p.tidallyLocked, internalHeat: r.baseHeat, biosphere: p.biosphere ?? 0,
         outgassing: p.outgassing ?? 0, landFraction: p.landFraction, mass: p.mass,
-        salinity: p.salinity,
+        salinity: p.salinity ?? 0, starTemp: p.starTemp,
+        // the rest of the sandbox's controls (the panel's ⚙ Advanced)
+        magneticField: p.magneticField ?? 0, xuvFraction: p.xuvFraction, emissions: p.emissions ?? 0,
+        startAge: p.startAge ?? 0, resurfacingAge: p.resurfacingAge ?? 0, resurfacingBoost: p.resurfacingBoost ?? 1,
+        realisticGeology: !!p.realisticGeology, xuvDecay: !!p.xuvDecay,
+        mantleInfinite: !!p.mantleInfinite, fossilInfinite: !!p.fossilInfinite,
       },
+      // what the carbon controls draw on: the mantle's, as bar of CO2, and the
+      // share of the fossil reserve left
+      mantleBar: Math.max(w.carbonDeep ?? 0, 0) * g / 1e5,
+      fossilLeft: w.fossil != null ? clamp(w.fossil / FOSSIL_TOTAL, 0, 1) : 1,
       pulse: r.pulse,
       magma: r.magma ? Array.from(r.magma) : null,
       bands: Array.from(w.T),
