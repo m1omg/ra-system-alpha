@@ -81,6 +81,8 @@ const cases = [
   ['Mars, 1 Myr', 'mars', {}, null, 1e6, 2e4],
   // the ocean floor under ice VII, where the oxygen patches act
   ['A Hycean ocean on ice VII under 0.2 bar of O2, 1 Myr', 'hycean', { o2Bar: 0.2 }, null, 1e6, 2e4],
+  // a small frozen waterworld, whose own model sets its ice's albedo (Enceladus)
+  ['A small frozen waterworld, 1 Myr', 'icySmallWaterworld', {}, null, 1e6, 2e4],
 ];
 for (const [label, name, extra, poke, years, step] of cases) {
   if (!ours.presets.PRESETS[name]) { ok(false, label, `no preset ${name}`); continue; }
@@ -95,12 +97,18 @@ ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition
   seen.map((r) => r.where).join(' | '));
 // the oxygen patches are per world (Anubis), not in STILL: set as Anubis sets them
 {
-  const [, name, extra, poke, years, step] = cases.at(-1);
+  const [, name, extra, poke, years, step] = cases.find((c) => c[1] === 'hycean');
   const r = run(name, extra, poke, years, step, { sealOxidation: true, reducedGas: 0.1 });
   ok(!r.same, 'control: with the oxygen sealed under the ice, the Hycean case differs', r.where);
   // ...and Uat-Ur's: its hydrogen burns the oxygen
   const h = run(name, extra, poke, years, step, { h2SinksO2: true });
   ok(!h.same, 'control: with hydrogen taking the oxygen, the Hycean case differs', h.where);
+}
+// Enceladus's ice on the small-waterworld model
+{
+  const [, name, extra, poke, years, step] = cases.at(-1);
+  const r = run(name, extra, poke, years, step, { iceAlbedo: 0.81 });
+  ok(!r.same, 'control: with its ice as bright as Enceladus\'s, the small waterworld differs', r.where);
 }
 // the overlay a system layer hands in (Nephtys's acid sea): half of Mars under a
 // dark sea, with its vapour and its heat

@@ -92,7 +92,7 @@ function interpolate(T, values) {
 }
 const REFERENCE_R = waterworldRadius(0.12);
 const REFERENCE_POTENTIAL = G_GRAV * M_EARTH * 0.12 / REFERENCE_R;
-export function waterworldFlux(T, g, radius, availablePressure = Infinity, gases = {}) {
+export function waterworldFlux(T, g, radius, availablePressure = Infinity, gases = {}, iceAlbedo = null) {
   const saturation = psatH2O(T);
   const pressure = Math.min(saturation, Math.max(0, availablePressure));
   const wet = clamp(pressure / Math.max(saturation, 1e-30), 0, 1);
@@ -114,7 +114,10 @@ export function waterworldFlux(T, g, radius, availablePressure = Infinity, gases
   // With no inventory there cannot be an ice-albedo feedback. Fade to dry
   // ground continuously rather than changing climate model at a tiny cutoff.
   const iceCover = clamp(availablePressure / (g * 10), 0, 1); // 1 cm water equivalent
-  const albedo = 0.2 + 0.4 * ice * ice * (3 - 2*ice) * iceCover;
+  // [ra-climate patch] iceAlbedo: the world's own ice, frozen over (Enceladus,
+  // 0.81). Unset it is the 0.6 of the line as altdev2 wrote it, to the bit.
+  const span = iceAlbedo == null ? 0.4 : iceAlbedo - 0.2;
+  const albedo = 0.2 + span * ice * ice * (3 - 2*ice) * iceCover;
   const pure = { ...escape, longwave, shortwave, emitted, albedo, pressure,
     meanMolarMass: 18, backgroundBar: 0, backgroundFlux: 0,
     inDomain: T >= 200 && T <= 600 && escape.lambda >= 20 && escape.regime === 'wind' };

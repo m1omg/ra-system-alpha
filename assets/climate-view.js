@@ -59,7 +59,19 @@ function capable(rec){
 function bodyData(rec){
   const d=rec.data;
   return { key:d.key, kind:d.kind, massKg:massOf(rec), radiusKm:d.radiusKm, rotationPeriod:d.rotationPeriod,
-    comp:d.comp||null, custom:!!rec._custom, life:d.life||null };
+    comp:d.comp||null, custom:!!rec._custom, life:d.life||null, solarDayH:solarDayHours(rec) };
+}
+// Sunrise to sunrise on the ground, in hours: the spin against the orbit round
+// the star (a moon's, its planet's). Infinite for a face locked to the star.
+function solarDayHours(rec){
+  const rot=Math.abs(rec.data.rotationPeriod||0)*24;
+  if(!(rot>0)) return null;
+  let top=rec;
+  for(let i=0;i<4;i++){ const p=parentRec(top); if(!p || !parentRec(p)) break; top=p; }
+  const orb=(top.data.period||0)*365.25*24;
+  if(!(orb>0)) return rot;
+  const f=Math.abs(1/rot-1/orb);
+  return f>1e-12 ? 1/f : Infinity;
 }
 
 /* ---------------- light sources ---------------- */
@@ -1082,7 +1094,12 @@ function renderPanel(det){
   // lid gets its own row below rather than posing as the planet's temperature
   box.querySelector('.clim-T').textContent=fmtT(det.Tmean)+'  ·  '+Math.round(det.Tmean)+' K';
   const buried=det.surface && det.surface.surfaceKind==='buried ocean' && det.surface.surfaceT>0 ? det.surface.surfaceT : null;
-  box.querySelector('.clim-range').textContent=t('range ','rozsah ')+fmtT(det.Tmin)+' … '+fmtT(det.Tmax);
+  // an airless world's own ground swings from night to noon far past the
+  // bands' zonal means (system.js groundExtremes)
+  const gx=det.extremes;
+  box.querySelector('.clim-range').textContent = gx
+    ? t('night ','noc ')+fmtT(gx.nightK)+' · '+t('noon ','poludnie ')+fmtT(gx.dayK)
+    : t('range ','rozsah ')+fmtT(det.Tmin)+' … '+fmtT(det.Tmax);
   drawBands(box.querySelector('.clim-bands'), det);
   drawHist(box.querySelector('.clim-hist'), det);
   const g=det.gas;

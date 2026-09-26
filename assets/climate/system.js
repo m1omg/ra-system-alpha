@@ -253,6 +253,28 @@ function stateOf(r) {
   if (id === 'snowball' && (w.params.insolation ?? 1) < MAX_GREENHOUSE_S) return 'deepFrozen';
   return id;
 }
+// An airless world's ground is not the zonal mean its bands carry. The day side
+// stands at the radiative equilibrium of the star overhead; the night side cools
+// through the night on the heat its regolith gives back: a half-space of the
+// Moon's thermal inertia (55 J m^-2 K^-1 s^-1/2, Hayne et al. 2017) held at the
+// band's mean below it, radiating εσT^4 = F + I (T_below - T) / sqrt(π t) at the
+// end of a night t, half a solar day long. Where there is air to carry heat
+// round, the bands' own range stands. Mercury's book: -173 C night, +427 C day.
+const REGOLITH_I = 55, EMISSIVITY = 0.95, SIGMA = 5.670374e-8, AIRLESS_BAR = 1e-3;
+function groundExtremes(r) {
+  const w = r.sim.world, dg = w.diag;
+  if (!(dg.pTotMean < AIRLESS_BAR) || !dg.alb) return null;
+  const eq = NBANDS >> 1, F = Math.max(dg.Fint ?? 0, 0), Tbelow = w.T[eq];
+  const dayK = Math.pow((r.flux * (1 - dg.alb[eq]) + F) / (EMISSIVITY * SIGMA), 0.25);
+  const dayH = r.data && r.data.solarDayH, t = dayH > 0 ? dayH * 1800 : Infinity;
+  const k = isFinite(t) ? REGOLITH_I / Math.sqrt(Math.PI * t) : 0;
+  let lo = 2, hi = Math.max(Tbelow, 3);
+  for (let i = 0; i < 60; i++) {
+    const T = (lo + hi) / 2;
+    if (EMISSIVITY * SIGMA * T * T * T * T > F + k * (Tbelow - T)) hi = T; else lo = T;
+  }
+  return { dayK, nightK: (lo + hi) / 2 };
+}
 function classifyHabitable(w) {
   try { return !!classify(w).habitable; } catch (_) { return false; }
 }
@@ -763,6 +785,7 @@ export class ClimateSystem {
       state: state ? { id: state.id, name: state.name, color: state.color, blurb: state.blurb,
                        habitable: !!state.habitable } : null,
       acid: r.acid ? acidDetail(r) : null,
+      extremes: groundExtremes(r),
       Tmean: dg.Tmean, Tmin: dg.Tmin, Tmax: dg.Tmax,
       surface: surfaceTemperature(dg),
       flux: r.flux, insolation: p.insolation,

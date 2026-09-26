@@ -32,13 +32,27 @@ const systems = loadSystems();
 const trim = (d) => ({ key: d.key, kind: d.kind, massKg: d.massKg, radiusKm: d.radiusKm,
   rotationPeriod: d.rotationPeriod, comp: d.comp, custom: !!d.custom, life: d.life || null });
 
+// Sunrise to sunrise, in hours, as the page works it out (climate-view.js
+// solarDayHours): the spin against the orbit round the star, a moon's planet's.
+function solarDayH(sysName, d) {
+  const by = Object.fromEntries(systems[sysName].bodies.map((b) => [b.key, b]));
+  const rot = Math.abs(d.rotationPeriod || 0) * 24;
+  if (!(rot > 0)) return null;
+  let top = d;
+  for (let i = 0; i < 4; i++) { const p = by[top.parent]; if (!p || !by[p.parent]) break; top = p; }
+  const orb = (top.period || 0) * 365.25 * 24;
+  if (!(orb > 0)) return rot;
+  const f = Math.abs(1 / rot - 1 / orb);
+  return f > 1e-12 ? 1 / f : Infinity;
+}
+
 function build(sysName) {
   const sys = new ClimateSystem();
   const ins = bookInsolation(sysName, systems[sysName], LUMINOUS);
   const keys = [];
   for (const d of systems[sysName].bodies) {
     if (!climateCapable(d)) continue;
-    sys.add(d.key, sysName, trim(d), { snapshot: SPINUP[sysName][d.key],
+    sys.add(d.key, sysName, { ...trim(d), solarDayH: solarDayH(sysName, d) }, { snapshot: SPINUP[sysName][d.key],
       flux: ins[d.key].S * S_EARTH, starTemp: ins[d.key].starTemp });
     keys.push(d.key);
   }
@@ -398,6 +412,27 @@ section('The state a world is shown in fits it');
   const skNames = (view.match(/const SK_STATES=\{([\s\S]*?)\};/) || [, ''])[1];
   const missing = SYSTEM.STATE_IDS.filter((id) => !(id in (win.RA_CLIMATE_SK_BLURBS || {})) || !new RegExp(`\\b${id}:`).test(skNames));
   ok(missing.length === 0, 'every state has its Slovak name and text', missing.length ? `missing: ${missing.join(', ')}` : `${SYSTEM.STATE_IDS.length} states`);
+}
+
+section('An airless world swings from night to noon');
+{
+  // the book's Mercury, Diviner's Moon (Williams et al. 2017) and Cassini's
+  // Enceladus (Spencer et al. 2006), against system.js groundExtremes
+  const { sys } = build('sol');
+  const ex = (k) => sys.detail(k).extremes, C = (K) => (K - 273.15).toFixed(0);
+  const m = sys.worlds.get('mercury'), q = 0.387 * (1 - 0.2056);
+  sys.setFlux(m, S_EARTH / (q * q), m.starTemp); m.sim.setParams({});
+  const me = ex('mercury');
+  ok(me && Math.abs(me.dayK - 700) < 15 && Math.abs(me.nightK - 100) < 15,
+    'Mercury: the book\'s +427 °C at noon at perihelion and −173 °C at night', me ? `${C(me.dayK)} / ${C(me.nightK)} °C` : 'no extremes');
+  const mo = ex('moon');
+  ok(mo && Math.abs(mo.dayK - 397) < 15 && Math.abs(mo.nightK - 95) < 15, 'the Moon: +124 °C at noon, −178 °C before dawn',
+    mo ? `${C(mo.dayK)} / ${C(mo.nightK)} °C` : 'no extremes');
+  const en = ex('enceladus');
+  ok(en && Math.abs(en.dayK - 80) < 10, 'Enceladus: its noon near the 80 K Cassini saw, off ice of Bond albedo 0.81',
+    en ? `${en.dayK.toFixed(0)} K at noon` : 'no extremes');
+  const e = ex('earth');
+  ok(!e, 'a world with air keeps its bands\' range');
 }
 
 section('Nephtys has a sea of sulfuric acid');

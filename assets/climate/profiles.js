@@ -88,7 +88,11 @@ export const PROFILES = {
     titan:   { base: { ...PRESETS.titan.params, n2Bar: 1.42, ch4Bar: 0.07, co2Bar: 1e-6,
                 obliquity: 26.7, landFraction: 0.6, startT: 94 }, waterShare: 0.45,
                 clouds: 'full' },
-    enceladus: { base: { ...EARTH, ...icy(0.6), internalHeat: 0.02, startT: 75 }, clouds: 'full' },
+    // The brightest ice in the Solar System: Bond albedo 0.81 (Howett et al.
+    // 2010), the quantity the energy balance wants -- the "0.99" of its data row
+    // is the visual geometric albedo, which is not. At 0.60, the model's sea
+    // ice, its noon was 103 K; at 0.81 it is 85 K, where Cassini saw about 80.
+    enceladus: { base: { ...EARTH, ...icy(0.6), internalHeat: 0.02, iceAlbedo: 0.81, startT: 62 }, clouds: 'full' },
     triton:  { base: { ...EARTH, ...icy(0.35), n2Bar: 1.4e-5, internalHeat: 0.005, startT: 38 },
                clouds: 'full' },
     pluto:   { base: { ...EARTH, ...icy(0.35), n2Bar: 1.1e-5, internalHeat: 0.003, obliquity: 57,

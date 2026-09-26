@@ -27,7 +27,9 @@ air and seas the book gives it.
   albedo, axial tilt, interior heat, the biosphere and tidal locking; values
   take units (`420 ppm`, `0.5 bar`, `2 atm`, `3 mbar`).
 - The sidebar shows every world's temperature live. **🌡 Temperature** paints
-  the globes in false colour, with a legend.
+  the globes in false colour, with a legend. An airless world's card gives its
+  ground's night and noon (Mercury: −178 °C and, at perihelion, +430 °C), which
+  swing far past the zonal means its bands carry.
 - The speed slider runs to 10 Myr/s. Climates take time steps of their own and
   never run ahead of the orrery's clock; if the machine cannot keep up, the card
   says so rather than silently dropping time.

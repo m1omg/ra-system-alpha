@@ -72,7 +72,7 @@ megayears; 10²⁸ J sterilises the surface at once and the crust about 17 kyr
 later; 10²⁹ J melts through the refuge. Complex life lost on a habitable world
 is back after 8×10⁸ yr; in altdev2 it was back the next day.
 
-## iceAlbedo — the world's own ice — radiation.js, climate.js
+## iceAlbedo — the world's own ice — radiation.js, climate.js, waterworld.js
 
 Sea ice reflects `ALB_ICE`, 0.60, which is Earth's. The ice of the outer moons
 runs from Callisto's dirty 0.2 through Ganymede's 0.4 to Enceladus's 0.99, and
@@ -80,6 +80,13 @@ under a quarter of Earth's light a world's temperature turns on which: Naunet's
 documented −100 °C over an ice crust needs 0.37, and at 0.60 the model put it
 at −117 °C with its air frozen out. `iceAlbedo` replaces 0.60 for the world
 that sets it; unset, 0.60.
+
+The small-waterworld model (Arnscheidt et al. 2019) writes its own frozen albedo,
+0.2 + 0.4 × ice, and Enceladus runs on it: `iceAlbedo` sets that too, and unset
+the line is altdev2's to the bit (0.6 − 0.2 is not 0.4 in floating point, so the
+literal stays). Enceladus's Bond albedo is 0.81 (Howett et al. 2010); its data
+row's 0.99 is the visual geometric albedo. At 0.60 its noon was 103 K, at 0.81 it
+is 85 K, where Cassini saw about 80 K (Spencer et al. 2006).
 
 ## sealOxidation, reducedGas — oxygen on a sealed ocean floor — volatiles.js
 

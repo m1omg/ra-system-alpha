@@ -602,7 +602,7 @@ export function update(w, dt) {
     out[i] = Math.max((1 - FIN_FRACTION) * moistOLR + FIN_FRACTION * dryOLR - ghgForce,
                       1e-3);
     if (smallWaterworld) {
-      const f = waterworldFlux(w.T[i], g, d.R, availCol * g, waterworldGases);
+      const f = waterworldFlux(w.T[i], g, d.R, availCol * g, waterworldGases, p.iceAlbedo);  // [ra-climate patch] iceAlbedo
       // Blend absorbed flux, not albedo and area independently: the latter
       // introduces a spurious cross term into the energy budget.
       swScale[i] = 1+modelWeight*(f.shortwave-1);
@@ -1440,7 +1440,8 @@ export function radiativeDamping(w) {
     const h = 0.5;
     if (dg.smallWaterworld) {
       const net = t => {
-        const f = waterworldFlux(t, dg.g, dg.d.R, dg.smallWaterworld.availablePressure, dg.smallWaterworld.gases);
+        const f = waterworldFlux(t, dg.g, dg.d.R, dg.smallWaterworld.availablePressure, dg.smallWaterworld.gases,
+          w.params.iceAlbedo);   // [ra-climate patch] iceAlbedo
         return f.emitted + f.cooling - dg.S[i] * dg.swTrans * (1-f.albedo) * f.shortwave;
       };
       k[i] = (net(T+h) - net(T-h)) / (2*h);
