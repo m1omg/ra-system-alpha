@@ -81,6 +81,30 @@ documented −100 °C over an ice crust needs 0.37, and at 0.60 the model put it
 at −117 °C with its air frozen out. `iceAlbedo` replaces 0.60 for the world
 that sets it; unset, 0.60.
 
+## sealOxidation, reducedGas — oxygen on a sealed ocean floor — volatiles.js
+
+On a waterworld whose rock lies under high-pressure ice, altdev2 already throttles
+the volcanic gas coming up and the seafloor weathering of CO₂ going down by the
+same `sealFactor`, "since it is the same interface seen from the other side".
+The oxygen cycle had been left open: its seafloor oxidation ran at the full rate,
+and the crust took up 85 % of the oxygen that water escape leaves behind, through
+a floor that passes a fifteenth of everything else. `sealOxidation` puts both
+behind the same seal.
+
+Measured on Anubis at 81 °C, 0.7 bar N₂ and 0.3 bar O₂, the documented abiotic
+oxygen world. Unsealed: escape brings 3.6×10⁻⁶ kg/m²/yr, the seafloor takes 2.9×10⁻⁴
+(τ 12 Myr), the most oxygen it can keep with no volcanic reductants is 0.004 bar,
+and its 0.3 bar was gone in 20 Myr. Sealed: 2.2×10⁻⁵ in, 2.0×10⁻⁵ out (τ 177 Myr),
+and it can keep 0.34 bar. That is the result expected for sealed waterworlds
+(Glaser et al. 2020).
+
+`reducedGas` is the share of Earth's reduced volcanic gases (H₂, CO, H₂S) per unit
+of eruption, which the mantle's oxygen fugacity sets: log(H₂/H₂O) falls half a
+decade per decade of fO₂ (Gaillard & Scaillet 2014). A mantle that took up the
+oxygen of oceans lost early is an oxidised one (Schaefer et al. 2016). Anubis's
+is balanced by the tuner to hold its 0.3 bar: 0.12 of Earth's, about two log
+units more oxidised. Unset, 1.
+
 ## Not a patch: how the energy of a strike gets in
 
 `system.js` puts a strike's heat into the bands directly (`injectHeat`), through

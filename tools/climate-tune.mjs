@@ -85,9 +85,22 @@ function tuneOne(sysName, d, S, starTemp, fixed = null) {
 // with the control; the sinks are the volcanic reductants and the weathering at
 // this level: the control that makes them equal. Read once the living biosphere
 // has grown to what the control asks (BIO_GROW, 5 kyr), which a settle is.
-function balanceOxygen(sim) {
-  const w = sim.world, f = w.o2Flux, b = w.params.biosphere;
-  if (!f || !(b > 0) || !(f.source > 0)) return null;
+//
+// A lifeless world (profile `oxygenBy: 'reducedGas'`) has only the oxygen water
+// escape leaves behind, and what is unknown there is the sink: how reduced its
+// volcanic gas is. That share is the control, set so the reductants take what
+// the escape brings less what the seafloor takes. Zero when even that is too
+// much -- the oxygen cannot be held at this level, and the check says so.
+function balanceOxygen(sim, by = 'biosphere') {
+  const w = sim.world, f = w.o2Flux;
+  if (!f) return null;
+  if (by === 'reducedGas') {
+    const r = w.params.reducedGas ?? 1;
+    if (!(r > 0) || !(f.reductant > 0)) return null;
+    return Math.max(0, r * (f.source - f.weathering) / f.reductant);
+  }
+  const b = w.params.biosphere;
+  if (!(b > 0) || !(f.source > 0)) return null;
   return b * (f.reductant + f.weathering) / f.source;
 }
 
@@ -169,8 +182,8 @@ for (const sysName of ['sol', 'ra']) {
       if (og != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], outgassing: +og.toPrecision(6) };
       if ((prof.balance || []).includes('oxygen')) {
         sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
-        const bio = balanceOxygen(sim);
-        if (bio != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], biosphere: +bio.toPrecision(6) };
+        const by = prof.oxygenBy || 'biosphere', v = balanceOxygen(sim, by);
+        if (v != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], [by]: +v.toPrecision(6) };
       }
       if (rounds > 1) {
         // the temperature again, under the balanced reservoirs
@@ -197,7 +210,8 @@ for (const sysName of ['sol', 'ra']) {
       + ` imb=${r.imb.toFixed(3)} p=${r.pTot.toPrecision(3)} bar ${st}`
       + (tune ? ` ${tune.knob}=${tune.value.toPrecision(4)}` : '')
       + (og != null ? ` outgassing=${og.toPrecision(3)}` : '')
-      + (tunedOut[sysName][d.key] && tunedOut[sysName][d.key].biosphere != null ? ` biosphere=${tunedOut[sysName][d.key].biosphere.toPrecision(3)}` : '')
+      + ['biosphere', 'reducedGas'].map((k) => tunedOut[sysName][d.key] && tunedOut[sysName][d.key][k] != null
+        ? ` ${k}=${tunedOut[sysName][d.key][k].toPrecision(3)}` : '').join('')
       + ` [${r.secs.toFixed(1)} s]`);
   }
 }

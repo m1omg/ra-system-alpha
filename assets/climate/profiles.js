@@ -184,12 +184,28 @@ export const PROFILES = {
             magneticField: 1,
             iceAlbedo: 0.45, obliquity: 3, startT: 173 }, target: 173, knob: 'iceAlbedo', clouds: 'full' },
     // Horus's worlds, lit by a brown dwarf at 0.05 S⊕ and kneaded by it.
-    // Anubis: a hot ocean half its mass in water at 81 C -- a Hycean world with
-    // tidal heat. Tuned: the hydrogen.
-    anubis: { base: { ...EARTH, landFraction: 0, heliumFrac: 0.1, h2Bar: 5, n2Bar: 0.5,
-            co2Bar: 0.1, ch4Bar: 0, o2Bar: 0, biosphere: 0, obliquity: 2,
-            internalHeat: 1.0, outgassing: 1, tidallyLocked: false, startT: 354 },
-              waterShare: 0.459, target: 354, knob: 'h2Bar', clouds: 'delta' },
+    // Anubis: "heated by the relentless tidal squeezing of its parent brown
+    // dwarf ... true liquid water oceans and an atmosphere rich in free oxygen
+    // ... the absolute lack of" life, 81.2 C, 45.9 % water. No hydrogen
+    // blanket, then: tides from Horus hold the heat, and the oxygen is the
+    // abiotic kind -- a warm, moist sky loses its hydrogen to space and leaves
+    // the oxygen behind. The pressure is not given: 0.7 bar of nitrogen and 0.3
+    // of oxygen, 30 % of the air.
+    //
+    // Held, not merely started: water escape under Ra's light brings 2.2e-5
+    // kg/m2/yr of oxygen, and a seafloor sealed under ice VII takes up only a
+    // fifteenth of what an open one would (sealOxidation, PATCHES.md), so the
+    // most this sky can keep with no volcanic reductants at all is 0.34 bar.
+    // Unsealed it was 0.004 bar and the oxygen was gone in 12 Myr. What the
+    // volcanoes erupt then decides the level, and a mantle that soaked up the
+    // oxygen of the oceans Anubis lost to young Horus is an oxidised one: the
+    // reduced share of its gas is balanced to hold the 0.3 bar.
+    // Tuned: the tidal heat; balanced: outgassing (CO2) and reducedGas (O2).
+    anubis: { base: { ...EARTH, landFraction: 0, h2Bar: 0, n2Bar: 0.7, co2Bar: 0.01, ch4Bar: 0,
+            o2Bar: 0.3, biosphere: 0, obliquity: 2, internalHeat: 285, outgassing: 0.07,
+            sealOxidation: true, reducedGas: 0.08, tidallyLocked: false, startT: 354 },
+              waterShare: 0.459, target: 354, knob: 'internalHeat', balance: ['oxygen'], oxygenBy: 'reducedGas',
+              clouds: 'delta', heat: 'tidal' },
     // Khonsu: "a cold, predominantly rocky world" at -99.5 C, 13.6 % water.
     // Horus's light alone would leave it near -166 C; what holds it at -99.5 is
     // tidal heat. From its orbit -- 0.0125 AU, e 0.0066, a 2.4-day month round

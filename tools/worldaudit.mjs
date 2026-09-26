@@ -27,7 +27,8 @@ export const BOOK = {
   satismoon: { note: 'airless moon' },
   nu:        { T: -93, note: 'global ocean a few degrees above freezing under ice metres thick; near-vacuum; life' },
   naunet:    { T: -100, pRange: [0.003, 0.004], note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
-  anubis:    { T: 81.2, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
+  // "rich in free oxygen": at least the fifth of the air Earth's is
+  anubis:    { T: 81.2, o2Min: 0.2, sea: 1, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
   khonsu:    { T: -99.5, note: 'mostly rock; 13.6 % water' },
   nut:       { T: -190, note: 'deeply frozen, water-rich (54 %)' },
 };
@@ -38,7 +39,6 @@ export const BOOK = {
 export const GAPS = {
   nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
   uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
-  anubis: 'a hydrogen envelope; the book has free oxygen over its ocean; cools 12 K in 20 Myr',
 };
 
 const systems = loadSystems();
@@ -71,7 +71,8 @@ for (const d of MAIN ? systems.ra.bodies : []) {
   const end = row(r);
   const bk = [b.T != null ? `${b.T} °C` : null, b.p != null ? `${bar(b.p)} bar` : null,
     b.pRange ? `${bar(b.pRange[0])}-${bar(b.pRange[1])} bar` : null,
-    b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.sea != null ? `sea ${b.sea * 100}%` : null].filter(Boolean).join(' · ');
+    b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.o2Min != null ? `O2 ≥ ${b.o2Min * 100}%` : null,
+    b.sea != null ? `sea ${b.sea * 100}%` : null].filter(Boolean).join(' · ');
   console.log(`\n${d.key}   book: ${bk}${b.note ? '  — ' + b.note : ''}`);
   console.log(`   start ${start}`);
   console.log(`   ${(YEARS / 1e6).toFixed(0).padStart(3)} Myr ${end}`);

@@ -1194,7 +1194,11 @@ export function stepVolatiles(w, dtYears) {
       // between 0.5 and 2.4 ppm from step to step, and the step controller rang
       // with it. Early Venus spent its whole run doing this.
       const photolyticShare = esc.water > 0 ? Math.max(0, 1 - (esc.bulkWater ?? 0) / esc.water) : 0;
-      escapeO2 = dtYears > 0 ? lostEO * d.eoColumn * (32 / 18) * 0.15 * photolyticShare / dtYears : 0;
+      // [ra-climate patch] sealOxidation: the crust takes up what reaches it,
+      // and under a floor of high-pressure ice that is the leak the volcanoes
+      // get through (see the oxygen block). Unset, this is altdev2 exactly.
+      const kept = p.sealOxidation ? 1 - 0.85 * sealFactor(w) : 0.15;
+      escapeO2 = dtYears > 0 ? lostEO * d.eoColumn * (32 / 18) * kept * photolyticShare / dtYears : 0;
     }
   }
   // Proportional escape approaches zero asymptotically. Below a trillionth of
@@ -1411,7 +1415,10 @@ export function stepVolatiles(w, dtYears) {
     // stayed anoxic for a billion years with photosynthesis already running
     // (Catling & Zahnle 2020). The Great Oxidation is that threshold being
     // crossed, and here it falls out of the arithmetic rather than being staged.
-    const reductant = O2_REDUCTANT * outgassingScale(p.mass) * p.outgassing * meltBoost(p) * sealFactor(w);
+    // [ra-climate patch] reducedGas: how reduced the volcanic gas is, as a share
+    // of Earth's (see the note below). Unset it is 1, altdev2 exactly.
+    const reductant = O2_REDUCTANT * outgassingScale(p.mass) * p.outgassing * meltBoost(p) * sealFactor(w)
+      * (p.reducedGas ?? 1);
 
     // Oxidative weathering of the crust: first order in how much oxygen there
     // is, which is what makes the level settle instead of climbing for ever.
@@ -1421,7 +1428,28 @@ export function stepVolatiles(w, dtYears) {
     // no sink at all.
     const hotDryRock = Math.max(p.hotRockOxidation ?? 0, 0)
       * smoothstep(450, 650, dg.Tmean) * (1 - liquid) / 5e6;
-    const weathering = (0.25 + 0.75 * landExposed) * liquid / O2_TAU_OX + hotDryRock;
+    //
+    // [ra-climate patch] sealOxidation. Seafloor oxidation is ocean water
+    // circulating through fresh basalt, the same contact seafloor weathering
+    // needs, and on a world deep enough to freeze at its base the carbon block
+    // seals that by sealFactor() "since it is the same interface seen from the
+    // other side". Left open here, the oxygen cycle is the one-sided cycle the
+    // carbon one was before that: Anubis, whose floor of ice VII passes one part
+    // in fifteen of its volcanic gas and of its CO2 weathering, oxidised its
+    // seafloor at the full rate, and no abiotic oxygen could last there --
+    // which is the one place it is expected to (Glaser et al. 2020, ApJ 893,
+    // 163).
+    //
+    // reducedGas is the other half of the same story. The reductant flux is
+    // Earth's volcanic H2, CO and H2S per unit of eruption, and that share is set
+    // by the mantle's oxygen fugacity: log(H2/H2O) falls by half a decade per
+    // decade of fO2 (Gaillard & Scaillet 2014), so a mantle four log units more
+    // oxidised than Earth's upper mantle erupts a hundredth of the reductants.
+    // A world that lost oceans of water to its young star dissolved much of the
+    // oxygen left behind into its magma ocean (Schaefer et al. 2016), which is
+    // how such a mantle is made. Unset, both are altdev2 exactly.
+    const floor = p.sealOxidation ? 0.25 * sealFactor(w) : 0.25;
+    const weathering = (floor + 0.75 * landExposed) * liquid / O2_TAU_OX + hotDryRock;
 
     // Kept for maxStep: how fast the reservoir is moving right now.
     w.o2Rate = (source - reductant) - w.o2 * weathering;

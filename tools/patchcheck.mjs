@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '878b8d6';          // "Climate sandbox: every terrestrial world runs the Planet Climate Sandbox model"
 // every parameter a patch reads; unset, each must leave altdev2 exactly as it was
 const PATCH_PARAMS = ['weatherCapK', 'originWait', 'abiogenesis', 'heatKillsDry', 'heatDeathFastYears',
-  'deepRefuge', 'lifeGatesBio', 'iceAlbedo'];
+  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas'];
 
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {
@@ -79,6 +79,8 @@ const cases = [
   ['Earth with its complex life lost, 1 Myr', 'earth', {}, (w) => { w.life.euk = 0; }, 1e6, 2e4],
   ['Earth at 1.3 S+ (hot, wet, weathering hard), 1 Myr', 'earth', { insolation: 1.3 }, null, 1e6, 2e4],
   ['Mars, 1 Myr', 'mars', {}, null, 1e6, 2e4],
+  // the ocean floor under ice VII, where the oxygen patches act
+  ['A Hycean ocean on ice VII under 0.2 bar of O2, 1 Myr', 'hycean', { o2Bar: 0.2 }, null, 1e6, 2e4],
 ];
 for (const [label, name, extra, poke, years, step] of cases) {
   if (!ours.presets.PRESETS[name]) { ok(false, label, `no preset ${name}`); continue; }
@@ -91,6 +93,12 @@ const set = Object.fromEntries(PATCH_PARAMS.filter((k) => k in STILL).map((k) =>
 const seen = [cases[1], cases[2], cases[3]].map(([, name, extra, poke, years, step]) => run(name, extra, poke, years, step, set));
 ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition sets them, the same cases differ',
   seen.map((r) => r.where).join(' | '));
+// the oxygen patches are per world (Anubis), not in STILL: set as Anubis sets them
+{
+  const [, name, extra, poke, years, step] = cases.at(-1);
+  const r = run(name, extra, poke, years, step, { sealOxidation: true, reducedGas: 0.1 });
+  ok(!r.same, 'control: with the oxygen sealed under the ice, the Hycean case differs', r.where);
+}
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

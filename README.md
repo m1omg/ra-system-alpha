@@ -10,13 +10,14 @@ and experimental editions keep the curated fictional-system experience.
 Every rocky, icy and ocean world in both systems carries a live climate: the
 18-band energy-balance model of the
 [Planet Climate Sandbox](https://github.com/m1omg/planet-climate-sandbox)
-(its `altdev2` physics, copied unchanged into `assets/climate/`), forced by the
+(its `altdev2` physics, copied into `assets/climate/` with a few changes, each
+behind a parameter and listed in `PATCHES.md`), forced by the
 starlight each world actually receives on its current orbit. Move a planet,
 knock it onto an eccentric orbit, let N-body rearrange the system, blow up the
 star, or rewrite the air in the 🌡 **Climate** panel, and the world answers:
 seas rise, drain or freeze, ice caps advance and retreat, forests wither, the
-greenhouse runs away into steam, rock melts. Idle, it holds the temperature the
-book gives it.
+greenhouse runs away into steam, rock melts. Idle, it holds the temperature,
+air and seas the book gives it.
 
 **How to play**
 
@@ -68,7 +69,7 @@ book gives it.
 |---|---|
 | `assets/climate/physics/`, `sim/`, `game/`, `render/` | the climate model, verbatim from planet-climate-sandbox `altdev2/src` |
 | `assets/climate/system.js` | many worlds on one clock: forcing, time credit, snapshots; impacts: heat by band, magma, winter, CO₂, lost air |
-| `assets/climate/PATCHES.md` | the one change to the physics copy, behind a parameter whose default is altdev2 |
+| `assets/climate/PATCHES.md` | the changes to the physics copy, each behind a parameter whose default is altdev2 |
 | `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds tuned to their documented temperatures |
 | `assets/climate/tuned.js`, `spinup.js` | written by `tools/climate-tune.mjs`: tuned knobs and settled starting states |
 | `assets/climate/analysis.js` | reads each surface map for its seas, ice and forests, so the climate can be drawn as a change from the map |
@@ -89,12 +90,13 @@ node tools/climate-tune.mjs --check   # every tuned world still at its target
 node tools/climate-browsercheck.mjs   # in Chromium: worker, map orientation, panel, reset, strikes, views
 node tools/patchcheck.mjs             # the physics patches, unset, are altdev2 to the bit
 node tools/impactladder.mjs           # a measurement: what 1e23..1e30 J does to Earth and Satis, over 1 Myr
+node tools/worldaudit.mjs             # a measurement: every Ra world beside its book, opening and after 20 Myr
 node tools/nbodycheck.mjs             # in Chromium: the gravity tiers, their accuracy and switching
 node tools/surfacecheck.mjs           # in Chromium: ▣ Surface holds a world still while time runs on
 ```
 
-The last three need Playwright (`npm i --no-save playwright`) and say "skipping"
-without it; a skipped check is not a passed one.
+The three that run in Chromium need Playwright (`npm i --no-save playwright`) and
+say "skipping" without it; a skipped check is not a passed one.
 
 ## Alpha-only physics
 

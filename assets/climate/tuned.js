@@ -36,8 +36,9 @@ export const TUNED = {
    "iceAlbedo": 0.373125
   },
   "anubis": {
-   "h2Bar": 8.03692,
-   "outgassing": 1.31202
+   "internalHeat": 285.313,
+   "outgassing": 0.0457684,
+   "reducedGas": 0.119159
   },
   "khonsu": {
    "internalHeat": 48.3024

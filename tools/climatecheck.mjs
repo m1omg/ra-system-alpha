@@ -348,6 +348,9 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
       if (Math.abs(a[g] - b[g]) > 0.05) bad.push(`${g.toUpperCase()} ${(a[g] * 100).toFixed(0)} %, book ${b[g] * 100} %`);
       if (Math.abs(z[g] - a[g]) > 0.05) bad.push(`${g.toUpperCase()} drifts to ${(z[g] * 100).toFixed(0)} %`);
     }
+    // where the book gives only a floor, the world opens above it and stays there
+    if (b.o2Min != null) for (const [when, x] of [['opens', a.o2], ['after 20 Myr', z.o2]])
+      if (!(x >= b.o2Min)) bad.push(`${when} with O2 ${(x * 100).toFixed(0)} % of the air, book at least ${b.o2Min * 100} %`);
     if (b.sea != null && Math.abs(a.cover - b.sea) > 0.05) bad.push(`water covers ${(a.cover * 100).toFixed(0)} %, book ${b.sea * 100} %`);
     if (b.sea != null && Math.abs(z.cover - a.cover) > 0.05) bad.push(`cover drifts to ${(z.cover * 100).toFixed(0)} %`);
     const what = `${k}: ${a.T.toFixed(1)} → ${z.T.toFixed(1)} °C, ${a.p.toPrecision(3)} → ${z.p.toPrecision(3)} bar`;
