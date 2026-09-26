@@ -290,6 +290,34 @@ section('Life follows the climate');
   }
 }
 
+section('What a strike did to the surface, as the orrery reads it');
+{
+  const earth = () => { const b = build('sol'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('earth') }; };
+  const DAY = 1 / 365.25;
+  {
+    const { r } = earth();
+    ok(r.rs[RS.BOILED] < 0.01, 'a settled Earth has boiled none of its water', `${r.rs[RS.BOILED]}`);
+  }
+  {
+    const { sys, r } = earth();
+    sys.impact('earth', { J: 1e24, kind: 'asteroid', x: 0.3 });
+    ok(r.rs[RS.BOILED] < 0.02, '1e24 J boils next to nothing', `${(r.rs[RS.BOILED] * 100).toFixed(2)} %`);
+  }
+  {
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 1e28, kind: 'collision' });
+    ok(r.rs[RS.BOILED] > 0.9 && r.rs[RS.MAGMA] < 0.5, '1e28 J: the oceans boiled into the sky, the rock mostly not molten',
+      `boiled ${(r.rs[RS.BOILED] * 100).toFixed(0)} %, molten ${(r.rs[RS.MAGMA] * 100).toFixed(0)} %`);
+  }
+  {
+    const { sys, f, r } = earth();
+    sys.impact('earth', { J: 1e29, kind: 'collision' });
+    const m0 = r.rs[RS.MAGMA];
+    advance(sys, 3e4, 2000, 30, f);
+    ok(m0 > 0.99 && r.rs[RS.MAGMA] === 0, '1e29 J: molten everywhere, crusted over 30 kyr on', `${(m0 * 100).toFixed(0)} % → ${(r.rs[RS.MAGMA] * 100).toFixed(0)} %`);
+  }
+}
+
 section('Edits reach the reservoirs');
 {
   const { sys } = build('sol');

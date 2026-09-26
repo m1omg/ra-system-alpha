@@ -38,8 +38,8 @@ export const RS = {
   TMEAN: 72, TMIN: 73, TMAX: 74, STATE: 75, LAG: 76, TIME: 77,
   NOLIQ: 78, CLOUDMEAN: 79, INSOL: 80, AIR: 81, HASWATER: 82, TOTALWATER: 83,
   SURFT: 84, OBLQ: 85, MAGMA: 86,
-  LIFE: 87, LIFECAUSE: 88, LIFESINCE: 89,
-  SIZE: 90,
+  LIFE: 87, LIFECAUSE: 88, LIFESINCE: 89, BOILED: 90,
+  SIZE: 91,
 };
 
 // ---- the life ledger ------------------------------------------------------------
@@ -657,6 +657,10 @@ export class ClimateSystem {
     let meltShare = 0;
     if (r.magma) for (let i = 0; i < NBANDS; i++) if (r.magma[i] > 0) meltShare += 1 / NBANDS;
     o[RS.MAGMA] = meltShare;
+    // the share of the world's water that is in the sky: what "the oceans
+    // boiled" means, for the orrery's damage readouts
+    const wt = w.water.ocean + w.water.seaIce + w.water.landIce + w.water.vapour;
+    o[RS.BOILED] = wt > 0 ? clamp(w.water.vapour / wt, 0, 1) : 0;
     const g = r.ledger;
     o[RS.LIFE] = g ? g.level : 0;
     o[RS.LIFECAUSE] = g ? g.cause : -1;

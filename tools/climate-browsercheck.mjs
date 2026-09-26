@@ -382,14 +382,17 @@ try {
         // 💾 saved (the worker hands the climate over), healed back to the book's
         // Earth, 📂 loaded: the ledger comes back with the save
         const ck = 'ra-climate-clim:' + SYS; localStorage.removeItem(ck);
+        const upTo = async (fn, ms) => { const t = performance.now(); while (!fn() && performance.now() - t < ms) await frame(); return fn(); };
         window.__stay = 3; document.getElementById('t-save').click();
-        for (let i = 0; i < 200 && !localStorage.getItem(ck); i++) await frame();
+        const wrote = await upTo(() => !!localStorage.getItem(ck), 60000);
+        const savedLevel = wrote ? (JSON.parse(localStorage.getItem(ck)).worlds.earth || {}).ledger : null;
         impHeal();
-        for (let i = 0; i < 60 && !/intelligent/.test(tag()); i++) await frame();
+        await upTo(() => /intelligent/.test(tag()), 30000);
         const reset = tag();
         document.getElementById('t-load').click();
-        for (let i = 0; i < 90 && !/unicellular/.test(tag()); i++) await frame();
-        const loaded = { reset, tag: tag(), stay: window.__stay, extinct: bodies.find((b) => b.data.key === 'earth').extinct };
+        await upTo(() => /unicellular/.test(tag()), 60000);
+        const loaded = { reset, tag: tag(), stay: window.__stay, extinct: bodies.find((b) => b.data.key === 'earth').extinct,
+          wrote, savedLevel: savedLevel ? savedLevel.level : null };
         try { localStorage.removeItem(stateKey()); localStorage.removeItem(ck); } catch (_) {}
         impHeal();
         for (let i = 0; i < 40 && !/intelligent/.test(tag()); i++) await frame();
@@ -407,6 +410,41 @@ try {
       ok(/intelligent/.test(life.healed.tag) && !life.healed.veg && !life.healed.extinct, '🧽 Heal gives the biosphere back, forests and all', JSON.stringify(life.healed));
       await page.evaluate(() => { document.getElementById('t-sysreset').click(); });
       await page.waitForTimeout(600);
+
+      section('sol: one story of the damage');
+      const dmg = await page.evaluate(async () => {
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        const wait = async (ms) => { const t = performance.now(); while (performance.now() - t < ms) await frame(); };
+        const earth = bodies.find((b) => b.data.key === 'earth');
+        const sp = document.getElementById('speed'); sp.value = 0; setSpeed(0); if (!playing) togglePlay();
+        await wait(500);
+        const read = () => ({ tier: impTierTxt(earth), stage: impDamageStageTxt(earth), steam: earth.scar ? earth.scar.steamTarget : null,
+          melt: earth.scar ? earth.scar.meltTarget : null, cs: RAClimateView.surfaceState(earth), W: impWaterFrac(earth) });
+        const until = async (fn, ms) => { const t = performance.now(); while (!fn() && performance.now() - t < ms) await frame(); await frame(); await frame(); };
+        applyStrike(earth, 0.5, 0.5, 1e28, { mKg: 1e20, vKms: 20, matI: 1, dir: new THREE.Vector3(0, 0, 1) });
+        await until(() => RAClimateView.surfaceState(earth).boiled > 0.5, 5000);
+        const boiled = read();
+        impHeal(); await wait(800);
+        applyStrike(earth, 0.5, 0.5, 1e29, { mKg: 1e21, vKms: 20, matI: 1, dir: new THREE.Vector3(0, 0, 1) });
+        await until(() => RAClimateView.surfaceState(earth).magma > 0.5, 5000);
+        const molten = read();
+        // fast: the magma gives its heat up and crusts over (the climate may run
+        // behind so fast a clock; wait for it, not for the clock)
+        sp.value = 80; setSpeed(80);
+        const t0 = elapsedYears;
+        await until(() => RAClimateView.surfaceState(earth).magma === 0, 90000);
+        const cooled = read(); cooled.years = Math.round(elapsedYears - t0);
+        if (playing) togglePlay(); impHeal(); await wait(500);
+        return { boiled, molten, cooled };
+      });
+      ok(Math.abs(dmg.boiled.W * 5.97e24 / 1.4e21 - 1) < 0.25, 'the lab weighs Earth\'s water as the climate does: about one ocean, not 3 % of the planet',
+        `${(dmg.boiled.W * 100).toExponential(1)} % of its mass`);
+      ok(/oceans boiling — steam atmosphere \((9\d|100)%\)/.test(dmg.boiled.tier) && /boiled/.test(dmg.boiled.stage) && dmg.boiled.steam === 0 && dmg.boiled.melt === 0,
+        '1e28 J: the lab and the hover text both say the oceans boiled, and the climate draws the steam', JSON.stringify(dmg.boiled));
+      ok(/magma ocean \(100% molten\)/.test(dmg.molten.tier) && /molten/.test(dmg.molten.stage) && dmg.molten.melt === 1,
+        '1e29 J: a global magma ocean, in the lab, the hover text and the lava', JSON.stringify(dmg.molten));
+      ok(dmg.cooled.melt === 0 && !/magma|molten/.test(dmg.cooled.tier), '...which cools: as the climate\'s magma drains, the lava and the words go',
+        `${dmg.cooled.years} yr: ${JSON.stringify(dmg.cooled)}`);
 
       section('sol: language and views');
       const badge = () => page.evaluate(() => [...document.querySelectorAll('#title-h1 .clim-badge')].map((e) => e.textContent));

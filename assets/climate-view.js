@@ -293,7 +293,7 @@ V.frame=function(dtReal, simDt, rateYps){
   const t=performance.now()/1000;
   const p0=V.prof?performance.now():0;
   for(const cv of V.bodies.values()) applyState(cv, dtReal, t);
-  for(const cv of V.bodies.values()) lifeOf(cv);
+  for(const cv of V.bodies.values()){ lifeOf(cv); damageOf(cv); }
   const p1=V.prof?performance.now():0;
   maybeAnalyse();
   if(V.prof){ const p2=performance.now(); if(p2-p0>15) V.prof.push({apply:+(p1-p0).toFixed(1), analyse:+(p2-p1).toFixed(1)}); }
@@ -310,13 +310,25 @@ V.frame=function(dtReal, simDt, rateYps){
 /* ---------------- life ---------------- */
 // What lives on a world is the climate's to say (the ledger, system.js): the
 // orrery's tags, panel and vegetation hear of a change the frame it arrives.
+// Compared with what the orrery shows now, not with what was last sent: a Heal
+// resets the orrery's side itself, and a heal, a Reset and a Load's restored
+// ledger can all land within one frame.
 function lifeOf(cv){
-  const RS=CL.RS; if(!RS || RS.LIFE==null || !cv.rec.data.life) return;
+  const RS=CL.RS, rec=cv.rec; if(!RS || RS.LIFE==null || !rec.data.life || rec.destroyed) return;
   const r=CL.state(cv.key); if(!r) return;
-  const lv=r[RS.LIFE], cause=r[RS.LIFECAUSE];
-  if(lv===cv.lifeLv && cause===cv.lifeCause) return;
-  cv.lifeLv=lv; cv.lifeCause=cause;
-  if(typeof impLifeFromClimate==='function') impLifeFromClimate(cv.rec, lv, CL.LIFE_CAUSES[cause]||null);
+  const lv=r[RS.LIFE], cause=CL.LIFE_CAUSES[r[RS.LIFECAUSE]]||null;
+  if(lv===rec.lifeLevel && cause===(rec.lifeCause||null)) return;
+  if(typeof impLifeFromClimate==='function') impLifeFromClimate(rec, lv, cause);
+}
+// A struck world's melt and steam follow its climate the frame they change:
+// the lava cools as the magma drains, and the orrery's readouts with it.
+function damageOf(cv){
+  const rec=cv.rec, s=rec.scar; if(!s || !(rec.dmgJ>0) || rec.destroyed) return;
+  const RS=CL.RS, r=CL.state(cv.key); if(!r || !RS || RS.BOILED==null) return;
+  const m=r[RS.MAGMA], b=Math.round(r[RS.BOILED]*100);
+  if(m===s._climM && b===s._climB) return;       // on the scar: a healed world's new one starts blank
+  s._climM=m; s._climB=b;
+  if(typeof impUpdateMelt==='function') impUpdateMelt(rec);
 }
 // True where the climate keeps this world's life (the orrery's joule thresholds
 // then stand aside).
@@ -329,6 +341,17 @@ V.lifeAgo=function(rec){
   const cv=rec && rec.data && V.bodies.get(rec.data.key), RS=CL.RS;
   const r=cv && CL.state(cv.key); if(!r || !RS || RS.LIFESINCE==null) return null;
   return Math.max(0, r[RS.TIME]-r[RS.LIFESINCE]);
+};
+
+// What the climate says a strike did to the surface -- the share of its bands
+// molten, the share of its water in the sky, how much water it has -- for the
+// orrery's damage readouts and shells, so the lab, the hover text and this
+// panel tell one story. Null where the climate does not run the world.
+V.surfaceState=function(rec){
+  const cv=rec && rec.data && V.bodies.get(rec.data.key), RS=CL.RS;
+  const r=cv && cv.rec===rec ? CL.state(cv.key) : null;
+  if(!r || !RS || RS.BOILED==null) return null;
+  return { magma:r[RS.MAGMA]||0, boiled:r[RS.BOILED]||0, waterKg:(r[RS.TOTALWATER]||0)*1.4e21 };
 };
 
 /* ---------------- deposits ---------------- */

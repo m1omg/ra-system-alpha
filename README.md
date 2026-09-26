@@ -55,6 +55,12 @@ book gives it.
   stays habitable takes the model's 800 million years to evolve again, and
   intelligence half a billion more; a sterilised world stays sterile.
   Nephtys's acid-sea life lives while its sea is liquid, to 330 °C.
+- One story of the damage: on a climate world the impact lab, the hover text
+  and the climate card read the same state. The lab weighs the climate's own
+  water (Earth's ocean is 2×10⁻⁴ of the planet), "oceans boiled" is the share
+  of it in the sky, and the lava is the climate's magma, which cools off the
+  globe and the readouts as it drains. Absorbed energy still decides mass
+  loss and breakup.
 
 **How it fits together**
 
