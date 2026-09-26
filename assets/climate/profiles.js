@@ -131,12 +131,28 @@ export const PROFILES = {
             co2Bar: 1e-3, ch4Bar: 1e-6, biosphere: 1, obliquity: 20, landAlbedo: 0.22,
             internalHeat: 0.06, startT: 297 },
            target: 297, knob: 'co2Bar', balance: ['oxygen'], clouds: 'delta', veg: 'purple' },
-    // A 9 M⊕ world, 28% water by mass, temperate at a quarter of Earth's
-    // sunlight under 5.5 bar of hydrogen and methane. Tuned: the hydrogen.
-    uatur: { base: { ...EARTH, landFraction: 0, heliumFrac: 0.1, h2Bar: 3, n2Bar: 0.7,
-            co2Bar: 0.3, ch4Bar: 0.2, o2Bar: 0, biosphere: 0.05, obliquity: 10,
-            internalHeat: 0.3, outgassing: 0.5, startT: 281 }, waterShare: 0.281,
-           target: 281, knob: 'h2Bar', clouds: 'delta' },
+    // A 9 M⊕ world, 28% water by mass, 8 C at a quarter of Earth's light under
+    // 5.51 atm, "warmed by ... a high hydrogen and methane content of its
+    // atmosphere, CO2 clouds and the internal heat", its air "nitrogen,
+    // methane, CO2 and nitric acid", and from space "a true blue marble": no
+    // haze, which here means methane under a tenth of the CO2. So 1.5 bar of
+    // CO2 and 0.12 of methane, the hydrogen for the temperature, and nitrogen
+    // to make up the book's pressure.
+    //
+    // The methane is held by life. Photolysis at this light takes 4e-4
+    // kg/m2/yr of it, a seafloor sealed under high-pressure ice supplies next
+    // to none, and in 20 Myr it was gone; the biosphere -- Nu's seeded microbes
+    // and the Satis colonies -- is balanced to make what the light breaks. Its
+    // oxygen meets the hydrogen and becomes water (h2SinksO2, PATCHES.md).
+    //
+    // No ice caps, although the book has them: under 5.5 bar and a six-day day
+    // the model carries so much heat poleward that the poles sit 3 K below the
+    // equator, and at a mean of 8 C nothing freezes.
+    // Tuned: the hydrogen; balanced: outgassing (CO2) and the biosphere (CH4).
+    uatur: { base: { ...EARTH, landFraction: 0, heliumFrac: 0.1, h2Bar: 2.7, n2Bar: 1.26,
+            co2Bar: 1.5, ch4Bar: 0.12, o2Bar: 0, biosphere: 0.33, obliquity: 10,
+            internalHeat: 0.3, outgassing: 0.5, h2SinksO2: true, startT: 281 }, waterShare: 0.281,
+           target: 281, knob: 'h2Bar', pressure: 5.58, fill: 'n2Bar', balance: ['methane'], clouds: 'delta' },
     // A low-density world 4% gas by mass, -130 C at 1.2% of Earth's light.
     // Tuned: the hydrogen.
     shu: { base: { ...EARTH, ...icy(0.375), heliumFrac: 0.1, h2Bar: 2, internalHeat: 0.2,

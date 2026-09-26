@@ -105,6 +105,23 @@ oxygen of oceans lost early is an oxidised one (Schaefer et al. 2016). Anubis's
 is balanced by the tuner to hold its 0.3 bar: 0.12 of Earth's, about two log
 units more oxidised. Unset, 1.
 
+## h2SinksO2 — oxygen does not last in a hydrogen sky — volatiles.js
+
+altdev2 keeps free oxygen and a hydrogen envelope side by side. A Hycean world
+with a biosphere grew bars of O₂ inside 80 % H₂, a mixture no chemistry keeps:
+photolysis fills an H₂ atmosphere with atomic hydrogen, and against it oxygen
+lasts years (Seager, Bains & Hu 2013). `h2SinksO2` burns the oxygen at the end of
+each step, 2 H₂ + O₂ → 2 H₂O, 4 : 32 by mass, and the water goes to the sea.
+
+The step controller bounds on how fast the oxygen moves, and with the oxygen
+pinned at zero it moves not at all. Read before the burn, the biosphere's whole
+output still counted: 97 572 steps for 100 kyr on Uat-Ur, against 3 after it.
+
+Uat-Ur's methane is made by its biosphere, since photolysis at its light breaks
+4×10⁻⁴ kg/m²/yr and its sealed seafloor supplies next to none. The biosphere's
+oxygen goes into its hydrogen: 0.026 bar of its 2.4 in 20 Myr, beside the 0.017
+that escapes.
+
 ## Not a patch: how the energy of a strike gets in
 
 `system.js` puts a strike's heat into the bands directly (`injectHeat`), through

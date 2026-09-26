@@ -19,7 +19,10 @@ export const BOOK = {
   set:       { T: 120, p: 0.011 * 1.01325, note: 'bone-dry; thin air, twice Mars\'s' },
   nephtys:   { T: 231, note: 'a sea of nearly pure sulfuric acid; alien life' },
   satis:     { T: 24, p: 0.62 * 1.01325, o2: 0.66, n2: 0.29, sea: 0.60, note: '41 % O2 at Earth-like pressure; shallow seas; complex life' },
-  uatur:     { T: 8, p: 5.51 * 1.01325, note: 'H2- and CH4-rich air, CO2 clouds; ~100 km ocean on high-pressure ice' },
+  // "a thick atmosphere composed of nitrogen, methane, CO2 and nitric acid", "a
+  // high hydrogen and methane content", and "a true blue marble": no haze
+  uatur:     { T: 8, p: 5.51 * 1.01325, mins: { h2: 0.1, ch4: 0.01, n2: 0.05, co2: 0.05 }, hazeMax: 0.05,
+               note: 'H2- and CH4-rich air, CO2 clouds; ~100 km ocean on high-pressure ice' },
   shu:       { T: -130 },
   yamm:      { T: -242, note: 'frozen oceans' },
   kauket:    { T: -263, note: 'its thin envelope frozen on the ice' },
@@ -28,7 +31,7 @@ export const BOOK = {
   nu:        { T: -93, note: 'global ocean a few degrees above freezing under ice metres thick; near-vacuum; life' },
   naunet:    { T: -100, pRange: [0.003, 0.004], note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
   // "rich in free oxygen": at least the fifth of the air Earth's is
-  anubis:    { T: 81.2, o2Min: 0.2, sea: 1, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
+  anubis:    { T: 81.2, mins: { o2: 0.2 }, sea: 1, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
   khonsu:    { T: -99.5, note: 'mostly rock; 13.6 % water' },
   nut:       { T: -190, note: 'deeply frozen, water-rich (54 %)' },
 };
@@ -38,7 +41,6 @@ export const BOOK = {
 // is reworked (plan Part 6). Why each one is out, measured by this tool.
 export const GAPS = {
   nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
-  uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
 };
 
 const systems = loadSystems();
@@ -56,7 +58,8 @@ function row(r) {
     .map(([k, v]) => `${k.toUpperCase()} ${(100 * v / tot).toFixed(0)}%`).join(' ');
   const W = w.water;
   return `${f1(dg.Tmean - 273.15).padStart(7)} °C ${bar(dg.pTotMean).padStart(7)} bar  ${air.padEnd(26)} water ${(W.ocean + W.seaIce + W.landIce + W.vapour).toFixed(3)} `
-    + `sea ${((dg.openOcean ?? dg.flooded ?? 0) * 100).toFixed(0)}% ice ${((dg.iceArea ?? 0) * 100).toFixed(0)}%  ${STATE_IDS[r.rs[RS.STATE]] || '?'}`;
+    + `sea ${((dg.openOcean ?? dg.flooded ?? 0) * 100).toFixed(0)}% ice ${((dg.iceArea ?? 0) * 100).toFixed(0)}%`
+    + `${dg.hazeTau > 0.005 ? ` haze ${dg.hazeTau.toFixed(2)}` : ''}  ${STATE_IDS[r.rs[RS.STATE]] || '?'}`;
 }
 for (const d of MAIN ? systems.ra.bodies : []) {
   if (!d || !climateCapable(d)) continue;
@@ -71,7 +74,7 @@ for (const d of MAIN ? systems.ra.bodies : []) {
   const end = row(r);
   const bk = [b.T != null ? `${b.T} °C` : null, b.p != null ? `${bar(b.p)} bar` : null,
     b.pRange ? `${bar(b.pRange[0])}-${bar(b.pRange[1])} bar` : null,
-    b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.o2Min != null ? `O2 ≥ ${b.o2Min * 100}%` : null,
+    b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.mins ? Object.entries(b.mins).map(([g, x]) => `${g.toUpperCase()} ≥ ${x * 100}%`).join(' ') : null,
     b.sea != null ? `sea ${b.sea * 100}%` : null].filter(Boolean).join(' · ');
   console.log(`\n${d.key}   book: ${bk}${b.note ? '  — ' + b.note : ''}`);
   console.log(`   start ${start}`);

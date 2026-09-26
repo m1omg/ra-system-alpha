@@ -49,6 +49,16 @@ function settle(params, maxYears = 3e7) {
   return sim;
 }
 
+// A world whose book gives its pressure (profile `pressure`, bar) keeps it: one
+// gas (`fill`) makes up whatever the others leave, so a knob that is itself a
+// gas moves the make-up of the air and not how much of it there is.
+const AIR = ['n2Bar', 'o2Bar', 'co2Bar', 'ch4Bar', 'h2Bar'];
+function filled(prof, params) {
+  if (!prof.fill || !(prof.pressure > 0)) return params;
+  const rest = AIR.filter((k) => k !== prof.fill).reduce((a, k) => a + Math.max(params[k] ?? 0, 0), 0);
+  return { ...params, [prof.fill]: Math.max(prof.pressure - rest, 0) };
+}
+
 function tuneOne(sysName, d, S, starTemp, fixed = null) {
   const prof = profileOf(sysName, d);
   const knob = prof.knob, target = prof.target;
@@ -57,10 +67,15 @@ function tuneOne(sysName, d, S, starTemp, fixed = null) {
   // except for what the balances have already set (`fixed`).
   const hand = { ...base, ...(prof.base[knob] != null ? { [knob]: prof.base[knob] } : {}),
     ...(fixed ? Object.fromEntries(Object.entries(fixed).filter(([k]) => k !== knob)) : {}) };
-  const make = (v) => ({ ...hand, [knob]: v, insolation: S, starTemp,
+  const make = (v) => filled(prof, { ...hand, [knob]: v, insolation: S, starTemp,
     startT: target, outgassing: hand.outgassing });
   const temp = (v) => settle(make(v), 3e7).world.diag.Tmean;
   let [lo, hi] = RANGE[knob];
+  // a gas under a fixed pressure has only what the other gases leave it
+  if (prof.fill && prof.pressure > 0 && AIR.includes(knob)) {
+    const others = AIR.filter((k) => k !== prof.fill && k !== knob).reduce((a, k) => a + Math.max(hand[k] ?? 0, 0), 0);
+    hi = Math.min(hi, prof.pressure - others);
+  }
   const log = LOG_KNOBS.has(knob);
   // Albedo cools, everything else warms.
   const dir = knob === 'landAlbedo' || knob === 'iceAlbedo' ? -1 : 1;
@@ -102,6 +117,16 @@ function balanceOxygen(sim, by = 'biosphere') {
   const b = w.params.biosphere;
   if (!(b > 0) || !(f.source > 0)) return null;
   return b * (f.reductant + f.weathering) / f.source;
+}
+
+// Biosphere that holds CH4 where it is. Its methanogens are the source and
+// photolysis the sink, which at steady state takes the column over its
+// lifetime; the interior's share rides along in the ratio, and the rounds
+// converge on it (by the interior's share of the total each time).
+function balanceMethane(sim) {
+  const w = sim.world, b = w.params.biosphere;
+  if (!(b > 0) || !(w.ch4Source > 0) || !(w.ch4Tau > 0)) return null;
+  return b * (w.ch4 / w.ch4Tau) / w.ch4Source;
 }
 
 // Outgassing that holds a dry world's air against escape. With no sea there
@@ -163,9 +188,11 @@ for (const sysName of ['sol', 'ra']) {
     const { S, starTemp } = ins[d.key];
     const t0 = Date.now();
     let tune = null;
+    // the gas that makes up the book's pressure, at the knob's value
+    const fill = (t) => (prof.fill ? { ...t, [prof.fill]: +filled(prof, { ...paramsFor(sysName, d), ...t })[prof.fill].toPrecision(6) } : t);
     if (prof.target != null && prof.knob) {
       tune = tuneOne(sysName, d, S, starTemp);
-      tunedOut[sysName][d.key] = { [tune.knob]: +tune.value.toPrecision(6) };
+      tunedOut[sysName][d.key] = fill({ [tune.knob]: +tune.value.toPrecision(6) });
     }
     // Spin up with the tuned knob, then balance the carbon cycle and settle again.
     // A world that balances more than its carbon (profile `balance`) goes round
@@ -185,10 +212,15 @@ for (const sysName of ['sol', 'ra']) {
         const by = prof.oxygenBy || 'biosphere', v = balanceOxygen(sim, by);
         if (v != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], [by]: +v.toPrecision(6) };
       }
+      if ((prof.balance || []).includes('methane')) {
+        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
+        const bio = balanceMethane(sim);
+        if (bio != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], biosphere: +bio.toPrecision(6) };
+      }
       if (rounds > 1) {
         // the temperature again, under the balanced reservoirs
         const again = tuneOne(sysName, d, S, starTemp, tunedOut[sysName][d.key]);
-        tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], [again.knob]: +again.value.toPrecision(6) };
+        tunedOut[sysName][d.key] = fill({ ...tunedOut[sysName][d.key], [again.knob]: +again.value.toPrecision(6) });
         tune = again;
       }
       sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);

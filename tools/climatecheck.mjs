@@ -331,7 +331,8 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
       const tot = Object.values(gas).reduce((a, x) => a + x, 0) || 1;
       const W = w.water;
       return { T: dg.Tmean - 273.15, p: dg.pTotMean, o2: gas.o2 / tot, n2: gas.n2 / tot,
-        cover: (dg.flooded ?? 0) };
+        share: Object.fromEntries(Object.entries(gas).map(([k, x]) => [k, x / tot])),
+        haze: dg.hazeTau ?? 0, cover: (dg.flooded ?? 0) };
     };
     const a = look();
     r.sim.runYears(2e7, 2e5);
@@ -349,8 +350,11 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
       if (Math.abs(z[g] - a[g]) > 0.05) bad.push(`${g.toUpperCase()} drifts to ${(z[g] * 100).toFixed(0)} %`);
     }
     // where the book gives only a floor, the world opens above it and stays there
-    if (b.o2Min != null) for (const [when, x] of [['opens', a.o2], ['after 20 Myr', z.o2]])
-      if (!(x >= b.o2Min)) bad.push(`${when} with O2 ${(x * 100).toFixed(0)} % of the air, book at least ${b.o2Min * 100} %`);
+    for (const [g, min] of Object.entries(b.mins || {}))
+      for (const [when, x] of [['opens', a.share[g]], ['after 20 Myr', z.share[g]]])
+        if (!(x >= min)) bad.push(`${when} with ${g.toUpperCase()} ${(x * 100).toPrecision(2)} % of the air, book at least ${min * 100} %`);
+    if (b.hazeMax != null) for (const [when, x] of [['opens', a.haze], ['after 20 Myr', z.haze]])
+      if (!(x <= b.hazeMax)) bad.push(`${when} under haze of optical depth ${x.toFixed(2)}, book a clear sky`);
     if (b.sea != null && Math.abs(a.cover - b.sea) > 0.05) bad.push(`water covers ${(a.cover * 100).toFixed(0)} %, book ${b.sea * 100} %`);
     if (b.sea != null && Math.abs(z.cover - a.cover) > 0.05) bad.push(`cover drifts to ${(z.cover * 100).toFixed(0)} %`);
     const what = `${k}: ${a.T.toFixed(1)} → ${z.T.toFixed(1)} °C, ${a.p.toPrecision(3)} → ${z.p.toPrecision(3)} bar`;

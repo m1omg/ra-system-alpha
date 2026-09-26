@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '878b8d6';          // "Climate sandbox: every terrestrial world runs the Planet Climate Sandbox model"
 // every parameter a patch reads; unset, each must leave altdev2 exactly as it was
 const PATCH_PARAMS = ['weatherCapK', 'originWait', 'abiogenesis', 'heatKillsDry', 'heatDeathFastYears',
-  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas'];
+  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas', 'h2SinksO2'];
 
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {
@@ -98,6 +98,9 @@ ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition
   const [, name, extra, poke, years, step] = cases.at(-1);
   const r = run(name, extra, poke, years, step, { sealOxidation: true, reducedGas: 0.1 });
   ok(!r.same, 'control: with the oxygen sealed under the ice, the Hycean case differs', r.where);
+  // ...and Uat-Ur's: its hydrogen burns the oxygen
+  const h = run(name, extra, poke, years, step, { h2SinksO2: true });
+  ok(!h.same, 'control: with hydrogen taking the oxygen, the Hycean case differs', h.where);
 }
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

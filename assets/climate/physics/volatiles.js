@@ -1458,6 +1458,25 @@ export function stepVolatiles(w, dtYears) {
     const o2Before = w.o2;
     w.o2 = Math.max(0, (w.o2 + (source - reductant) * dtYears) / (1 + weathering * dtYears));
     w.o2Flux = { source, reductant, weathering: w.o2 * weathering };
+    // [ra-climate patch] h2SinksO2: oxygen does not last in a hydrogen sky.
+    // Photolysis fills an H2 atmosphere with atomic hydrogen, and against that
+    // free oxygen lives for years, not megayears: a biosphere's oxygen goes to
+    // water instead of building up (Seager, Bains & Hu 2013, ApJ 777, 95).
+    // Without it a Hycean world with a biosphere grew bars of O2 inside eighty
+    // per cent hydrogen. Burnt at once, 2 H2 + O2 -> 2 H2O, 4 : 32 by mass,
+    // and the water goes to the sea. Unset, this is altdev2 exactly.
+    if (p.h2SinksO2 && w.o2 > 0 && w.h2 > 0) {
+      const burnt = Math.min(w.o2, 8 * w.h2);
+      w.o2 -= burnt;
+      w.h2 = Math.max(0, w.h2 - burnt / 8);
+      w.water.ocean += burnt * 9 / 8 / d.eoColumn;
+      w.o2Flux.hydrogen = dtYears > 0 ? burnt / dtYears : 0;
+      // The step controller bounds on how fast the oxygen moves, and what moves
+      // is what is left: pinned at zero it moves not at all. Read before the
+      // burn it was the biosphere's whole output, and the clock sat on one-year
+      // steps.
+      if (dtYears > 0) w.o2Rate = (w.o2 - o2Before) / dtYears;
+    }
 
     // --- methane -----------------------------------------------------------
     // Deliberately *after* the oxygen, and this ordering is load-bearing.

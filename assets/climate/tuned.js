@@ -17,8 +17,10 @@ export const TUNED = {
    "biosphere": 1.40765
   },
   "uatur": {
-   "h2Bar": 4.87488,
-   "outgassing": 0.774623
+   "h2Bar": 2.68567,
+   "n2Bar": 1.27433,
+   "outgassing": 1.10693,
+   "biosphere": 0.327459
   },
   "shu": {
    "h2Bar": 4.69805
