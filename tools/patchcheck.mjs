@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '878b8d6';          // "Climate sandbox: every terrestrial world runs the Planet Climate Sandbox model"
 // every parameter a patch reads; unset, each must leave altdev2 exactly as it was
 const PATCH_PARAMS = ['weatherCapK', 'originWait', 'abiogenesis', 'heatKillsDry', 'heatDeathFastYears',
-  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas', 'h2SinksO2'];
+  'deepRefuge', 'lifeGatesBio', 'iceAlbedo', 'sealOxidation', 'reducedGas', 'h2SinksO2', 'overlay'];
 
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {
@@ -101,6 +101,13 @@ ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition
   // ...and Uat-Ur's: its hydrogen burns the oxygen
   const h = run(name, extra, poke, years, step, { h2SinksO2: true });
   ok(!h.same, 'control: with hydrogen taking the oxygen, the Hycean case differs', h.where);
+}
+// the overlay a system layer hands in (Nephtys's acid sea): half of Mars under a
+// dark sea, with its vapour and its heat
+{
+  const band = (v) => new Array(18).fill(v);
+  const o = run('mars', {}, null, 1e6, 2e4, { overlay: { vapour: band(0.002), share: band(0.5), albedo: band(0.07), C: band(1e8) } });
+  ok(!o.same, 'control: with an overlay handed in, Mars differs', o.where);
 }
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -28,8 +28,9 @@ const CLIMATE_KINDS=new Set(['rocky','terran','ocean','lava','iceworld','icemoon
 const MIN_KG=1e20, MAX_KG=20*5.9722e24;
 const PROFILE_MASS={ satismoon:3.67e22 };
 // The share of each map that is painted sea, where the climate's own number
-// is not the right one: Nephtys's acid seas are scenery (this model has one
-// solvent, water), Satis's and Uat-Ur's sea follow the climate.
+// is not the right one to find it by: Nephtys's is acid, which the climate
+// keeps beside its water (acid.js) and reports as its sea; Satis's and
+// Uat-Ur's follow the climate's water.
 const SRC_OCEAN={ nephtys:0.80 };
 const DEM={ earth:'earth', mars:'mars' };
 const S_EARTH=1361, TWO_PI=Math.PI*2, LN2000=Math.log(2000);
@@ -1086,8 +1087,10 @@ function renderPanel(det){
   drawHist(box.querySelector('.clim-hist'), det);
   const g=det.gas;
   // the air as shares of itself, which is what "426 ppm" has always meant
-  const gsum=(g.n2||0)+(g.o2||0)+(g.co2||0)+(g.ch4||0)+(g.h2||0)+(g.h2o||0);
-  const comp=gsum>1e-14 ? [['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',g.h2o]]
+  // an acid sea's vapour is part of the air too
+  const acid=det.acid||null, gAcid=acid?acid.vapourBar:0;
+  const gsum=(g.n2||0)+(g.o2||0)+(g.co2||0)+(g.ch4||0)+(g.h2||0)+(g.h2o||0)+gAcid;
+  const comp=gsum>1e-14 ? [['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',g.h2o],['H₂SO₄',gAcid]]
     .map(x=>[x[0],(x[1]||0)/gsum]).filter(x=>x[1]>1e-9).sort((a,b)=>b[1]-a[1])
     .map(x=>x[0]+' '+fmtShare(x[1])).join(' · ') : '';
   const w=det.water;
@@ -1099,7 +1102,14 @@ function renderPanel(det){
     [t('Reflects (albedo)','Odráža (albedo)'), Math.round(det.albedo*100)+' %'+' · '+t('cloud','oblačnosť')+' '+Math.round(det.cloud*100)+' %'],
     [t('Water','Voda'), w.total>0 ? (fmtNum(w.total)+' '+oceansWord(fmtNum(w.total))+' — '+t('sea','more')+' '+fmtNum(w.ocean)+', '+t('ice','ľad')+' '+fmtNum((w.seaIce||0)+(w.landIce||0))+', '+t('air','vzduch')+' '+fmtNum(w.vapour)+(w.lost>1e-4?', '+t('lost','stratené')+' '+fmtNum(w.lost):'')) : t('none','žiadna')],
     // open water and ice, never "sea" for a sea that is frozen solid
-    [t('Open sea · ice','Voľné more · ľad'), Math.round((det.openOcean!=null?det.openOcean:(det.flooded||0))*100)+' % · '+Math.round((det.iceArea||0)*100)+' %'],
+    ...(acid ? [
+      // a sea of acid: how much of the world it covers, open and frozen, how
+      // deep, where it would boil under this air, and how much is in the sky
+      [t('Acid sea · ice','Kyslé more · ľad'), Math.round(acid.cover*(1-acid.frozen)*100)+' % · '+Math.round(acid.cover*acid.frozen*100)+' %'],
+      [t('Acid sea','Kyslé more'), acid.cover<0.01 ? t('boiled into the sky','vyvarené do oblohy')
+        : fmtNum(acid.depthM/1000)+' km '+t('deep','hlboké')+' · '+t('boils at','vrie pri')+' '+fmtT(acid.boilC+273.15)
+          +(acid.airShare>0.01?' · '+Math.round(acid.airShare*100)+' % '+t('in the air','vo vzduchu'):'')],
+    ] : [[t('Open sea · ice','Voľné more · ľad'), Math.round((det.openOcean!=null?det.openOcean:(det.flooded||0))*100)+' % · '+Math.round((det.iceArea||0)*100)+' %']]),
     [t('Energy in − out','Energia dnu − von'), (det.imbalance>=0?'+':'')+det.imbalance.toFixed(2)+' W/m²'+(det.pulse>1?' · 💥 '+t('impact heat','teplo z dopadu'):'')],
   ];
   // heat the world's parent raises in it by flexing it round its orbit
@@ -1125,8 +1135,8 @@ function renderPanel(det){
   const note=box.querySelector('.clim-note');
   const mt=det.meta||{};
   note.textContent = mt.note==='acid'
-    ? t('Nephtys\'s seas are sulphuric acid; this model has one solvent, water, so the acid sea is scenery and the climate under it is a dry CO₂ greenhouse at the documented 231 °C.',
-        'Moria Nephtys sú z kyseliny sírovej; model pozná len vodu, takže kyslé more je kulisa a klíma pod ním je suchý skleník CO₂ pri uvádzaných 231 °C.')
+    ? t('Nephtys\'s seas are sulphuric acid, which the model keeps beside its water: the sea\'s cover, depth, heat and boiling point are its own, and its vapour counts as water vapour in the sky\'s greenhouse and clouds.',
+        'Moria Nephtys sú z kyseliny sírovej, ktorú model vedie popri vode: pokrytie, hĺbka, teplo a bod varu mora sú jej vlastné a jej pary sa v skleníku a oblakoch počítajú ako vodná para.')
     : '';
 }
 function stateBlurb(id, en){
@@ -1223,6 +1233,7 @@ const SK_STATES={smallWaterworld:'Malý vodný svet',evaporatingWaterworld:'Vypa
   marslike:'Kolaps atmosféry ako na Marse',nightfrost:'Čiastočné vymŕzanie na nočnej strane',nightfrozen:'Vymrznutá nočná strana',
   titan:'Svet ako Titan',frozen:'Zamrznutá púšť',thincold:'Riedka studená púšť',baked:'Vyprahnutá púšť',airless:'Holá skala',
   hycean:'Hyceánsky svet',lowSunHycean:'Hyceánsky svet so slabým svetlom',buriedOcean:'Pochovaný oceán',
-  supercriticalEnvelope:'Nadkritický oceán'};
+  supercriticalEnvelope:'Nadkritický oceán',
+  acidSea:'Kyslé more pod skleníkom',acidSky:'Atmosféra z pár kyseliny',acidFrozen:'Zamrznuté kyslé more'};
 const SK_BLURBS=window.RA_CLIMATE_SK_BLURBS||{};
 })();

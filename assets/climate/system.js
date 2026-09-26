@@ -24,8 +24,18 @@ import { atmosphereLook, cloudLook, surfaceHidden, volcanoLook } from './render/
 import { vegetationColor } from './render/terrain.js';
 import { surfaceTemperature } from './physics/surface.js';
 import { paramsFor, profileMeta } from './profiles.js';
+import { freshAcid, acidOverlay, partitionAcid, acidDetail, acidFrozen } from './acid.js';
 
-export const STATE_IDS = Object.keys(STATES);
+// The model's states, and the ones a world with an acid sea is in instead
+// (acid.js): the model knows one liquid, and its reading of a world with no
+// water -- a dry runaway, "the ocean is gone" -- is the wrong one for a sea.
+export const ACID_STATES = {
+  acidSea: { name: 'Acid-Sea Greenhouse', color: '#c8895f', blurb: 'A sea of nearly pure sulfuric acid under a thick CO\u2082 sky. The acid boils far hotter than water \u2014 338 \u00b0C at one atmosphere, higher under this much air \u2014 so the sea stays liquid where water would have boiled away, and what it gives off warms the sky and condenses into acid cloud, as on Venus. There is no water to weather rock with, so no carbonate\u2013silicate thermostat: the volcanoes\u2019 CO\u2082 stays in the air.' },
+  acidSky: { name: 'Acid-Steam Atmosphere', color: '#e0a05a', blurb: 'The acid sea has boiled into the sky. Its basins lie bare under an atmosphere thick with acid vapour, which holds the heat in until the planet cools enough for the acid to rain back and fill them again.' },
+  acidFrozen: { name: 'Frozen Acid Sea', color: '#d8c8b0', blurb: 'The acid sea has frozen over. Nearly pure sulfuric acid freezes at about +3 \u00b0C, well above water\u2019s freezing point, and the pale ice seals the sea from the sky.' },
+};
+export const ALL_STATES = { ...STATES, ...ACID_STATES };
+export const STATE_IDS = Object.keys(ALL_STATES);
 
 // The render record, one Float32Array per world, laid out once so the worker
 // can post every world in a single transferable buffer. The main thread only
@@ -65,14 +75,17 @@ const MELT_J_PER_KG = 1.8e6;
 // acid is liquid it spreads as prokaryotes do, heat kills it by the same rule,
 // and nothing originates it again.
 const ACID_FREEZE = 276, ACID_GATE = 603;   // K
-function acidRoom(w) {
+function acidRoom(w, acid = null) {
   let room = 0, over = 0;
   for (let i = 0; i < NBANDS; i++) {
     const T = w.T[i];
     room += smoothstep(ACID_FREEZE - 5, ACID_FREEZE, T) * (1 - smoothstep(ACID_GATE - 10, ACID_GATE, T)) / NBANDS;
     over += Math.max(0, T - ACID_GATE) / NBANDS;
   }
-  return { room, over };
+  // and a sea to live in, where the world keeps one (acid.js): boiled into the sky, there is none
+  let sea = 1;
+  if (acid) sea = smoothstep(0, 0.2, acid.sea / Math.max(acid.sea + acid.vap, 1e-30));
+  return { room: room * sea, over, sea };
 }
 
 // Steps are never shorter than this unless the planet itself demands it. At a
@@ -174,7 +187,9 @@ function injectHeat(r, E) {
       w.T[i] += dT; left[i] -= dT * c; spent += dT * c / NBANDS;
       if (left[i] > 1e-12 * E[i]) any = true; else left[i] = 0;
     }
-    update(w, 0);
+    // an acid sea's heat capacity is its evaporation, and that follows the
+    // temperature the bands have climbed to
+    if (r.acid) { partitionAcid(r); acidOverlay(r); } else update(w, 0);
     if (!any && !(need > 0)) break;
   }
   // Melt deep enough to reach the life refuge takes it with it (biosphere.js).
@@ -187,6 +202,7 @@ function injectHeat(r, E) {
   if (newly) meltRefuge(w, sum(r.melted) / NBANDS);
   partitionWater(w, 0);
   update(w, 0);
+  if (r.acid) { partitionAcid(r); acidOverlay(r); }
   return spent;
 }
 // A band with magma under it cannot be colder than the solidus: the melt gives
@@ -206,6 +222,23 @@ function drainMagma(r) {
   }
   if (touched) update(w, 0);
   if (!left) r.magma = null;
+}
+
+// The state a world is shown in: the model's, or its acid sea's (acid.js). A
+// magma ocean is a magma ocean either way.
+function stateOf(r) {
+  const w = r.sim.world;
+  let id = null;
+  try { id = classify(w).id; } catch (_) { id = null; }
+  if (r.acid && id !== 'magma') {
+    const a = acidDetail(r);
+    if (a.airShare > 0.5) return 'acidSky';
+    if (a.cover > 0.02) return a.frozen > 0.9 ? 'acidFrozen' : 'acidSea';
+  }
+  return id;
+}
+function classifyHabitable(w) {
+  try { return !!classify(w).habitable; } catch (_) { return false; }
 }
 
 function sum(a) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]; return s; }
@@ -245,8 +278,12 @@ export class ClimateSystem {
       rs: new Float32Array(RS.SIZE),
       ledger: null,
       melted: null,               // bands molten down past the life refuge
+      acid: null,                 // a sea of sulfuric acid beside the water (acid.js)
     };
     if (opts.snapshot) this.applySnapshot(rec, opts.snapshot, params);
+    // a sea of acid that is not in the snapshot is poured now; one that is, is
+    // left as saved, overlay and all, so the world takes the same next step
+    if (!rec.acid && rec.meta.acid) { rec.acid = freshAcid(rec.meta.acid); partitionAcid(rec); acidOverlay(rec); }
     if (!rec.ledger) rec.ledger = this.freshLedger(rec);
     if (opts.flux > 0 || opts.flux === 0) {
       this.setFlux(rec, opts.flux, opts.starTemp);
@@ -287,6 +324,7 @@ export class ClimateSystem {
     rec.pulse = snap.pulse ?? 0;
     rec.magma = Array.isArray(snap.magma) ? Float64Array.from(snap.magma) : null;
     rec.melted = Array.isArray(snap.melted) ? Uint8Array.from(snap.melted) : null;
+    rec.acid = snap.acid ? { ...snap.acid } : null;
     // a save carries its ledger; a spin-up or an older save starts one afresh
     rec.ledger = snap.ledger ? { ...snap.ledger } : null;
     if (rec.ledger && p.deepRefuge) initRefuge(rec.sim.world);
@@ -401,7 +439,9 @@ export class ClimateSystem {
       if (r.pulse / (PULSE_TAU_YEARS * YEAR) < 1e-3) r.pulse = 0;
     }
     r.credit -= dt;
+    if (r.acid) acidOverlay(r);
     sim.stepOnce(dt);
+    if (r.acid) partitionAcid(r);
     if (r.magma) drainMagma(r);
     if (!r.magma && r.melted) {          // a new crust, which the refuge can fill again
       r.melted = null;
@@ -437,7 +477,8 @@ export class ClimateSystem {
       // what the heat has killed outright, now rather than at the next step
       heatShock(w);
       const g = r.ledger;
-      if (g && g.kind === 'acid' && w.params.heatDeathFastYears > 0 && Math.min(...w.T) >= ACID_GATE + HEAT_FAST_AT) g.alien = 0;
+      if (g && g.kind === 'acid' && ((w.params.heatDeathFastYears > 0 && Math.min(...w.T) >= ACID_GATE + HEAT_FAST_AT)
+        || acidRoom(w, r.acid).sea <= 0)) g.alien = 0;
       this.updateLife(r, 0);
     }
     if (o.waterKg > 0) {
@@ -483,6 +524,7 @@ export class ClimateSystem {
         w.n2 *= k; w.o2 *= k; w.co2 *= k; w.ch4 *= k; w.h2 *= k; w.he *= k;
         const gone = w.water.vapour * X;
         w.water.vapour -= gone; w.water.lost = (w.water.lost ?? 0) + gone;
+        if (r.acid) r.acid.vap *= k;
       }
     }
     update(w, 0);
@@ -518,7 +560,7 @@ export class ClimateSystem {
     const w = r.sim.world, L = w.life || {};
     let alive;
     if (g.kind === 'acid') {
-      const { room, over } = acidRoom(w);
+      const { room, over } = acidRoom(w, r.acid);
       if (room < g.alien) g.alien += (room - g.alien) * (1 - Math.exp(-dt / dieOffYears(over, w.params.heatDeathFastYears)));
       else if (g.alien > LIFE_EXTINCT) g.alien += (room - g.alien) * (1 - Math.exp(-dt / LIFE_SPREAD));
       if (g.alien < LIFE_EXTINCT) g.alien = 0;
@@ -544,7 +586,10 @@ export class ClimateSystem {
     let molten = 0;
     if (r.magma) for (let i = 0; i < NBANDS; i++) if (r.magma[i] > 0) molten += 1 / NBANDS;
     if (molten >= 0.5 || (level === 0 && r.melted)) return 'magma';
-    if (r.ledger.kind === 'acid') return acidRoom(w).over > 0 ? 'heat' : 'frozen';
+    if (r.ledger.kind === 'acid') {
+      const a = acidRoom(w, r.acid);
+      return a.sea < 0.5 ? 'boiled' : a.over > 0 ? 'heat' : 'frozen';
+    }
     if (level === 0 && (L.Td ?? 0) > REFUGE_CEILING) return 'cooked';
     const liquid = w.water.ocean + w.water.seaIce;
     const hot = (level >= 1 ? room.hotEuk : room.hotPro) > 0;
@@ -607,6 +652,7 @@ export class ClimateSystem {
   fillRender(r) {
     const w = r.sim.world, dg = w.diag, p = w.params, o = r.rs;
     if (!dg) return o;
+    const acid = r.acid ? acidDetail(r) : null;
     for (let i = 0; i < NBANDS; i++) {
       o[RS.T + i] = w.T[i];
       o[RS.CLOUD + i] = dg.cloud ? dg.cloud[i] : 0;
@@ -621,7 +667,8 @@ export class ClimateSystem {
       o[RS.ICE + i] = dg.hasWater
         ? Math.max(clamp(1 - (w.T[i] - 253 - shift) / 25, 0, 1), noLiquid) : 0;
     }
-    const pH2Omean = mean(dg.pH2O);
+    // an acid sea's vapour veils the world as steam does
+    const pH2Omean = mean(dg.pH2O) + (acid ? acid.vapourBar : 0);
     const steam = steamOpacity(pH2Omean);
     const atmo = atmosphereLook(w, steam, false);
     const hidden = surfaceHidden(dg, steam);
@@ -645,9 +692,7 @@ export class ClimateSystem {
     o[RS.VENTS] = volc.vents * (1 - molten);
     o[RS.ASH] = volc.ash * (1 - molten);
     o[RS.TMEAN] = dg.Tmean; o[RS.TMIN] = dg.Tmin; o[RS.TMAX] = dg.Tmax;
-    let st = 0;
-    try { st = STATE_IDS.indexOf(classify(w).id); } catch (_) { st = -1; }
-    o[RS.STATE] = st;
+    o[RS.STATE] = STATE_IDS.indexOf(stateOf(r));
     o[RS.LAG] = r.lag;
     o[RS.TIME] = w.time;
     o[RS.NOLIQ] = noLiquid;
@@ -666,6 +711,14 @@ export class ClimateSystem {
     // boiled" means, for the orrery's damage readouts
     const wt = w.water.ocean + w.water.seaIce + w.water.landIce + w.water.vapour;
     o[RS.BOILED] = wt > 0 ? clamp(w.water.vapour / wt, 0, 1) : 0;
+    if (acid) {
+      // the acid sea is the sea the globe draws and the damage readouts boil:
+      // its cover, its pale ice, its share in the sky, its mass (as Earth oceans)
+      o[RS.FLOOD] = acid.cover;
+      for (let i = 0; i < NBANDS; i++) o[RS.ICE + i] = acidFrozen(w.T[i]);
+      o[RS.BOILED] = acid.airShare;
+      o[RS.TOTALWATER] = (dg.totalWater ?? 0) + acid.kgPerM2 * 4 * Math.PI * dg.d.R * dg.d.R / 1.4e21;
+    }
     const g = r.ledger;
     o[RS.LIFE] = g ? g.level : 0;
     o[RS.LIFECAUSE] = g ? g.cause : -1;
@@ -678,8 +731,8 @@ export class ClimateSystem {
     const r = this.worlds.get(key); if (!r) return null;
     const w = r.sim.world, dg = w.diag, p = w.params;
     const g = dg.g;
-    let state = null;
-    try { state = classify(w); } catch (_) { state = null; }
+    const sid = stateOf(r), S = sid ? ALL_STATES[sid] : null;
+    const state = S ? { id: sid, ...S, habitable: sid in ACID_STATES ? false : !!(STATES[sid] && classifyHabitable(w)) } : null;
     const hist = w.history;
     // A few hundred points is plenty for a sparkline.
     const stride = Math.max(1, Math.ceil(hist.length / 240));
@@ -693,6 +746,7 @@ export class ClimateSystem {
       lag: r.lag,
       state: state ? { id: state.id, name: state.name, color: state.color, blurb: state.blurb,
                        habitable: !!state.habitable } : null,
+      acid: r.acid ? acidDetail(r) : null,
       Tmean: dg.Tmean, Tmin: dg.Tmin, Tmax: dg.Tmax,
       surface: surfaceTemperature(dg),
       flux: r.flux, insolation: p.insolation,
@@ -735,6 +789,7 @@ export class ClimateSystem {
     if (r.magma) s.magma = Array.from(r.magma);
     if (r.melted) s.melted = Array.from(r.melted);
     if (r.ledger) s.ledger = { ...r.ledger };
+    if (r.acid) s.acid = { ...r.acid };
     s.flux = r.flux;
     // The clock's own state, so a restored world takes the same next step: the
     // credit it has not spent, the starlight banked since its last step, and
@@ -755,6 +810,7 @@ export class ClimateSystem {
   restore(key, snap) {
     const r = this.worlds.get(key); if (!r) return false;
     this.applySnapshot(r, snap, r.sim.world.params);
+    if (!r.acid && r.meta.acid) { r.acid = freshAcid(r.meta.acid); partitionAcid(r); acidOverlay(r); }
     if (!r.ledger) r.ledger = this.freshLedger(r);
     this.fillRender(r);
     return true;

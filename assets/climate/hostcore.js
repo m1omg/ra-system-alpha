@@ -24,8 +24,7 @@
 //   snapshot {id, worlds}
 //   analysis {key, W, H, bytes, cdf, s0, landAvg, seaAvg}
 //   stats    {steps, busyMs, worlds}
-import { ClimateSystem, RS, STATE_IDS, LIFE_CAUSES } from './system.js';
-import { STATES } from './physics/classify.js';
+import { ClimateSystem, RS, STATE_IDS, LIFE_CAUSES, ALL_STATES } from './system.js';
 import { SPINUP } from './spinup.js';
 import { analyseSurface, cloudField, CLOUD_W, CLOUD_H } from './analysis.js';
 
@@ -179,7 +178,7 @@ export function createHost(post, onAsync = null) {
 
   function ready() {
     const states = {};
-    for (const [k, s] of Object.entries(STATES)) states[k] = { name: s.name, color: s.color, blurb: s.blurb };
+    for (const [k, s] of Object.entries(ALL_STATES)) states[k] = { name: s.name, color: s.color, blurb: s.blurb };
     post({ type: 'ready', RS, STATE_IDS, STATES: states, LIFE_CAUSES });
   }
 

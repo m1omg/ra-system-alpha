@@ -17,7 +17,8 @@ import { S_EARTH } from '../assets/climate/physics/constants.js';
 // What the book says, in the book's own numbers (stats rows and the text).
 export const BOOK = {
   set:       { T: 120, p: 0.011 * 1.01325, note: 'bone-dry; thin air, twice Mars\'s' },
-  nephtys:   { T: 231, note: 'a sea of nearly pure sulfuric acid; alien life' },
+  // "soaked in an ocean of sulfuric acid, with just a few transient volcanic islands"
+  nephtys:   { T: 231, acid: 0.8, note: 'a sea of nearly pure sulfuric acid; alien life' },
   satis:     { T: 24, p: 0.62 * 1.01325, o2: 0.66, n2: 0.29, sea: 0.60, note: '41 % O2 at Earth-like pressure; shallow seas; complex life' },
   // "a thick atmosphere composed of nitrogen, methane, CO2 and nitric acid", "a
   // high hydrogen and methane content", and "a true blue marble": no haze
@@ -40,7 +41,6 @@ export const BOOK = {
 // failure, so a deviation cannot hide -- and each moves to a held world when it
 // is reworked (plan Part 6). Why each one is out, measured by this tool.
 export const GAPS = {
-  nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
 };
 
 const systems = loadSystems();
@@ -50,7 +50,7 @@ const YEARS = +(process.env.YEARS || 2e7);
 const ins = bookInsolation('ra', systems.ra, LUMINOUS);
 const f1 = (x) => (x == null || !isFinite(x) ? '-' : x.toFixed(1));
 const bar = (p) => (p >= 0.1 ? p.toFixed(2) : p >= 1e-3 ? (p * 1e3).toFixed(2) + 'm' : p >= 1e-6 ? (p * 1e6).toFixed(1) + 'µ' : p.toExponential(0));
-function row(r) {
+function row(r, det) {
   const w = r.sim.world, dg = w.diag, g = dg.g, pa = (x) => x * g / 1e5;
   const gas = { n2: pa(w.n2), o2: pa(w.o2), co2: pa(w.co2), ch4: pa(w.ch4), h2: pa(w.h2 + w.he) };
   const tot = Object.values(gas).reduce((a, b) => a + b, 0) || 1;
@@ -59,7 +59,9 @@ function row(r) {
   const W = w.water;
   return `${f1(dg.Tmean - 273.15).padStart(7)} °C ${bar(dg.pTotMean).padStart(7)} bar  ${air.padEnd(26)} water ${(W.ocean + W.seaIce + W.landIce + W.vapour).toFixed(3)} `
     + `sea ${((dg.openOcean ?? dg.flooded ?? 0) * 100).toFixed(0)}% ice ${((dg.iceArea ?? 0) * 100).toFixed(0)}%`
-    + `${dg.hazeTau > 0.005 ? ` haze ${dg.hazeTau.toFixed(2)}` : ''}  ${STATE_IDS[r.rs[RS.STATE]] || '?'}`;
+    + `${dg.hazeTau > 0.005 ? ` haze ${dg.hazeTau.toFixed(2)}` : ''}`
+    + `${det && det.acid ? ` acid sea ${(det.acid.cover * 100).toFixed(0)}%${det.acid.frozen > 0.01 ? ` (${(det.acid.frozen * 100).toFixed(0)}% frozen)` : ''}` : ''}`
+    + `  ${STATE_IDS[r.rs[RS.STATE]] || '?'}`;
 }
 for (const d of MAIN ? systems.ra.bodies : []) {
   if (!d || !climateCapable(d)) continue;
@@ -68,14 +70,18 @@ for (const d of MAIN ? systems.ra.bodies : []) {
   sys.add(d.key, 'ra', { key: d.key, kind: d.kind, massKg: d.massKg, radiusKm: d.radiusKm, rotationPeriod: d.rotationPeriod,
     comp: d.comp, custom: false, life: d.life || null }, { snapshot: SPINUP.ra[d.key], flux: ins[d.key].S * S_EARTH, starTemp: ins[d.key].starTemp });
   const r = sys.worlds.get(d.key), b = BOOK[d.key] || {};
-  const start = row(r);
-  r.sim.runYears(YEARS, 2e5);
-  sys.fillRender(r);
-  const end = row(r);
+  const start = row(r, sys.detail(d.key));
+  // through the system, as the page steps it, on the book's starlight
+  const forcing = { [d.key]: { flux: ins[d.key].S * S_EARTH, starTemp: ins[d.key].starTemp } };
+  for (let t = 0; t < YEARS - 1e-9; t += 2e5) {
+    sys.tick(Math.min(2e5, YEARS - t), 2e6, forcing);
+    while (sys.run(1e9)) { /* spend it all */ }
+  }
+  const end = row(r, sys.detail(d.key));
   const bk = [b.T != null ? `${b.T} °C` : null, b.p != null ? `${bar(b.p)} bar` : null,
     b.pRange ? `${bar(b.pRange[0])}-${bar(b.pRange[1])} bar` : null,
     b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.mins ? Object.entries(b.mins).map(([g, x]) => `${g.toUpperCase()} ≥ ${x * 100}%`).join(' ') : null,
-    b.sea != null ? `sea ${b.sea * 100}%` : null].filter(Boolean).join(' · ');
+    b.sea != null ? `sea ${b.sea * 100}%` : null, b.acid != null ? `acid sea ${b.acid * 100}%` : null].filter(Boolean).join(' · ');
   console.log(`\n${d.key}   book: ${bk}${b.note ? '  — ' + b.note : ''}`);
   console.log(`   start ${start}`);
   console.log(`   ${(YEARS / 1e6).toFixed(0).padStart(3)} Myr ${end}`);

@@ -109,14 +109,21 @@ export const PROFILES = {
     set: { base: { ...EARTH, ...airless, n2Bar: 0.0002, co2Bar: 0.0108, outgassing: 0.02,
             internalHeat: 0.03, obliquity: 12, landAlbedo: 0.3, startT: 393 },
            target: 393, knob: 'landAlbedo', balance: ['air'], clouds: 'full' },
-    // The book's ocean is sulphuric acid, and this model has one solvent: water.
-    // Water at 1.45 S(+) runs away however the sky is set up (measured: a
-    // hundredth of an ocean already ends as a steam atmosphere), so the acid
-    // sea stays what it can be here -- scenery on the map -- and the climate
-    // under it is a dry CO2 greenhouse at the documented 231 C. Tuned: the CO2.
+    // "Soaked in an ocean of sulfuric acid, with just a few transient volcanic
+    // islands." Nearly pure acid, which this model does not have, kept beside
+    // it in acid.js: 80 % of the map, 3 km deep ("a deep ocean", but "too
+    // shallow" for high-pressure ice). It boils at 338 C under an atmosphere
+    // and near 450 C under this air, so at 231 C it is a sea, giving off a few
+    // hundredths of a bar that warm the sky and cloud it. (Water, at 1.45 S(+),
+    // runs away however the sky is set up.)
+    //
+    // With no water there is no weathering, so the air is the sum of what the
+    // volcanoes have given: its CO2 over Ra's 5.3 Gyr is 0.04 bar per 20 Myr,
+    // a fiftieth of Earth's outgassing. At a fifth of Earth's it warmed 4 K in
+    // 20 Myr on CO2 it could not have kept for long. Tuned: the CO2.
     nephtys: { base: { ...EARTH, ...airless, landFraction: 0.18, n2Bar: 2, co2Bar: 10,
-            obliquity: 15, landAlbedo: 0.2, internalHeat: 0.1, outgassing: 0.2, startT: 504 },
-           target: 504, knob: 'co2Bar', clouds: 'delta',
+            obliquity: 15, landAlbedo: 0.2, internalHeat: 0.1, outgassing: 0.02, startT: 504 },
+           target: 504, knob: 'co2Bar', clouds: 'delta', acid: { cover: 0.8, depth: 3000 },
            note: 'acid' },
     // 0.62 atm, 66% oxygen and 29% nitrogen, violet forests. "Water covers 60
     // percent of Satis, but Satis has only a fraction of Earth's water ... its
@@ -320,5 +327,6 @@ export function profileMeta(sys, d) {
     target: prof.target ?? null,
     note: prof.note || null,
     heat: prof.heat || null,
+    acid: prof.acid || null,
   };
 }

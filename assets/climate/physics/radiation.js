@@ -740,8 +740,12 @@ export function rayleighOf(pDry) {
 // and calibrate.mjs hold two results side by side to difference them, which a
 // shared scratch object would silently break.
 export function planetaryAlbedoInto(T, o, out) {
-  const surf = surfaceAlbedo(T, o.oceanFrac, o.landAlbedo, o.hasWater, o.glaciated,
+  let surf = surfaceAlbedo(T, o.oceanFrac, o.landAlbedo, o.hasWater, o.glaciated,
     o.waterCap, o.freezeShift ?? 0, o.iceAlbedo ?? ALB_ICE);
+  // [ra-climate patch] overlay: a share of the ground under something the
+  // model does not know (Nephtys's acid sea), with the albedo it has. Unset
+  // or zero, this is altdev2 exactly.
+  if (o.overlayShare > 0) surf = surf * (1 - o.overlayShare) + o.overlayAlbedo * o.overlayShare;
   // Both moist-greenhouse cloud terms are for a RAPIDLY ROTATING world, and are
   // faded out on a slow or locked one by the same `slowness` the deck's own
   // brightness is gated on. Wolf & Toon ran Earth: their mechanism is a globally

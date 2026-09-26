@@ -23,6 +23,7 @@ import { captureWorld } from '../assets/climate/game/snapshot.js';
 import { classify } from '../assets/climate/physics/classify.js';
 import { TUNED } from '../assets/climate/tuned.js';
 import { SPINUP } from '../assets/climate/spinup.js';
+import { freshAcid, runWithAcid, partitionAcid, acidOverlay } from '../assets/climate/acid.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK = process.argv.includes('--check');
@@ -32,15 +33,20 @@ const LOG_KNOBS = new Set(['co2Bar', 'h2Bar', 'internalHeat', 'n2Bar', 'ch4Bar']
 const RANGE = { landAlbedo: [0.02, 0.95], iceAlbedo: [0.05, 0.99], co2Bar: [1e-6, 300], h2Bar: [1e-3, 300],
   internalHeat: [1e-5, 1e4], n2Bar: [1e-4, 50], ch4Bar: [1e-7, 1] };
 
-// Run until the energy budget closes, in chunks of growing length.
-function settle(params, maxYears = 3e7) {
+// Run until the energy budget closes, in chunks of growing length. A world
+// with an acid sea (profile `acid`) is stepped with it, as the system steps it,
+// and keeps it on `sim.acid` for the spin-up.
+function settle(params, maxYears = 3e7, acidSpec = null) {
   const sim = new Simulation(params);
   const w = sim.world;
+  const acid = acidSpec ? freshAcid(acidSpec) : null;
+  if (acid) { const r = { sim, acid }; partitionAcid(r); acidOverlay(r); }
+  sim.acid = acid;
   let done = 0;
   for (const chunk of [1e3, 1e4, 1e5, 1e6, 1e7, 3e7]) {
     if (done >= maxYears) break;
     const y = Math.min(chunk, maxYears - done);
-    sim.runYears(y);
+    if (acid) runWithAcid(sim, acid, y); else sim.runYears(y);
     done += y;
     const dg = w.diag;
     const tol = Math.max(0.03, 1e-3 * (dg.absorbed + dg.Fint));
@@ -69,7 +75,7 @@ function tuneOne(sysName, d, S, starTemp, fixed = null) {
     ...(fixed ? Object.fromEntries(Object.entries(fixed).filter(([k]) => k !== knob)) : {}) };
   const make = (v) => filled(prof, { ...hand, [knob]: v, insolation: S, starTemp,
     startT: target, outgassing: hand.outgassing });
-  const temp = (v) => settle(make(v), 3e7).world.diag.Tmean;
+  const temp = (v) => settle(make(v), 3e7, prof.acid).world.diag.Tmean;
   let [lo, hi] = RANGE[knob];
   // a gas under a fixed pressure has only what the other gases leave it
   if (prof.fill && prof.pressure > 0 && AIR.includes(knob)) {
@@ -199,7 +205,7 @@ for (const sysName of ['sol', 'ra']) {
     // the balances until they agree: the volcanoes that hold the CO2 also eat
     // the oxygen, and the biosphere that holds the oxygen warms the planet.
     const p0 = { ...paramsFor(sysName, d), ...(tunedOut[sysName][d.key] || {}) };
-    let sim = settle({ ...p0, insolation: S, starTemp }, prof.target != null ? 3e7 : 1e5);
+    let sim = settle({ ...p0, insolation: S, starTemp }, prof.target != null ? 3e7 : 1e5, prof.acid);
     let og = null;
     const rounds = (prof.balance || []).length ? 4 : 1;
     for (let round = 0; round < rounds && prof.target != null; round++) {
@@ -208,12 +214,12 @@ for (const sysName of ['sol', 'ra']) {
       if (og != null && (prof.balance || []).includes('air')) og = holdAir({ ...cur(), insolation: S, starTemp }, og);
       if (og != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], outgassing: +og.toPrecision(6) };
       if ((prof.balance || []).includes('oxygen')) {
-        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
+        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7, prof.acid);
         const by = prof.oxygenBy || 'biosphere', v = balanceOxygen(sim, by);
         if (v != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], [by]: +v.toPrecision(6) };
       }
       if ((prof.balance || []).includes('methane')) {
-        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
+        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7, prof.acid);
         const bio = balanceMethane(sim);
         if (bio != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], biosphere: +bio.toPrecision(6) };
       }
@@ -223,17 +229,19 @@ for (const sysName of ['sol', 'ra']) {
         tunedOut[sysName][d.key] = fill({ ...tunedOut[sysName][d.key], [again.knob]: +again.value.toPrecision(6) });
         tune = again;
       }
-      sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
+      sim = settle({ ...cur(), insolation: S, starTemp }, 3e7, prof.acid);
     }
     const w = sim.world, dg = w.diag;
     const snap = captureWorld(w);
     snap.params = { ...snap.params };
+    if (sim.acid) snap.acid = { ...sim.acid };
     // The sandbox's own clock starts at zero; the spin-up is not part of the
     // world's history.
     snap.time = 0;
     spin[sysName][d.key] = snap;
     let st = '?';
     try { st = classify(w).id; } catch (_) {}
+    if (sim.acid) st = 'acid sea';      // what the system shows it as (system.js stateOf)
     rows.push({ sys: sysName, key: d.key, S, T: dg.Tmean, target: prof.target, imb: dg.imbalance,
       pTot: dg.pTotMean, state: st, tune, og, secs: (Date.now() - t0) / 1000 });
     const r = rows.at(-1);

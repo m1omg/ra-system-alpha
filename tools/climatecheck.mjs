@@ -267,16 +267,19 @@ section('Life follows the climate');
     const q = build('ra'), f = forcingOf(q.ins, q.keys), r = q.sys.worlds.get('nephtys');
     advance(q.sys, 100, 5, 30, f);
     ok(lvl(r) === 1, 'Nephtys\'s acid-sea life lives at its documented 231 °C', `${(r.rs[RS.TMEAN] - 273.15).toFixed(0)} °C, level ${lvl(r)}`);
-    // 1e25 J peaks at the gate and cools; 3e25 J takes the sea to 530 °C,
-    // short of melting rock (3e26 J would, and then the cause is magma)
-    q.sys.impact('nephtys', { J: 1e25, kind: 'collision' });
+    // The sea holds the heat of a strike (acid.js): 3e25 J takes its coldest
+    // band 17 K past the gate for half a year, which the life comes through;
+    // 6e25 J takes it past 400 °C, short of boiling the sea (450 °C under this
+    // air) and far short of melting rock (then the cause would be magma)
+    q.sys.impact('nephtys', { J: 3e25, kind: 'collision' });
+    const brush = r.rs[RS.TMIN];
     advance(q.sys, 1, 0.1, 30, f);
     const lived = lvl(r);
-    q.sys.impact('nephtys', { J: 3e25, kind: 'collision' });
+    q.sys.impact('nephtys', { J: 6e25, kind: 'collision' });
     const peak = r.rs[RS.TMIN];
     advance(q.sys, 1, 0.1, 30, f);
-    ok(lived === 1 && lvl(r) === 0 && why(r) === 'heat', '...comes through a strike that peaks at 330 °C, and dies of one that goes past it',
-      `level ${lived} then ${lvl(r)} at ${(peak - 273.15).toFixed(0)} °C, ${why(r)}`);
+    ok(lived === 1 && brush > 603 && lvl(r) === 0 && why(r) === 'heat', '...comes through a strike that brushes past 330 °C, and dies of one that holds it well past',
+      `level ${lived} at ${(brush - 273.15).toFixed(0)} °C, then ${lvl(r)} at ${(peak - 273.15).toFixed(0)} °C, ${why(r)}`);
   }
   {
     // the ledger is part of the save
@@ -321,22 +324,24 @@ section('What a strike did to the surface, as the orrery reads it');
 
 section('Documented worlds open as the book has them, and stay there for 20 Myr');
 {
+  // through the system, as the page steps them: what lives beside the physics
+  // (the acid sea, the life ledger) moves with it
   const q = build('ra');
-  for (const k of q.keys) {
-    const b = BOOK[k]; if (!b) continue;
-    const r = q.sys.worlds.get(k), w = r.sim.world;
-    const look = () => {
-      const dg = w.diag, g = dg.g, pa = (x) => x * g / 1e5;
-      const gas = { n2: pa(w.n2), o2: pa(w.o2), co2: pa(w.co2), ch4: pa(w.ch4), h2: pa(w.h2 + w.he) };
-      const tot = Object.values(gas).reduce((a, x) => a + x, 0) || 1;
-      const W = w.water;
-      return { T: dg.Tmean - 273.15, p: dg.pTotMean, o2: gas.o2 / tot, n2: gas.n2 / tot,
-        share: Object.fromEntries(Object.entries(gas).map(([k, x]) => [k, x / tot])),
-        haze: dg.hazeTau ?? 0, cover: (dg.flooded ?? 0) };
-    };
-    const a = look();
-    r.sim.runYears(2e7, 2e5);
-    const z = look();
+  const look = (k) => {
+    const w = q.sys.worlds.get(k).sim.world;
+    const dg = w.diag, g = dg.g, pa = (x) => x * g / 1e5;
+    const gas = { n2: pa(w.n2), o2: pa(w.o2), co2: pa(w.co2), ch4: pa(w.ch4), h2: pa(w.h2 + w.he) };
+    const tot = Object.values(gas).reduce((a, x) => a + x, 0) || 1;
+    const acid = (q.sys.detail(k) || {}).acid;
+    return { T: dg.Tmean - 273.15, p: dg.pTotMean, o2: gas.o2 / tot, n2: gas.n2 / tot,
+      share: Object.fromEntries(Object.entries(gas).map(([g2, x]) => [g2, x / tot])),
+      haze: dg.hazeTau ?? 0, cover: (dg.flooded ?? 0), acid: acid ? acid.cover * (1 - acid.frozen) : 0 };
+  };
+  const ks = q.keys.filter((k) => BOOK[k]);
+  const start = Object.fromEntries(ks.map((k) => [k, look(k)]));
+  advance(q.sys, 2e7, 2e6, 10, forcingOf(q.ins, q.keys));
+  for (const k of ks) {
+    const b = BOOK[k], a = start[k], z = look(k);
     const bad = [];
     if (b.T != null && Math.abs(a.T - b.T) > 2) bad.push(`opens at ${a.T.toFixed(1)} °C, book ${b.T}`);
     if (b.T != null && Math.abs(z.T - a.T) > 2) bad.push(`drifts ${(z.T - a.T).toFixed(1)} K in 20 Myr`);
@@ -355,11 +360,72 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
         if (!(x >= min)) bad.push(`${when} with ${g.toUpperCase()} ${(x * 100).toPrecision(2)} % of the air, book at least ${min * 100} %`);
     if (b.hazeMax != null) for (const [when, x] of [['opens', a.haze], ['after 20 Myr', z.haze]])
       if (!(x <= b.hazeMax)) bad.push(`${when} under haze of optical depth ${x.toFixed(2)}, book a clear sky`);
+    if (b.acid != null) for (const [when, x] of [['opens', a.acid], ['after 20 Myr', z.acid]])
+      if (Math.abs(x - b.acid) > 0.05) bad.push(`${when} with liquid acid over ${(x * 100).toFixed(0)} %, book ${b.acid * 100} %`);
     if (b.sea != null && Math.abs(a.cover - b.sea) > 0.05) bad.push(`water covers ${(a.cover * 100).toFixed(0)} %, book ${b.sea * 100} %`);
     if (b.sea != null && Math.abs(z.cover - a.cover) > 0.05) bad.push(`cover drifts to ${(z.cover * 100).toFixed(0)} %`);
     const what = `${k}: ${a.T.toFixed(1)} → ${z.T.toFixed(1)} °C, ${a.p.toPrecision(3)} → ${z.p.toPrecision(3)} bar`;
     if (GAPS[k]) { console.log(`  GAP  ${k}: ${GAPS[k]}${bad.length ? '  (' + bad.join('; ') + ')' : ''}`); continue; }
     ok(bad.length === 0, what, bad.join('; '));
+  }
+}
+
+section('Nephtys has a sea of sulfuric acid');
+{
+  const neph = () => { const b = build('ra'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('nephtys') }; };
+  const acidOf = (sys) => (sys.detail('nephtys') || {}).acid || null;
+  {
+    const { sys, r } = neph(), a = acidOf(sys);
+    ok(a && a.cover > 0.75 && a.frozen < 0.01, 'it opens with a liquid acid sea over most of the world',
+      a ? `cover ${(a.cover * 100).toFixed(0)} %, ${(a.depthM / 1e3).toFixed(1)} km deep` : 'no acid sea');
+    // 98 % acid boils at 338 C at an atmosphere; under Nephtys's air, on the same
+    // Clausius-Clapeyron curve (slope 10156 K: Ayers, Gillett & Gras 1980)
+    const pAir = a ? a.pAirBar : NaN, Tb = 1 / (1 / 611 - Math.log(pAir / 1.01325) / 10156) - 273.15;
+    ok(a && Math.abs(a.boilC - Tb) < 1 && a.boilC > 400, 'it boils where the curve puts it under this air',
+      a ? `${a.boilC.toFixed(0)} °C under ${pAir.toFixed(1)} bar` : '');
+    ok(a && a.vapourBar > 0.005 && a.vapourBar < 0.05, 'and at 231 C gives off a few hundredths of a bar',
+      a ? `${(a.vapourBar * 1e3).toFixed(1)} mbar` : '');
+    // it holds heat like a sea: the same strike warms it less than the same world dry
+    // (a custom body, so it gets Nephtys's params and not its profile's sea)
+    const dry = new ClimateSystem(), d = { ...r.data, key: 'dry-nephtys', custom: true };
+    const pDry = { ...r.sim.world.params }; delete pDry.overlay;
+    dry.add('dry', 'ra', d, { params: pDry, flux: r.flux, starTemp: r.starTemp });
+    const Cw = r.sim.world.diag.C.reduce((x, y) => x + y, 0), Cd = dry.worlds.get('dry').sim.world.diag.C.reduce((x, y) => x + y, 0);
+    ok(Cw > 1.5 * Cd, 'it holds heat like a sea', `heat capacity ×${(Cw / Cd).toFixed(2)} of the same world dry`);
+  }
+  {
+    // the latent heat is paid: a strike the size of what the sea costs to boil
+    // leaves most of it liquid, and one several times that puts it in the sky
+    const { sys, f, r } = neph(), a0 = acidOf(sys);
+    sys.impact('nephtys', { J: 1e27, kind: 'collision' });
+    const a1 = acidOf(sys);
+    ok(a1 && a1.airShare > a0.airShare && a1.airShare < 0.5, '1e27 J boils some of the sea and no more than it pays for',
+      a1 ? `${(a1.airShare * 100).toFixed(1)} % of the acid in the air (was ${(a0.airShare * 100).toFixed(2)} %)` : '');
+    const { sys: s2, f: f2, r: r2 } = neph();
+    s2.impact('nephtys', { J: 2e28, kind: 'collision' });
+    const a2 = acidOf(s2);
+    ok(a2 && a2.airShare > 0.9, '2e28 J puts the whole sea in the sky', a2 ? `${(a2.airShare * 100).toFixed(0)} % in the air, ${(r2.rs[RS.TMEAN] - 273.15).toFixed(0)} °C` : '');
+    // a world loaded afterwards shares nothing with that one: the spin-up table
+    // is read, never written (the first acid.js wrote the boiled sky into it)
+    const { sys: s3 } = neph(), a4 = acidOf(s3);
+    ok(a4 && a4.vapourBar < 0.05 && s3.detail('nephtys').pTot < 14, 'a Nephtys loaded while that one boils opens as the first did',
+      a4 ? `${(a4.vapourBar * 1e3).toFixed(1)} mbar of acid, ${s3.detail('nephtys').pTot.toFixed(1)} bar` : '');
+    advance(s2, 3e4, 3e3, 10, f2);
+    const a3 = acidOf(s2);
+    ok(a3 && a3.cover > 0.5, '...and it rains back into its basins as the world cools',
+      a3 ? `cover ${(a3.cover * 100).toFixed(0)} % after 30 kyr, ${(r2.rs[RS.TMEAN] - 273.15).toFixed(0)} °C` : '');
+  }
+  {
+    // moved out to a twentieth of its light, the sea freezes pale, and its life
+    // fades on the model's own clock for a population with no room (~2 Myr)
+    const { sys, r } = neph();
+    const far = { nephtys: { flux: 0.05 * S_EARTH, starTemp: r.starTemp } };
+    advance(sys, 3e5, 3e4, 10, far);
+    const a = acidOf(sys);
+    ok(a && a.frozen > 0.9, 'moved far out, the acid sea freezes', a ? `${(a.frozen * 100).toFixed(0)} % frozen at ${(r.rs[RS.TMEAN] - 273.15).toFixed(0)} °C` : '');
+    advance(sys, 3e7, 3e6, 10, far);
+    ok(r.ledger.level === 0 && LIFE_CAUSES[r.ledger.cause] === 'frozen', '...and in 30 Myr the life in it has died of the cold',
+      `level ${r.ledger.level}, ${LIFE_CAUSES[r.ledger.cause]}`);
   }
 }
 

@@ -56,6 +56,12 @@ air and seas the book gives it.
   stays habitable takes the model's 800 million years to evolve again, and
   intelligence half a billion more; a sterilised world stays sterile.
   Nephtys's acid-sea life lives while its sea is liquid, to 330 °C.
+- Nephtys's sea is sulfuric acid, kept beside the model's water
+  (`assets/climate/acid.js`): 80 % of the world and 3 km deep, it holds heat as
+  a sea does, gives off 21 mbar of vapour at 231 °C that warms and clouds the
+  sky, and boils on the acid's own curve, 338 °C under an atmosphere and 450 °C
+  under Nephtys's 13 bar. A big enough strike puts the whole sea in the sky; it
+  rains back as the world cools, and freezes pale, at +3 °C, far from Ra.
 - One story of the damage: on a climate world the impact lab, the hover text
   and the climate card read the same state. The lab weighs the climate's own
   water (Earth's ocean is 2×10⁻⁴ of the planet), "oceans boiled" is the share
@@ -69,6 +75,7 @@ air and seas the book gives it.
 |---|---|
 | `assets/climate/physics/`, `sim/`, `game/`, `render/` | the climate model, verbatim from planet-climate-sandbox `altdev2/src` |
 | `assets/climate/system.js` | many worlds on one clock: forcing, time credit, snapshots; impacts: heat by band, magma, winter, CO₂, lost air |
+| `assets/climate/acid.js` | a second liquid beside the water: Nephtys's sulfuric-acid sea |
 | `assets/climate/PATCHES.md` | the changes to the physics copy, each behind a parameter whose default is altdev2 |
 | `assets/climate/profiles.js` | each body's climate: Solar System worlds from the sandbox's calibrated presets, Ra worlds tuned to their documented temperatures |
 | `assets/climate/tuned.js`, `spinup.js` | written by `tools/climate-tune.mjs`: tuned knobs and settled starting states |

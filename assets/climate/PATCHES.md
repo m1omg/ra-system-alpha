@@ -122,6 +122,32 @@ Uat-Ur's methane is made by its biosphere, since photolysis at its light breaks
 oxygen goes into its hydrogen: 0.026 bar of its 2.4 in 20 Myr, beside the 0.017
 that escapes.
 
+## overlay — a second liquid beside the water — climate.js, radiation.js
+
+The model knows one liquid. Nephtys's sea is sulfuric acid, kept in the system
+layer (`acid.js`), and it reaches the physics through `params.overlay`, per band:
+`vapour` (bar), which the longwave, the cloud cover and the near-infrared
+darkening take as water vapour and the band's pressure includes; `share` and
+`albedo`, a share of the ground under something else and what it reflects; and
+`C`, heat capacity added to the band's. `acid.js` sets it before every step from
+the temperatures the last one left, with the acid's mixed layer and the latent
+heat of the acid each kelvin puts in the air, and re-reads the vapour after the
+step, as the model does for water. Held fixed through a step, including in the
+Jacobian, so the step sees one consistent world. Unset, every term adds a zero.
+
+The acid is the 98.3 % azeotrope: 1830 kg/m³, 1.4 kJ/kg/K, boiling at 338 °C under
+an atmosphere on the Clausius–Clapeyron slope measured over concentrated acid,
+10156 K (Ayers, Gillett & Gras 1980), which makes its heat of vaporisation
+0.86 MJ/kg; it freezes at +3 °C. Its vapour counts as water vapour because the
+model has no other condensable greenhouse, and none of the acid's own opacity
+at these pressures is measured to replace it with. Nephtys's sea: 80 % of the
+world, 3 km deep, 21 mbar of vapour at 231 °C, boiling at 450 °C under 13.4 bar.
+Put on the old dry spin-up it moved the world 0.4 K in a megayear: the acid's
+cloud (albedo 0.35 to 0.41) and its dark sea and greenhouse nearly cancel. It
+doubles the world's heat capacity, so a 3×10²⁵ J strike takes the coldest band
+to 347 °C where the same world dry goes to 528 °C; 10²⁷ J puts 30 % of the sea in the
+air, and 2×10²⁸ J all of it, which rains back as the world cools.
+
 ## Not a patch: how the energy of a strike gets in
 
 `system.js` puts a strike's heat into the bands directly (`injectHeat`), through
