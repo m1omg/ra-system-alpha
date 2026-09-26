@@ -49,12 +49,14 @@ function settle(params, maxYears = 3e7) {
   return sim;
 }
 
-function tuneOne(sysName, d, S, starTemp) {
+function tuneOne(sysName, d, S, starTemp, fixed = null) {
   const prof = profileOf(sysName, d);
   const knob = prof.knob, target = prof.target;
   const base = paramsFor(sysName, d);
-  // Tune from the profile's own hand-set values, not from a previous result.
-  const hand = { ...base, ...(prof.base[knob] != null ? { [knob]: prof.base[knob] } : {}) };
+  // Tune from the profile's own hand-set values, not from a previous result --
+  // except for what the balances have already set (`fixed`).
+  const hand = { ...base, ...(prof.base[knob] != null ? { [knob]: prof.base[knob] } : {}),
+    ...(fixed ? Object.fromEntries(Object.entries(fixed).filter(([k]) => k !== knob)) : {}) };
   const make = (v) => ({ ...hand, [knob]: v, insolation: S, starTemp,
     startT: target, outgassing: hand.outgassing });
   const temp = (v) => settle(make(v), 3e7).world.diag.Tmean;
@@ -77,6 +79,16 @@ function tuneOne(sysName, d, S, starTemp) {
     if (log ? hi / lo < 1.0005 : hi - lo < 1e-5) break;
   }
   return { knob, ...best, bracketed: true };
+}
+
+// Biosphere that holds O2 where it is. The source is photosynthesis and scales
+// with the control; the sinks are the volcanic reductants and the weathering at
+// this level: the control that makes them equal. Read once the living biosphere
+// has grown to what the control asks (BIO_GROW, 5 kyr), which a settle is.
+function balanceOxygen(sim) {
+  const w = sim.world, f = w.o2Flux, b = w.params.biosphere;
+  if (!f || !(b > 0) || !(f.source > 0)) return null;
+  return b * (f.reductant + f.weathering) / f.source;
 }
 
 // Outgassing that holds CO2 where it is: weathering / supply-per-unit-outgassing.
@@ -111,13 +123,29 @@ for (const sysName of ['sol', 'ra']) {
       tunedOut[sysName][d.key] = { [tune.knob]: +tune.value.toPrecision(6) };
     }
     // Spin up with the tuned knob, then balance the carbon cycle and settle again.
+    // A world that balances more than its carbon (profile `balance`) goes round
+    // the balances until they agree: the volcanoes that hold the CO2 also eat
+    // the oxygen, and the biosphere that holds the oxygen warms the planet.
     const p0 = { ...paramsFor(sysName, d), ...(tunedOut[sysName][d.key] || {}) };
     let sim = settle({ ...p0, insolation: S, starTemp }, prof.target != null ? 3e7 : 1e5);
-    const og = prof.target != null ? balanceCarbon(sim) : null;
-    if (og != null) {
-      const ogR = +og.toPrecision(6);
-      tunedOut[sysName][d.key] = { ...(tunedOut[sysName][d.key] || {}), outgassing: ogR };
-      sim = settle({ ...p0, outgassing: ogR, insolation: S, starTemp }, 3e7);
+    let og = null;
+    const rounds = (prof.balance || []).length ? 4 : 1;
+    for (let round = 0; round < rounds && prof.target != null; round++) {
+      const cur = () => ({ ...paramsFor(sysName, d), ...tunedOut[sysName][d.key] });
+      og = balanceCarbon(sim);
+      if (og != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], outgassing: +og.toPrecision(6) };
+      if ((prof.balance || []).includes('oxygen')) {
+        sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
+        const bio = balanceOxygen(sim);
+        if (bio != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], biosphere: +bio.toPrecision(6) };
+      }
+      if (rounds > 1) {
+        // the temperature again, under the balanced reservoirs
+        const again = tuneOne(sysName, d, S, starTemp, tunedOut[sysName][d.key]);
+        tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], [again.knob]: +again.value.toPrecision(6) };
+        tune = again;
+      }
+      sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);
     }
     const w = sim.world, dg = w.diag;
     const snap = captureWorld(w);
@@ -136,6 +164,7 @@ for (const sysName of ['sol', 'ra']) {
       + ` imb=${r.imb.toFixed(3)} p=${r.pTot.toPrecision(3)} bar ${st}`
       + (tune ? ` ${tune.knob}=${tune.value.toPrecision(4)}` : '')
       + (og != null ? ` outgassing=${og.toPrecision(3)}` : '')
+      + (tunedOut[sysName][d.key] && tunedOut[sysName][d.key].biosphere != null ? ` biosphere=${tunedOut[sysName][d.key].biosphere.toPrecision(3)}` : '')
       + ` [${r.secs.toFixed(1)} s]`);
   }
 }

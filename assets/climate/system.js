@@ -382,10 +382,15 @@ export class ClimateSystem {
       r.fluxAcc = 0; r.fluxTime = 0;
     }
     const pulseFlux = r.pulse > 0 ? r.pulse / (PULSE_TAU_YEARS * YEAR) : 0;
+    const heat0 = w.params.internalHeat;
     w.params.internalHeat = r.baseHeat + pulseFlux;
     const room = Math.min(maxStep(w, 2.5), Math.max(this.rate * 0.3, MIN_STEP_YEARS), 5e6);
     const floor = Math.min(room, Math.max(this.rate * MIN_STEP_WALL, MIN_STEP_YEARS));
-    if (r.credit < floor) return false;
+    // No step, no change: the interior heat stays the one the last step's
+    // diagnostics were made with. Left at the new value, a save taken between
+    // steps carried a heat its diagnostics did not match, and the restored
+    // world ran on differently from the one saved.
+    if (r.credit < floor) { w.params.internalHeat = heat0; return false; }
     const dt = Math.min(room, r.credit);
     if (r.pulse > 0) {
       // Deliver the share of the pulse that decays over this step, as a flux

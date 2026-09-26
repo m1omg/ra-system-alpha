@@ -11,8 +11,9 @@ export const TUNED = {
    "co2Bar": 11.3579
   },
   "satis": {
-   "co2Bar": 0.0105517,
-   "outgassing": 6.96472
+   "co2Bar": 0.00618764,
+   "outgassing": 1.97049,
+   "biosphere": 1.40765
   },
   "uatur": {
    "h2Bar": 4.87488,

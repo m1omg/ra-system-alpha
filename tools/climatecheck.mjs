@@ -15,6 +15,7 @@ import * as SYSTEM from '../assets/climate/system.js';
 import { paramsFor, climateCapable, profileOf, LUMINOUS, STILL } from '../assets/climate/profiles.js';
 import { SPINUP } from '../assets/climate/spinup.js';
 import { analyseSurface, heightForShare } from '../assets/climate/analysis.js';
+import { BOOK, GAPS } from './worldaudit.mjs';
 import { S_EARTH } from '../assets/climate/physics/constants.js';
 
 const { ClimateSystem, RS } = SYSTEM, LIFE_CAUSES = SYSTEM.LIFE_CAUSES || [];
@@ -315,6 +316,40 @@ section('What a strike did to the surface, as the orrery reads it');
     const m0 = r.rs[RS.MAGMA];
     advance(sys, 3e4, 2000, 30, f);
     ok(m0 > 0.99 && r.rs[RS.MAGMA] === 0, '1e29 J: molten everywhere, crusted over 30 kyr on', `${(m0 * 100).toFixed(0)} % → ${(r.rs[RS.MAGMA] * 100).toFixed(0)} %`);
+  }
+}
+
+section('Documented worlds open as the book has them, and stay there for 20 Myr');
+{
+  const q = build('ra');
+  for (const k of q.keys) {
+    const b = BOOK[k]; if (!b) continue;
+    const r = q.sys.worlds.get(k), w = r.sim.world;
+    const look = () => {
+      const dg = w.diag, g = dg.g, pa = (x) => x * g / 1e5;
+      const gas = { n2: pa(w.n2), o2: pa(w.o2), co2: pa(w.co2), ch4: pa(w.ch4), h2: pa(w.h2 + w.he) };
+      const tot = Object.values(gas).reduce((a, x) => a + x, 0) || 1;
+      const W = w.water;
+      return { T: dg.Tmean - 273.15, p: dg.pTotMean, o2: gas.o2 / tot, n2: gas.n2 / tot,
+        cover: (dg.flooded ?? 0) };
+    };
+    const a = look();
+    r.sim.runYears(2e7, 2e5);
+    const z = look();
+    const bad = [];
+    if (b.T != null && Math.abs(a.T - b.T) > 2) bad.push(`opens at ${a.T.toFixed(1)} °C, book ${b.T}`);
+    if (b.T != null && Math.abs(z.T - a.T) > 2) bad.push(`drifts ${(z.T - a.T).toFixed(1)} K in 20 Myr`);
+    if (b.p != null && Math.abs(a.p / b.p - 1) > 0.05) bad.push(`opens at ${a.p.toPrecision(3)} bar, book ${b.p.toPrecision(3)}`);
+    if (b.p != null && Math.abs(z.p / a.p - 1) > 0.05) bad.push(`pressure drifts ${((z.p / a.p - 1) * 100).toFixed(0)} % in 20 Myr`);
+    for (const g of ['o2', 'n2']) if (b[g] != null) {
+      if (Math.abs(a[g] - b[g]) > 0.05) bad.push(`${g.toUpperCase()} ${(a[g] * 100).toFixed(0)} %, book ${b[g] * 100} %`);
+      if (Math.abs(z[g] - a[g]) > 0.05) bad.push(`${g.toUpperCase()} drifts to ${(z[g] * 100).toFixed(0)} %`);
+    }
+    if (b.sea != null && Math.abs(a.cover - b.sea) > 0.05) bad.push(`water covers ${(a.cover * 100).toFixed(0)} %, book ${b.sea * 100} %`);
+    if (b.sea != null && Math.abs(z.cover - a.cover) > 0.05) bad.push(`cover drifts to ${(z.cover * 100).toFixed(0)} %`);
+    const what = `${k}: ${a.T.toFixed(1)} → ${z.T.toFixed(1)} °C, ${a.p.toPrecision(3)} → ${z.p.toPrecision(3)} bar`;
+    if (GAPS[k]) { console.log(`  GAP  ${k}: ${GAPS[k]}${bad.length ? '  (' + bad.join('; ') + ')' : ''}`); continue; }
+    ok(bad.length === 0, what, bad.join('; '));
   }
 }
 

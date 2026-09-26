@@ -109,12 +109,19 @@ export const PROFILES = {
             obliquity: 15, landAlbedo: 0.2, internalHeat: 0.1, outgassing: 0.2, startT: 504 },
            target: 504, knob: 'co2Bar', clouds: 'delta',
            note: 'acid' },
-    // 0.62 atm, 66% oxygen and 29% nitrogen, sixty per cent ocean and violet
-    // forests. Tuned: the CO2.
-    satis: { base: { ...EARTH, landFraction: 0.40, water: 1.0, n2Bar: 0.18, o2Bar: 0.41,
+    // 0.62 atm, 66% oxygen and 29% nitrogen, violet forests. "Water covers 60
+    // percent of Satis, but Satis has only a fraction of Earth's water ... its
+    // seas being shallow on average": a fifth of an ocean in broad, shallow
+    // basins (sea cover is (1 - landFraction) W^(1/4), so 0.2 oceans cover 60 %
+    // at 0.10), about 2.4 km deep where Earth's are 3.7. Tuned: the CO2 for the
+    // temperature, the volcanoes to hold the CO2, and the biosphere to hold the
+    // oxygen -- the volcanic gases that balance the carbon eat oxygen seven
+    // times Earth's rate, and an Earth-strength biosphere let it fall to a
+    // tenth in 20 Myr and the planet cool to 7 C.
+    satis: { base: { ...EARTH, landFraction: 0.10, water: 0.2, n2Bar: 0.18, o2Bar: 0.41,
             co2Bar: 1e-3, ch4Bar: 1e-6, biosphere: 1, obliquity: 20, landAlbedo: 0.22,
             internalHeat: 0.06, startT: 297 },
-           target: 297, knob: 'co2Bar', clouds: 'delta', veg: 'purple' },
+           target: 297, knob: 'co2Bar', balance: ['oxygen'], clouds: 'delta', veg: 'purple' },
     // A 9 M⊕ world, 28% water by mass, temperate at a quarter of Earth's
     // sunlight under 5.5 bar of hydrogen and methane. Tuned: the hydrogen.
     uatur: { base: { ...EARTH, landFraction: 0, heliumFrac: 0.1, h2Bar: 3, n2Bar: 0.7,
