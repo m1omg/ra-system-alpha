@@ -147,9 +147,16 @@ export const PROFILES = {
     // Sednoid at 11,000 AU: 10 K. Tuned: the interior heat.
     kauket: { base: { ...EARTH, ...icy(0.625), internalHeat: 5e-4, obliquity: 5, startT: 10 },
               target: 10, knob: 'internalHeat', clouds: 'full' },
-    // Wadjet's lava moon at 49 times Earth's sunlight, kneaded by its planet.
+    // Wadjet's lava moon at 49 times Earth's sunlight: "a hellish blend of Io
+    // and Venus, leaning hard toward Io ... 450 C even in its calmest spots --
+    // all under a near-vacuum sky", its tides "reignited" by a strike that made
+    // its orbit eccentric again. Starlight alone gives it 428 C on average; the
+    // book's 450 takes tidal heat from Wadjet of 1.6 kW/m2 -- hundreds of
+    // Ios, a crust over magma. "Calmest spots" read as the ground away from the
+    // volcanoes, so the mean: holding even its poles at 450 would take 15
+    // kW/m2 and a 600 C world the book does not describe. Tuned: the tidal heat.
     sekhmet: { base: { ...EARTH, ...airless, internalHeat: 5, landAlbedo: 0.1, obliquity: 2,
-            startT: 700 }, clouds: 'full' },
+            startT: 723 }, target: 723, knob: 'internalHeat', clouds: 'full', heat: 'tidal' },
     // Satis's moon: half the Moon's mass (the book says so; data.js has no figure).
     satismoon: { base: { ...EARTH, ...airless, internalHeat: 0.01, landAlbedo: 0.12,
             obliquity: 3, startT: 270 }, massKg: 3.67e22, clouds: 'full' },

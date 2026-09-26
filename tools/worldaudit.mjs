@@ -38,7 +38,6 @@ export const BOOK = {
 export const GAPS = {
   nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
   uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
-  sekhmet: '428 C on average; the book has 450 C in its calmest spots',
   anubis: 'a hydrogen envelope; the book has free oxygen over its ocean; cools 12 K in 20 Myr',
 };
 

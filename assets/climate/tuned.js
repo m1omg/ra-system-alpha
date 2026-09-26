@@ -44,6 +44,9 @@ export const TUNED = {
   },
   "nut": {
    "iceAlbedo": 0.497969
+  },
+  "sekhmet": {
+   "internalHeat": 1618.02
   }
  },
  "sol": {}
