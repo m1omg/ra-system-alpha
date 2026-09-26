@@ -36,7 +36,6 @@ export const BOOK = {
 // failure, so a deviation cannot hide -- and each moves to a held world when it
 // is reworked (plan Part 6). Why each one is out, measured by this tool.
 export const GAPS = {
-  set: 'loses its air: 0.011 bar to nothing in 20 Myr',
   nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
   uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
   sekhmet: '428 C on average; the book has 450 C in its calmest spots',

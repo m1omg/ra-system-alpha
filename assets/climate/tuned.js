@@ -5,7 +5,8 @@
 export const TUNED = {
  "ra": {
   "set": {
-   "landAlbedo": 0.435957
+   "landAlbedo": 0.437773,
+   "outgassing": 0.511133
   },
   "nephtys": {
    "co2Bar": 11.3579

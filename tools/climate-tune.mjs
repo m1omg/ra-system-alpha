@@ -91,6 +91,38 @@ function balanceOxygen(sim) {
   return b * (f.reductant + f.weathering) / f.source;
 }
 
+// Outgassing that holds a dry world's air against escape. With no sea there
+// is no weathering, and the supply answers only to what the star strips off:
+// the loss is a rate, not a share of the column, so the air neither settles nor
+// recovers -- it grows or goes linearly -- and the balance has to be the rate
+// itself, read off the settled world.
+function balanceAir(sim) {
+  const w = sim.world, e = w.escape, V = w.weathering && w.weathering.V, og = w.params.outgassing;
+  if (!e || !(V > 0) || !(og > 0)) return null;
+  return og * ((e.background || 0) + (e.nonThermal || 0) + (e.bulkGas || 0)) / V;
+}
+
+// ...and then held to it over what the check holds it to. The escape grows with
+// the pressure, so there is an equilibrium, but the rates read off one settled
+// state put it a few per cent off; a secant on the air left after 20 Myr puts
+// it on the documented column.
+function holdAir(params, og0) {
+  const colAfter = (og) => {
+    const sim = settle({ ...params, outgassing: og }, 3e7), w = sim.world;
+    const c0 = w.n2 + w.co2 + w.o2;
+    sim.runYears(2e7, 2e5);
+    return (w.n2 + w.co2 + w.o2) / c0;
+  };
+  let a = og0, fa = Math.log(colAfter(a));
+  if (Math.abs(fa) < 0.005) return a;
+  let b = og0 * (fa > 0 ? 0.95 : 1.05), fb = Math.log(colAfter(b));
+  for (let i = 0; i < 12 && Math.abs(fb) > 0.005 && fb !== fa; i++) {
+    const c = Math.exp(Math.log(b) - fb * (Math.log(b) - Math.log(a)) / (fb - fa));
+    a = b; fa = fb; b = c; fb = Math.log(colAfter(b));
+  }
+  return b;
+}
+
 // Outgassing that holds CO2 where it is: weathering / supply-per-unit-outgassing.
 function balanceCarbon(sim) {
   const w = sim.world;
@@ -132,7 +164,8 @@ for (const sysName of ['sol', 'ra']) {
     const rounds = (prof.balance || []).length ? 4 : 1;
     for (let round = 0; round < rounds && prof.target != null; round++) {
       const cur = () => ({ ...paramsFor(sysName, d), ...tunedOut[sysName][d.key] });
-      og = balanceCarbon(sim);
+      og = (prof.balance || []).includes('air') ? balanceAir(sim) : balanceCarbon(sim);
+      if (og != null && (prof.balance || []).includes('air')) og = holdAir({ ...cur(), insolation: S, starTemp }, og);
       if (og != null) tunedOut[sysName][d.key] = { ...tunedOut[sysName][d.key], outgassing: +og.toPrecision(6) };
       if ((prof.balance || []).includes('oxygen')) {
         sim = settle({ ...cur(), insolation: S, starTemp }, 3e7);

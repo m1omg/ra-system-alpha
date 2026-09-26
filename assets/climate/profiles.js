@@ -97,9 +97,18 @@ export const PROFILES = {
   },
   ra: {
     // A hot, bone-dry desert under 0.011 bar. Tuned: the albedo.
-    set: { base: { ...EARTH, ...airless, n2Bar: 0.002, co2Bar: 0.009, outgassing: 0.02,
+    // Set: 120 C, bone-dry, "thin air (twice Mars's)", 0.011 atm. Past the
+    // cosmic shoreline at seven times Earth's light, the star strips that air in
+    // about three megayears (thermal loss ~8 Myr, the wind ~5 Myr, no field),
+    // so the air the book describes is air being resupplied: the volcanoes are
+    // balanced against the escape, at half Earth's rate (0.51) -- the book's
+    // "geology fell silent" read as no longer remaking the surface. Tuned: the
+    // albedo for the temperature, the outgassing to hold the air.
+    // Its nitrogen is stripped and nothing makes more, so the air it keeps is
+    // the volcanoes' CO2 with a trace, as on Mars; it starts that way.
+    set: { base: { ...EARTH, ...airless, n2Bar: 0.0002, co2Bar: 0.0108, outgassing: 0.02,
             internalHeat: 0.03, obliquity: 12, landAlbedo: 0.3, startT: 393 },
-           target: 393, knob: 'landAlbedo', clouds: 'full' },
+           target: 393, knob: 'landAlbedo', balance: ['air'], clouds: 'full' },
     // The book's ocean is sulphuric acid, and this model has one solvent: water.
     // Water at 1.45 S(+) runs away however the sky is set up (measured: a
     // hundredth of an ocean already ends as a steam atmosphere), so the acid
