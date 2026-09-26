@@ -259,6 +259,7 @@ V.init=function(){
   V.applySaved();                       // any saved climate for this system
   buildTempLegend();
   const tb=document.getElementById('t-temp'); if(tb) tb.onclick=V.toggleTempView;
+  const cb=document.getElementById('t-cloud'); if(cb){ cb.onclick=V.toggleClouds; cb.classList.toggle('on', V.clouds); }
 };
 function climKey(){ return 'ra-climate-clim:'+(typeof SYS!=='undefined'?SYS:'ra'); }
 // The saved climate for this system, onto the worlds as they are now.
@@ -673,10 +674,12 @@ function applyState(cv, dtReal, t){
   cv.bandTex.needsUpdate=true;
   const f=r[RS.FLOOD];
   u.uClimA.value.set(cv.cdf?heightForShare(cv.cdf, seaShare(cv, f)):0.5, 0, r[RS.WATERCAP], r[RS.GLAC]);
-  u.uClimB.value.set(r[RS.BIO], r0[RS.BIO], r[RS.STEAM], r0[RS.STEAM]);
+  // ☁ Clouds off: no deck, no steam veil, no haze tint
+  const on=V.clouds;
+  u.uClimB.value.set(r[RS.BIO], r0[RS.BIO], on?r[RS.STEAM]:0, on?r0[RS.STEAM]:0);
   u.uClimC.value.set(r[RS.LAM], r[RS.BARE], r[RS.GLOW], V.tempView?1:0);
   const mode=(CL.meta(cv.key)||{}).clouds;
-  u.uClimD.value.set(mode==='none'?0:mode==='delta'?1:2, t, r[RS.HAZE], r[RS.CO2F]);
+  u.uClimD.value.set(!on||mode==='none'?0:mode==='delta'?1:2, t, on?r[RS.HAZE]:0, r[RS.CO2F]);
   applyAtmosphere(cv, r, r0);
 }
 // the star, in the planet's own frame, for a locked world's eyeball
@@ -895,6 +898,20 @@ function showBanner(){
     : L('Climate engine unavailable in this browser.','Klimatický model v tomto prehliadači nie je dostupný.'); }
 }
 
+/* ---------------- clouds on and off ---------------- */
+// The climate's cloud deck, its steam and its haze: off, the ground shows
+// through. What an artist painted into a world's own map stays (profiles.js
+// clouds 'delta' and 'none'), as do the clouds baked into the procedural
+// textures. Remembered for this viewer.
+V.clouds=(()=>{ try{ return localStorage.getItem('ra-climate-clouds')!=='off'; }catch(_){ return true; } })();
+V.toggleClouds=function(){
+  V.clouds=!V.clouds;
+  try{ localStorage.setItem('ra-climate-clouds', V.clouds?'on':'off'); }catch(_){}
+  const b=document.getElementById('t-cloud'); if(b) b.classList.toggle('on', V.clouds);
+  for(const cv of V.bodies.values()) cv.dirty=true;
+  if(CL.detail && CL.detail.key===V.panelKey) renderPanel(CL.detail);
+};
+
 /* ---------------- temperature view ---------------- */
 V.toggleTempView=function(){
   V.tempView=!V.tempView;
@@ -1021,7 +1038,8 @@ function panelSkeleton(d){
     +'<canvas class="clim-bands" width="400" height="92"></canvas>'
     +'<canvas class="clim-hist" width="400" height="46"></canvas>'
     +'<table class="clim-tab"></table>'
-    +'<details class="clim-ctl"><summary>⚙ '+t('Change this world','Upraviť tento svet')+'</summary>'
+    +'<details class="clim-layers"'+(V.open.layers?' open':'')+'><summary>▤ '+t('Layers','Vrstvy')+'</summary><div class="clim-col"></div></details>'
+    +'<details class="clim-ctl"'+(V.open.ctl?' open':'')+'><summary>⚙ '+t('Change this world','Upraviť tento svet')+'</summary>'
     +'<div class="clim-quick">'
     +'<button class="btn sm" data-q="co2x10">CO₂ ×10</button><button class="btn sm" data-q="co2d10">CO₂ ÷10</button>'
     +'<button class="btn sm" data-q="water+1">+1 '+t('ocean','oceán')+'</button><button class="btn sm" data-q="dry">'+t('Remove water','Odstrániť vodu')+'</button>'
@@ -1029,7 +1047,7 @@ function panelSkeleton(d){
     +'<button class="btn sm" data-q="reset">↺ '+t('Reset climate','Obnoviť klímu')+'</button></div>'
     +rows+'<div class="clim-hint">'+t('Click a value to type it; units work.',
       'Hodnotu môžete napísať aj s jednotkou.')+'</div>'
-    +'<details class="clim-adv"><summary>'+t('Advanced','Pokročilé')+'</summary>'
+    +'<details class="clim-adv"'+(V.open.adv?' open':'')+'><summary>'+t('Advanced','Pokročilé')+'</summary>'
     +'<div class="clim-hint clim-owned"></div>'+adv+'<div class="clim-hint clim-reserves"></div></details>'
     +'</details>'
     +'<p class="clim-note"></p>';
@@ -1094,7 +1112,71 @@ function oceansWord(n){
 function fmtNum(v){ if(!(v===v)) return '—'; const a=Math.abs(v);
   if(a===0) return '0'; if(a>=1e4||a<1e-3) return v.toExponential(2); return String(+v.toPrecision(3)); }
 const GAS_OF={co2Bar:'co2', n2Bar:'n2', o2Bar:'o2', ch4Bar:'ch4', h2Bar:'h2'};
+/* ---------------- the world top to bottom ---------------- */
+// The climate sandbox's cross-section (altdev2 main.js drawStructure), from the
+// stack system.js layersOf sends: the model's own layers, and this edition's --
+// frost, the acid sea, a molten crust. Real thicknesses on a cube-root scale, so
+// eight kilometres of air and three thousand of ice both read as bands, and each
+// band carries its own depth, temperature and pressure as text.
+const LAYER_STYLE={
+  envelope:['#6f8fc7','hydrogen envelope','vodíková obálka'],
+  air:['#8fb8e0','atmosphere','atmosféra'],
+  supercritical:['#a05fc0','supercritical','nadkritická'],
+  steam:['#c79ad8','steam atmosphere','parná atmosféra'],
+  vapour:['#c79ad8','water vapour atmosphere','atmosféra z vodnej pary'],
+  ocean:['#2f7fbf','liquid ocean','tekutý oceán'],
+  seaice:['#cfe6f5','sea ice','morský ľad'],
+  iceIh:['#dcecf7','ice shell','ľadová kôra'],
+  iceVI:['#9fc6d8','ice VI','ľad VI'],
+  iceVII:['#7fa8bd','ice VII','ľad VII'],
+  iceHP:['#8bb7cb','high-pressure ice','vysokotlakový ľad'],
+  boundarySteam:['#a98ad4','thermal boundary (steam)','tepelné rozhranie (para)'],
+  boundarySuper:['#8e66c2','thermal boundary (supercritical)','tepelné rozhranie (nadkritická tekutina)'],
+  interface:['#7a6fc4','thermal boundary (liquid)','tepelné rozhranie (kvapalina)'],
+  rock:['#6b5a4a','rock','hornina'],
+  frost:['#e9e6f4','nitrogen and methane frost','dusíková a metánová námraza'],
+  acidSea:['#a2582a','acid sea','kyslé more'],
+  magma:['#e8551f','molten crust','roztavená kôra'],
+};
+const SK_LAYER_NOTES={
+  'liquid under {0} km of ice':'tekutá voda pod {0} km ľadu','water boils at {0} °C under it':'voda pod ním vrie pri {0} °C',
+  '{0} GPa at the floor':'{0} GPa na dne','{0} Pa at base; schematic extent':'{0} Pa pri povrchu; hrúbka je len schematická',
+  '{0} W/m² across it':'prechádza ním {0} W/m²','{0} km of shell over liquid':'{0} km kôry nad tekutou vodou',
+  '{0}% converted':'premenených {0} %','{0}% not converted':'nepremenených {0} %','frozen through':'zamrznuté až po dno',
+  'grades into liquid at 374 °C':'pri 374 °C plynule prechádza do kvapaliny','melt film on the ice':'roztopená vrstva na ľade',
+  'no liquid-vapour boundary':'bez rozhrania kvapalina – para','silicate interior':'silikátové vnútro','still liquid':'ešte tekutý',
+  'as a layer over the whole world':'ako vrstva po celom svete','{0}% of the world':'{0} % sveta',
+};
+function drawLayers(host, layers){
+  if(!host) return;
+  const sk=typeof LANG!=='undefined'&&LANG==='sk';
+  const H=210, PAD=2, raw=layers.map(l=>Math.cbrt(Math.max(l.metres,0))), sum=raw.reduce((a,b)=>a+b,0)||1;
+  const px=raw.map(r=>Math.max(r/sum*(H-PAD*layers.length), 30));
+  const len=(m)=>m>=1e6?(m/1000).toFixed(0)+' km':m>=1e4?(m/1000).toFixed(1)+' km':m>=1000?(m/1000).toFixed(2)+' km':m.toFixed(0)+' m';
+  const C=(K)=>(K-273.15).toFixed(K-273.15>=100||K<173?0:1);
+  const temp=(T)=>!T||!T.length?'':T.length>1&&Math.abs(T[1]-T[0])>=0.5?C(T[0])+' → '+C(T[1])+' °C':C(T[0])+' °C';
+  const note=(l)=>{ if(!l.note) return ''; let n=sk&&SK_LAYER_NOTES[l.note]?SK_LAYER_NOTES[l.note]:l.note;
+    (l.noteArgs||[]).forEach((a,i)=>{ n=n.replace('{'+i+'}', a); }); return n; };
+  const pres=(p)=>fmtPressure(p/1e5);
+  host.innerHTML=layers.map((l,i)=>{
+    const st=LAYER_STYLE[l.kind]||['#777',l.kind,l.kind], name=sk?st[2]:st[1];
+    const bits=[l.kind==='rock'?'':len(l.metres), temp(l.T), note(l)].filter(Boolean);
+    const p=l.P&&l.P.length>1?pres(l.P[0])+' → '+pres(l.P[1]):l.P&&l.P.length?(sk?'na povrchu horniny':'at rock top')+': '+pres(l.P[0]):'';
+    // dark text on the pale bands, pale on the dark
+    const c=parseInt(st[0].slice(1),16), lum=0.299*(c>>16)+0.587*((c>>8)&255)+0.114*(c&255);
+    return '<div class="layer" style="min-height:'+px[i].toFixed(1)+'px;background:'+st[0]+';color:'+(lum>150?'#0b1424':'#eef3fb')+'">'
+      +'<b>'+name+'</b><span>'+bits.join(' · ')+'</span>'+(p?'<span class="layer-p">'+p+'</span>':'')+'</div>';
+  }).join('');
+}
+
+// which of the panel's sections are open, kept across the rebuilds a language
+// switch or a new world makes
+V.open={ layers:false, ctl:false, adv:false };
 function wirePanel(box, d){
+  for(const [k, cls] of [['layers','clim-layers'],['ctl','clim-ctl'],['adv','clim-adv']]){
+    const el=box.querySelector('details.'+cls); if(!el) continue;
+    el.addEventListener('toggle', ()=>{ V.open[k]=el.open; if(k==='layers' && el.open && CL.detail && CL.detail.key===d.key) renderPanel(CL.detail); });
+  }
   box.querySelectorAll('input[data-k]').forEach(inp=>{
     if(inp.type==='checkbox'){
       inp.onchange=()=>CL.set(d.key, {[inp.dataset.k]: inp.checked});
@@ -1199,6 +1281,9 @@ function renderPanel(det){
   rows.push([t('Climate clock','Čas klímy'), fmtElapsed(det.time)]);
   const tab=box.querySelector('.clim-tab');
   tab.innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('');
+  // the cross-section, while it is open
+  const lay=box.querySelector('details.clim-layers');
+  if(lay && lay.open && det.layers) drawLayers(lay.querySelector('.clim-col'), det.layers);
   // live control values (not while someone is typing in them)
   const live={co2Bar:g.co2, n2Bar:g.n2, o2Bar:g.o2, ch4Bar:g.ch4, h2Bar:g.h2, water:w.total,
     landAlbedo:det.params.landAlbedo, obliquity:det.params.obliquity, internalHeat:det.params.internalHeat,
@@ -1220,10 +1305,12 @@ function renderPanel(det){
     +t('fossil carbon left: ','fosílny uhlík: ')+Math.round((det.fossilLeft??1)*100)+' %';
   const note=box.querySelector('.clim-note');
   const mt=det.meta||{};
-  note.textContent = mt.note==='acid'
+  const painted = !V.clouds && (mt.clouds==='delta' || mt.clouds==='none')
+    ? ' '+t('Its clouds are painted into its own map, and stay with ☁ Clouds off.','Jeho oblaky sú namaľované priamo v mape a zostanú aj pri vypnutých ☁ Oblakoch.') : '';
+  note.textContent = (mt.note==='acid'
     ? t('Nephtys\'s seas are sulphuric acid, which the model keeps beside its water: the sea\'s cover, depth, heat and boiling point are its own, and its vapour counts as water vapour in the sky\'s greenhouse and clouds.',
         'Moria Nephtys sú z kyseliny sírovej, ktorú model vedie popri vode: pokrytie, hĺbka, teplo a bod varu mora sú jej vlastné a jej pary sa v skleníku a oblakoch počítajú ako vodná para.')
-    : '';
+    : '') + painted;
 }
 function stateBlurb(id, en){
   if(typeof LANG!=='undefined' && LANG==='sk' && SK_BLURBS[id]) return SK_BLURBS[id];

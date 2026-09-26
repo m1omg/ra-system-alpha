@@ -24,6 +24,9 @@ import { atmosphereLook, cloudLook, surfaceHidden, volcanoLook } from './render/
 import { vegetationColor } from './render/terrain.js';
 import { surfaceTemperature } from './physics/surface.js';
 import { paramsFor, profileMeta } from './profiles.js';
+import { columnLayers } from './physics/ocean.js';
+import { transitRadius } from './physics/planet.js';
+import { scaleHeight } from './render/atmosphere.js';
 import { freshAcid, acidOverlay, partitionAcid, acidDetail, acidFrozen } from './acid.js';
 
 // The model's states, and readings of them that fit worlds its texts were not
@@ -274,6 +277,44 @@ function groundExtremes(r) {
     if (EMISSIVITY * SIGMA * T * T * T * T > F + k * (Tbelow - T)) hi = T; else lo = T;
   }
   return { dayK, nightK: (lo + hi) / 2 };
+}
+// The world top to bottom, for the panel's cross-section: the model's own
+// stack (physics/ocean.js columnLayers, as the sandbox draws it), with this
+// edition's layers set in where they lie -- frost on the ground under the air,
+// the acid sea over the rock, a molten crust over the rest of it. Each carries
+// its thickness in metres, its temperature and the pressure at its top and
+// foot, the numbers the readout gives.
+const FROST_RHO = { n2: 1030, ch4: 500 };      // kg/m^3, the ices
+function layersOf(r) {
+  const w = r.sim.world, dg = w.diag, d = dg.d;
+  if (!d) return null;
+  const H = scaleHeight(dg);
+  let layers;
+  try { layers = columnLayers(w, dg, Math.max(transitRadius(w.params, d.R, dg.g, dg.Tmean) - d.R, 5 * H), H); }
+  catch (_) { return null; }
+  const out = layers.map((l) => ({ kind: l.kind, metres: l.metres, T: l.T ? Array.from(l.T) : null,
+    P: l.P ? Array.from(l.P) : null, note: l.note || null, noteArgs: l.noteArgs || [] }));
+  const sky = new Set(['envelope', 'air', 'steam', 'vapour']);
+  let at = 0;
+  while (at < out.length && sky.has(out[at].kind)) at++;
+  const put = (i, kind, metres, rho, note = null, args = []) => {
+    if (!(metres > 0)) return i;
+    const top = i > 0 && out[i - 1].P ? out[i - 1].P.at(-1) : (dg.pTotMean ?? 0) * 1e5;
+    out.splice(i, 0, { kind, metres, T: [dg.Tmean], P: [top, top + rho * dg.g * metres], note, noteArgs: args });
+    return i + 1;
+  };
+  const frost = ((w.n2Frozen ?? 0) / FROST_RHO.n2 + (w.ch4Frozen ?? 0) / FROST_RHO.ch4);
+  at = put(at, 'frost', frost, FROST_RHO.n2, 'as a layer over the whole world');
+  if (r.acid) {
+    const a = acidDetail(r);
+    at = put(at, 'acidSea', a.cover > 0.01 ? a.depthM : 0, 1830, '{0}% of the world', [(a.cover * 100).toFixed(0)]);
+  }
+  if (r.magma) {
+    const rock = out.findIndex((l) => l.kind === 'rock');
+    put(rock < 0 ? out.length : rock, 'magma', mean(r.magma) / (ROCK_RHO * MELT_J_PER_KG), ROCK_RHO,
+      'as a layer over the whole world');
+  }
+  return out;
 }
 function classifyHabitable(w) {
   try { return !!classify(w).habitable; } catch (_) { return false; }
@@ -786,6 +827,7 @@ export class ClimateSystem {
                        habitable: !!state.habitable } : null,
       acid: r.acid ? acidDetail(r) : null,
       extremes: groundExtremes(r),
+      layers: layersOf(r),
       Tmean: dg.Tmean, Tmin: dg.Tmin, Tmax: dg.Tmax,
       surface: surfaceTemperature(dg),
       flux: r.flux, insolation: p.insolation,

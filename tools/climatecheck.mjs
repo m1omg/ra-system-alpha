@@ -507,6 +507,34 @@ section('Nitrogen and methane lie frozen where it is cold, and rise where it is 
     `${((kw.n2Frozen ?? 0) * kw.diag.g / 1e5 * 1e3).toFixed(1)} mbar of frost`);
 }
 
+section('The world top to bottom, as the readouts have it');
+{
+  // the panel's cross-section (system.js layersOf) is drawn from the numbers the
+  // readouts print, never from its own: the sandbox's rule for its own column
+  const { sys: ss } = build('sol'), { sys: rs } = build('ra');
+  const kinds = (L) => (L || []).map((l) => l.kind).join(' ');
+  const earth = ss.detail('earth').layers;
+  ok(/^air ocean rock$/.test(kinds(earth)), 'Earth: air, a sea and rock', kinds(earth));
+  const nd = rs.detail('nephtys'), acidL = (nd.layers || []).find((l) => l.kind === 'acidSea');
+  ok(acidL && Math.abs(acidL.metres - nd.acid.depthM) < 1e-6 * nd.acid.depthM, 'Nephtys: its acid sea as deep as the readout says',
+    acidL ? `${(acidL.metres / 1e3).toFixed(2)} km` : kinds(nd.layers));
+  const pw = ss.worlds.get('pluto').sim.world, frostL = (ss.detail('pluto').layers || []).find((l) => l.kind === 'frost');
+  const frostM = pw.n2Frozen / 1030 + pw.ch4Frozen / 500;
+  ok(frostL && Math.abs(frostL.metres - frostM) < 1e-6 * frostM && frostL.metres > 100, 'Pluto: its frost, a layer as thick as its reservoir',
+    frostL ? `${frostL.metres.toFixed(0)} m` : kinds(ss.detail('pluto').layers));
+  ss.impact('earth', { J: 1e29, kind: 'collision' });
+  const hot = ss.detail('earth'), magL = (hot.layers || []).find((l) => l.kind === 'magma');
+  const r = ss.worlds.get('earth'), magM = r.magma ? r.magma.reduce((a, b) => a + b, 0) / r.magma.length / (3000 * 1.8e6) : 0;
+  ok(magL && Math.abs(magL.metres - magM) < 1e-6 * magM, '1e29 J on Earth: a molten crust over the rock, as deep as the melt',
+    magL ? `${(magL.metres / 1e3).toFixed(1)} km` : kinds(hot.layers));
+  // and every layer the model or this edition can draw has its colour and both names
+  const view = readFileSync(new URL('../assets/climate-view.js', import.meta.url), 'utf8');
+  const style = (view.match(/const LAYER_STYLE=\{([\s\S]*?)\n\};/) || [, ''])[1];
+  const { LAYER_KINDS } = await import('../assets/climate/physics/ocean.js');
+  const unstyled = [...LAYER_KINDS, 'frost', 'acidSea', 'magma'].filter((k) => !new RegExp(`\\b${k}:\\['#[0-9a-f]{6}','[^']+','[^']+'\\]`).test(style));
+  ok(unstyled.length === 0, 'every layer kind has a colour and its English and Slovak names', unstyled.join(', '));
+}
+
 section('Nephtys has a sea of sulfuric acid');
 {
   const neph = () => { const b = build('ra'); return { sys: b.sys, f: forcingOf(b.ins, b.keys), r: b.sys.worlds.get('nephtys') }; };

@@ -152,6 +152,54 @@ try {
         ok(p2.magneticField === 1 && !p2.realisticGeology && Math.abs(p2.xuvFraction - 3.4e-6) < 1e-12, '...the advanced ones too');
       }
 
+      section('sol: ☁ Clouds off shows the ground');
+      {
+        const uni = () => page.evaluate(() => [...RAClimateView.bodies.values()].filter((cv) => cv.u)
+          .map((cv) => [cv.key, cv.u.uClimD.value.x, cv.u.uClimB.value.z, cv.u.uClimD.value.z]));
+        // time held still, the Moon and then Earth close up, each drawn with the
+        // deck and without: the Moon has nothing to hide and must not change
+        await page.evaluate(() => { if (typeof playing !== 'undefined' && playing) togglePlay(); });
+        const shot = async (key) => {
+          await page.evaluate((k) => focusBody(k, 'force'), key);
+          await page.waitForTimeout(3500);
+          return page.screenshot({ clip: { x: 340, y: 120, width: 460, height: 360 } });
+        };
+        const moonOn = await shot('moon');
+        const earthOn = await shot('earth');
+        const u0 = await uni();
+        await page.click('#t-cloud');
+        await until(page, () => [...RAClimateView.bodies.values()].every((cv) => !cv.u
+          || (cv.u.uClimD.value.x === 0 && cv.u.uClimB.value.z === 0 && cv.u.uClimD.value.z === 0)), null, 5000);
+        const u1 = await uni();
+        ok(u1.every((r) => r[1] === 0 && r[2] === 0 && r[3] === 0) && u0.some((r) => r[1] > 0),
+          'off, no world draws the climate\'s deck, steam or haze', `${u1.length} worlds`);
+        const earthOff = await shot('earth');
+        const moonOff = await shot('moon');
+        ok(Buffer.compare(moonOn, moonOff) === 0, 'the Moon, with nothing to hide, draws the same either way');
+        ok(Buffer.compare(earthOn, earthOff) !== 0, 'Earth loses its clouds');
+        const stored = await page.evaluate(() => localStorage.getItem('ra-climate-clouds'));
+        await page.click('#t-cloud');
+        await until(page, () => { const cv = RAClimateView.bodies.get('earth'); return cv && cv.u.uClimD.value.x === 2; }, null, 5000);
+        const back = await page.evaluate(() => RAClimateView.bodies.get('earth').u.uClimD.value.x);
+        ok(stored === 'off' && back === 2, 'the choice is remembered, and on again the deck is back', `${stored}, mode ${back}`);
+        await page.evaluate(() => { if (typeof playing !== 'undefined' && !playing) togglePlay(); });
+      }
+
+      section('sol: the world top to bottom');
+      {
+        await page.evaluate(() => focusBody('earth', 'force'));
+        await until(page, () => RAClimate.detail && RAClimate.detail.key === 'earth' && RAClimate.detail.layers, null, 15000);
+        await page.evaluate(() => { document.querySelector('details.clim-layers').open = true; });
+        await until(page, () => document.querySelectorAll('.clim-col .layer').length >= 3, null, 5000);
+        const en = await page.evaluate(() => [...document.querySelectorAll('.clim-col .layer b')].map((b) => b.textContent));
+        ok(en.join('|') === 'atmosphere|liquid ocean|rock', 'Earth\'s layers open: its air, its sea, its rock', en.join(' · '));
+        await page.evaluate(() => setLang('sk'));
+        await until(page, () => /atmosféra/.test(document.querySelector('.clim-col')?.textContent || ''), null, 8000);
+        const sk = await page.evaluate(() => [...document.querySelectorAll('.clim-col .layer b')].map((b) => b.textContent));
+        ok(sk.join('|') === 'atmosféra|tekutý oceán|hornina', '...and in Slovak', sk.join(' · '));
+        await page.evaluate(() => setLang('en'));
+      }
+
       section('sol: every number says what it is');
       // An airless moon is where a bare "0" used to stand in for "0 bar".
       // (with the 0.627 oceans of water a player gave it in the report that found this)

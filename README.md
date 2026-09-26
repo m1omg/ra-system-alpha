@@ -32,7 +32,12 @@ air and seas the book gives it.
   and bottomless carbon. Mass, starlight, the star and the day are the
   orrery's, and shown there.
 - The sidebar shows every world's temperature live. **🌡 Temperature** paints
-  the globes in false colour, with a legend. An airless world's card gives its
+  the globes in false colour, with a legend. **☁ Clouds** takes the climate's
+  cloud deck, steam and haze off every globe to show the ground (clouds painted
+  into a world's own map stay), and is remembered. **▤ Layers** on the card is
+  the world top to bottom, as the Planet Climate Sandbox draws it: air, seas,
+  ice shells and high-pressure ice, rock, and this edition's frost, acid sea and
+  molten crust, each with its depth, temperature and pressure. An airless world's card gives its
   ground's night and noon (Mercury: −178 °C and, at perihelion, +430 °C), which
   swing far past the zonal means its bands carry.
 - The speed slider runs to 10 Myr/s. Climates take time steps of their own and
