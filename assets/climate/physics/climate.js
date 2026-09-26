@@ -116,7 +116,7 @@ function scratch(w) {
     // into. Both are consumed inside the loop that fills them.
     b.aOpt = { oceanFrac: 0, landAlbedo: 0, hasWater: false, waterCap: 0,
                glaciated: 0, freezeShift: 0, pH2O: 0, pTot: 0, slowness: 0, subStellar: 0,
-               cloudWhite: 1, cloudBoost: 1, cloudShare: 1 };
+               cloudWhite: 1, cloudBoost: 1, cloudShare: 1, iceAlbedo: undefined };
     b.aOut = { albedo: 0, cloud: 0 };
   }
   return b;
@@ -578,6 +578,7 @@ export function update(w, dt) {
     const ao = B.aOpt;
     ao.oceanFrac = flooded; ao.landAlbedo = effLandAlbedo; ao.hasWater = hasWater;
     ao.waterCap = waterCap; ao.glaciated = glaciatedShare; ao.freezeShift = fShift;
+    ao.iceAlbedo = p.iceAlbedo;      // [ra-climate patch] iceAlbedo; unset, radiation.js's 0.60
     ao.pH2O = pH2O[i]; ao.pTot = pTot; ao.slowness = slowness;
     ao.subStellar = subStellar; ao.cloudWhite = cloudWhite;
     ao.cloudShare = cloudShare;
@@ -1461,6 +1462,7 @@ export function radiativeDamping(w) {
       ao.hasWater = dg.hasWater; ao.waterCap = dg.waterCap;
       ao.glaciated = dg.glaciatedShare * iceFraction(t);
       ao.freezeShift = dg.freezeShift ?? 0;
+      ao.iceAlbedo = w.params.iceAlbedo;   // [ra-climate patch] iceAlbedo
       ao.pH2O = pwx; ao.pTot = ptx; ao.slowness = dg.slowness;
       ao.cloudWhite = dg.cloudWhite;
       // From the PERTURBED vapour. Both cloud terms are functions of temperature

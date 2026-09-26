@@ -29,7 +29,7 @@ const CHECK = process.argv.includes('--check');
 const ONLY = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7).split(',').filter(Boolean);
 
 const LOG_KNOBS = new Set(['co2Bar', 'h2Bar', 'internalHeat', 'n2Bar', 'ch4Bar']);
-const RANGE = { landAlbedo: [0.02, 0.95], co2Bar: [1e-6, 300], h2Bar: [1e-3, 300],
+const RANGE = { landAlbedo: [0.02, 0.95], iceAlbedo: [0.05, 0.99], co2Bar: [1e-6, 300], h2Bar: [1e-3, 300],
   internalHeat: [1e-5, 500], n2Bar: [1e-4, 50], ch4Bar: [1e-7, 1] };
 
 // Run until the energy budget closes, in chunks of growing length.
@@ -63,7 +63,7 @@ function tuneOne(sysName, d, S, starTemp, fixed = null) {
   let [lo, hi] = RANGE[knob];
   const log = LOG_KNOBS.has(knob);
   // Albedo cools, everything else warms.
-  const dir = knob === 'landAlbedo' ? -1 : 1;
+  const dir = knob === 'landAlbedo' || knob === 'iceAlbedo' ? -1 : 1;
   let tLo = temp(lo), tHi = temp(hi);
   if ((tLo - target) * (tHi - target) > 0) {
     return { knob, value: Math.abs(tLo - target) < Math.abs(tHi - target) ? lo : hi,

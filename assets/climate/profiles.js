@@ -154,10 +154,28 @@ export const PROFILES = {
     satismoon: { base: { ...EARTH, ...airless, internalHeat: 0.01, landAlbedo: 0.12,
             obliquity: 3, startT: 270 }, massKg: 3.67e22, clouds: 'full' },
     // Uat-Ur's moons: -93 C and -100 C, airless. Tuned: the albedo.
-    nu: { base: { ...EARTH, ...airless, water: 0, internalHeat: 0.05, landAlbedo: 0.3,
-            obliquity: 3, startT: 180 }, target: 180, knob: 'landAlbedo', clouds: 'full' },
-    naunet: { base: { ...EARTH, ...airless, internalHeat: 0.03, landAlbedo: 0.35,
-            obliquity: 3, startT: 173 }, target: 173, knob: 'landAlbedo', clouds: 'full' },
+    // Nu: -93 C on its ice, "a global ocean a few degrees above freezing,
+    // crusted by ice often only metres thick", 4.6 % water (3.4 of Earth's
+    // oceans), a near-vacuum sky, "among the most tidally heated bodies in the
+    // system". Ice metres thick over a sea at the freezing point conducts
+    // 651 ln(273/180)/d W/m² (Ojakangas & Stevenson 1989) -- about 30 for ten
+    // metres, tidal heat far past Io's 2. Tuned: that heat, for the temperature.
+    nu: { base: { ...EARTH, ...icy(0.046), internalHeat: 30, obliquity: 3, startT: 180 },
+          target: 180, knob: 'internalHeat', clouds: 'full' },
+    // Naunet: -100 C, "a 2-14 km crust of water, ammonia and CO2 ice, with a
+    // thin (3-4 mbar) atmosphere". 0.3 % water is about 6 km of ice over its
+    // rock. The air is not the CO2: at -100 C its frost holds it to half a
+    // millibar on the cold poles. It is nitrogen, which is what ammonia ice
+    // leaves when sunlight breaks it (Titan's air came the same way) and which
+    // nothing here freezes out -- three millibars of it over the frost-held
+    // CO2 make the book's 3-4. Its ice is not Earth's clean sea ice: at a
+    // quarter of Earth's light, -100 C takes an albedo near Ganymede's.
+    // Tuned: the ice's albedo.
+    // It orbits inside Uat-Ur's magnetosphere, so the star's wind, which alone
+    // would strip that air in 14 Myr, does not reach it: in this model, a field.
+    naunet: { base: { ...EARTH, ...icy(0.003), co2Bar: 0.0005, n2Bar: 0.003, internalHeat: 0.03,
+            magneticField: 1,
+            iceAlbedo: 0.45, obliquity: 3, startT: 173 }, target: 173, knob: 'iceAlbedo', clouds: 'full' },
     // Horus's worlds, lit by a brown dwarf at 0.05 S⊕ and kneaded by it.
     // Anubis: a hot ocean half its mass in water at 81 C -- a Hycean world with
     // tidal heat. Tuned: the hydrogen.

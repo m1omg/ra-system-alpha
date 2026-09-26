@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '878b8d6';          // "Climate sandbox: every terrestrial world runs the Planet Climate Sandbox model"
 // every parameter a patch reads; unset, each must leave altdev2 exactly as it was
 const PATCH_PARAMS = ['weatherCapK', 'originWait', 'abiogenesis', 'heatKillsDry', 'heatDeathFastYears',
-  'deepRefuge', 'lifeGatesBio'];
+  'deepRefuge', 'lifeGatesBio', 'iceAlbedo'];
 
 let pass = 0, fail = 0;
 const ok = (cond, msg, extra = '') => {

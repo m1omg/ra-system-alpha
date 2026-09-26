@@ -551,12 +551,17 @@ export function landIceFraction(T) { return 1 - smoothstep(243, 265, T); }
 // leaves its continents frosted but unglaciated (Snowball Earth; the Antarctic
 // Dry Valleys). Such continents are markedly darker than an ice sheet, which is
 // why a snowball with bare land is easier to escape than one buried in ice.
-export function surfaceAlbedo(T, floodedFrac, landAlbedo, hasWater, glaciated = 0, waterCap = 1, shift = 0) {
+// [ra-climate patch] iceAlbedo: the sea ice as bright as the world's own ice.
+// 0.60 is Earth's sea ice; the ice of the outer moons runs from Callisto's
+// dirty 0.2 through Ganymede's 0.4 to Enceladus's 0.99, and a world's
+// temperature under a quarter of Earth's light turns on which. Unset, 0.60.
+export function surfaceAlbedo(T, floodedFrac, landAlbedo, hasWater, glaciated = 0, waterCap = 1, shift = 0,
+                              iceAlbedo = ALB_ICE) {
   const flooded = clamp(floodedFrac, 0, 1);
   const land = 1 - flooded;
   if (!hasWater) return ALB_OCEAN * flooded + landAlbedo * land;
   const fi = iceFraction(T, shift);
-  const sea = ALB_OCEAN * (1 - fi) + ALB_ICE * fi;
+  const sea = ALB_OCEAN * (1 - fi) + iceAlbedo * fi;
   // `glaciated` is now the share of land actually under an ice sheet, worked out
   // with its own temperature threshold and its own multi-millennial response
   // time, rather than being read off the current temperature.
@@ -736,7 +741,7 @@ export function rayleighOf(pDry) {
 // shared scratch object would silently break.
 export function planetaryAlbedoInto(T, o, out) {
   const surf = surfaceAlbedo(T, o.oceanFrac, o.landAlbedo, o.hasWater, o.glaciated,
-    o.waterCap, o.freezeShift ?? 0);
+    o.waterCap, o.freezeShift ?? 0, o.iceAlbedo ?? ALB_ICE);
   // Both moist-greenhouse cloud terms are for a RAPIDLY ROTATING world, and are
   // faded out on a slow or locked one by the same `slowness` the deck's own
   // brightness is gated on. Wolf & Toon ran Earth: their mechanism is a globally

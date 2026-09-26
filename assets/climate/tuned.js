@@ -30,10 +30,10 @@ export const TUNED = {
    "internalHeat": 0.000999834
   },
   "nu": {
-   "landAlbedo": 0.256133
+   "internalHeat": 25.0187
   },
   "naunet": {
-   "landAlbedo": 0.365117
+   "iceAlbedo": 0.373125
   },
   "anubis": {
    "h2Bar": 8.03692,

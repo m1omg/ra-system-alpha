@@ -26,7 +26,7 @@ export const BOOK = {
   sekhmet:   { T: 450, note: 'near-vacuum; 450 C in its calmest spots' },
   satismoon: { note: 'airless moon' },
   nu:        { T: -93, note: 'global ocean a few degrees above freezing under ice metres thick; near-vacuum; life' },
-  naunet:    { T: -100, p: 0.0035, note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
+  naunet:    { T: -100, pRange: [0.003, 0.004], note: '3-4 mbar air over a 2-14 km crust of water, NH3 and CO2 ice; sterile' },
   anubis:    { T: 81.2, note: 'liquid-water oceans and free oxygen; abiotic; hazy blue' },
   khonsu:    { T: -99.5, note: 'mostly rock; 13.6 % water' },
   nut:       { T: -190, note: 'deeply frozen, water-rich (54 %)' },
@@ -39,8 +39,6 @@ export const GAPS = {
   nephtys: 'no acid sea yet: a dry CO2 greenhouse at the right temperature, warming 4 K in 20 Myr',
   uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
   sekhmet: '428 C on average; the book has 450 C in its calmest spots',
-  nu: 'dry airless rock; the book has an ocean under ice metres thick, and life',
-  naunet: 'airless; the book has 3-4 mbar over an ice crust',
   anubis: 'a hydrogen envelope; the book has free oxygen over its ocean; cools 12 K in 20 Myr',
   khonsu: 'its air thickens 50 % in 20 Myr and it warms 3 K',
   nut: 'dry rock; the book has it 54 % water, deeply frozen',
@@ -75,6 +73,7 @@ for (const d of MAIN ? systems.ra.bodies : []) {
   sys.fillRender(r);
   const end = row(r);
   const bk = [b.T != null ? `${b.T} °C` : null, b.p != null ? `${bar(b.p)} bar` : null,
+    b.pRange ? `${bar(b.pRange[0])}-${bar(b.pRange[1])} bar` : null,
     b.o2 != null ? `O2 ${b.o2 * 100}% N2 ${b.n2 * 100}%` : null, b.sea != null ? `sea ${b.sea * 100}%` : null].filter(Boolean).join(' · ');
   console.log(`\n${d.key}   book: ${bk}${b.note ? '  — ' + b.note : ''}`);
   console.log(`   start ${start}`);

@@ -341,6 +341,9 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
     if (b.T != null && Math.abs(z.T - a.T) > 2) bad.push(`drifts ${(z.T - a.T).toFixed(1)} K in 20 Myr`);
     if (b.p != null && Math.abs(a.p / b.p - 1) > 0.05) bad.push(`opens at ${a.p.toPrecision(3)} bar, book ${b.p.toPrecision(3)}`);
     if (b.p != null && Math.abs(z.p / a.p - 1) > 0.05) bad.push(`pressure drifts ${((z.p / a.p - 1) * 100).toFixed(0)} % in 20 Myr`);
+    // where the book gives a range, the world opens and stays inside it
+    if (b.pRange) for (const [when, x] of [['opens', a.p], ['after 20 Myr', z.p]])
+      if (!(x >= b.pRange[0] && x <= b.pRange[1])) bad.push(`${when} at ${(x * 1e3).toPrecision(3)} mbar, book ${b.pRange[0] * 1e3}-${b.pRange[1] * 1e3}`);
     for (const g of ['o2', 'n2']) if (b[g] != null) {
       if (Math.abs(a[g] - b[g]) > 0.05) bad.push(`${g.toUpperCase()} ${(a[g] * 100).toFixed(0)} %, book ${b[g] * 100} %`);
       if (Math.abs(z[g] - a[g]) > 0.05) bad.push(`${g.toUpperCase()} drifts to ${(z[g] * 100).toFixed(0)} %`);
