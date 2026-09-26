@@ -161,7 +161,7 @@ export const PROFILES = {
     // 651 ln(273/180)/d W/m² (Ojakangas & Stevenson 1989) -- about 30 for ten
     // metres, tidal heat far past Io's 2. Tuned: that heat, for the temperature.
     nu: { base: { ...EARTH, ...icy(0.046), internalHeat: 30, obliquity: 3, startT: 180 },
-          target: 180, knob: 'internalHeat', clouds: 'full' },
+          target: 180, knob: 'internalHeat', clouds: 'full', heat: 'tidal' },
     // Naunet: -100 C, "a 2-14 km crust of water, ammonia and CO2 ice, with a
     // thin (3-4 mbar) atmosphere". 0.3 % water is about 6 km of ice over its
     // rock. The air is not the CO2: at -100 C its frost holds it to half a
@@ -183,14 +183,29 @@ export const PROFILES = {
             co2Bar: 0.1, ch4Bar: 0, o2Bar: 0, biosphere: 0, obliquity: 2,
             internalHeat: 1.0, outgassing: 1, tidallyLocked: false, startT: 354 },
               waterShare: 0.459, target: 354, knob: 'h2Bar', clouds: 'delta' },
-    // Khonsu: -99.5 C under a thin CO2 sky. Tuned: the interior heat.
-    khonsu: { base: { ...EARTH, landFraction: 0.7, n2Bar: 0.05, co2Bar: 0.1, o2Bar: 0,
-            ch4Bar: 0, biosphere: 0, obliquity: 3, internalHeat: 30, outgassing: 1,
+    // Khonsu: "a cold, predominantly rocky world" at -99.5 C, 13.6 % water.
+    // Horus's light alone would leave it near -166 C; what holds it at -99.5 is
+    // tidal heat. From its orbit -- 0.0125 AU, e 0.0066, a 2.4-day month round
+    // 46.6 Jupiter masses -- the eccentricity tide (21/2)(k2/Q) G M^2 R^5 n e^2
+    // / a^6 gives 25 W/m2 at Io's k2/Q of 0.016 (which reproduces Io's 2.2);
+    // the heat tuned here is 48, a k2/Q of 0.031: an interior twice as
+    // yielding as Io's. That much heat keeps its water a sea under ice metres
+    // thick, which the book's "rocky" describes the inside of. Its sky is thin:
+    // the book gives it none, and with no sea surface to weather it any
+    // volcanic CO2 piled up, thickening it half again in 20 Myr. Tuned: the
+    // interior heat.
+    khonsu: { base: { ...EARTH, landFraction: 0.7, n2Bar: 1e-4, co2Bar: 1e-4, o2Bar: 0,
+            ch4Bar: 0, biosphere: 0, obliquity: 3, internalHeat: 30, outgassing: 0,
             landAlbedo: 0.3, startT: 174 }, waterShare: 0.136,
-              target: 174, knob: 'internalHeat', clouds: 'full' },
-    // Nut: -190 C, airless. Tuned: the albedo.
-    nut: { base: { ...EARTH, ...airless, internalHeat: 0.02, landAlbedo: 0.4, obliquity: 3,
-            startT: 83 }, target: 83, knob: 'landAlbedo', clouds: 'full' },
+              target: 174, knob: 'internalHeat', clouds: 'full', heat: 'tidal' },
+    // Nut: "a deeply frozen, water-rich world at -190 C", 54.1 % water by its
+    // stats (the composition row says 0 -- left for the author). Its orbit
+    // would give it 42 W/m2 of tidal heat at Io's k2/Q; at -190 C it radiates
+    // under 3 W/m2 in all, so its cold ice mantle takes almost none of the
+    // flexing (k2/Q under 1e-5 at the 0.02 W/m2 here), and the water is ice to
+    // some forty kilometres down. Tuned: the ice's albedo.
+    nut: { base: { ...EARTH, ...icy(0.541), internalHeat: 0.02, iceAlbedo: 0.5, obliquity: 3,
+            startT: 83 }, target: 83, knob: 'iceAlbedo', clouds: 'full' },
   },
 };
 
@@ -265,5 +280,6 @@ export function profileMeta(sys, d) {
     dem: prof.dem || null,
     target: prof.target ?? null,
     note: prof.note || null,
+    heat: prof.heat || null,
   };
 }

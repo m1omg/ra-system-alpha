@@ -1102,6 +1102,11 @@ function renderPanel(det){
     [t('Open sea · ice','Voľné more · ľad'), Math.round((det.openOcean!=null?det.openOcean:(det.flooded||0))*100)+' % · '+Math.round((det.iceArea||0)*100)+' %'],
     [t('Energy in − out','Energia dnu − von'), (det.imbalance>=0?'+':'')+det.imbalance.toFixed(2)+' W/m²'+(det.pulse>1?' · 💥 '+t('impact heat','teplo z dopadu'):'')],
   ];
+  // heat the world's parent raises in it by flexing it round its orbit
+  if(det.meta && det.meta.heat==='tidal'){
+    const cv=V.bodies.get(det.key), pk=cv && cv.rec.data.parent, par=pk && bodies.find(b=>b.data.key===pk);
+    rows.push([t('Tidal heat','Slapové teplo'), fmtNum(det.params.internalHeat)+' W/m²'+(par?t(', from ',' · spôsobuje ')+locName(par.data):'')]);
+  }
   if(det.bio>0.001 || det.params.biosphere>0) rows.push([t('Living biosphere','Živá biosféra'), Math.round(det.bio*100)+' % '+t('of Earth\'s','zemskej')]);
   rows.push([t('Climate clock','Čas klímy'), fmtElapsed(det.time)]);
   const tab=box.querySelector('.clim-tab');

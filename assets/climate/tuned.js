@@ -40,10 +40,10 @@ export const TUNED = {
    "outgassing": 1.31202
   },
   "khonsu": {
-   "internalHeat": 37.9062
+   "internalHeat": 48.3024
   },
   "nut": {
-   "landAlbedo": 0.492266
+   "iceAlbedo": 0.497969
   }
  },
  "sol": {}

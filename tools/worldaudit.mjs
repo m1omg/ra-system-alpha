@@ -40,8 +40,6 @@ export const GAPS = {
   uatur: 'no methane in the air, which the book has hydrogen- and methane-rich; opens at 5.88 bar, book 5.58',
   sekhmet: '428 C on average; the book has 450 C in its calmest spots',
   anubis: 'a hydrogen envelope; the book has free oxygen over its ocean; cools 12 K in 20 Myr',
-  khonsu: 'its air thickens 50 % in 20 Myr and it warms 3 K',
-  nut: 'dry rock; the book has it 54 % water, deeply frozen',
 };
 
 const systems = loadSystems();
