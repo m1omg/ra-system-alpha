@@ -133,27 +133,56 @@ that escapes.
 
 The model knows one liquid. Nephtys's sea is sulfuric acid, kept in the system
 layer (`acid.js`), and it reaches the physics through `params.overlay`, per band:
-`vapour` (bar), which the longwave, the cloud cover and the near-infrared
-darkening take as water vapour and the band's pressure includes; `share` and
-`albedo`, a share of the ground under something else and what it reflects; and
-`C`, heat capacity added to the band's. `acid.js` sets it before every step from
-the temperatures the last one left, with the acid's mixed layer and the latent
-heat of the acid each kelvin puts in the air, and re-reads the vapour after the
-step, as the model does for water. Held fixed through a step, including in the
-Jacobian, so the step sees one consistent world. Unset, every term adds a zero.
+`vapour` (bar), the water in the acid's vapour, which the longwave, the cloud
+cover and the near-infrared darkening take as water vapour, as it is; `gas`
+(bar), the rest of it, H₂SO₄ and SO₃, in the band's pressure, its cloud cover and
+the dry air's Rayleigh as vapour would be but in neither of water's radiative
+terms (radiation.js reads it as `overlayCloud`); `olr`, the share of the band's
+outgoing longwave that gas lets out, a factor on it; `share` and `albedo`, a
+share of the ground under something else and what it reflects; and `C`, heat
+capacity added to the band's. `acid.js` sets it before every step from the
+temperatures the last one left, with the acid's mixed layer and the latent heat
+of the acid each kelvin puts in the air, and re-reads the vapour after the step,
+as the model does for water. Held fixed through a step, including in the
+Jacobian, so the step sees one consistent world. Unset, every term adds a zero
+or multiplies by one; handed in with no gas and all its longwave let out, it is
+the overlay without them, to the bit (patchcheck).
 
 The acid is the 98.3 % azeotrope: 1830 kg/m³, 1.4 kJ/kg/K, boiling at 338 °C under
 an atmosphere on the Clausius–Clapeyron slope measured over concentrated acid,
 10156 K (Ayers, Gillett & Gras 1980), which makes its heat of vaporisation
-0.86 MJ/kg; it freezes at +3 °C. Its vapour counts as water vapour because the
-model has no other condensable greenhouse, and none of the acid's own opacity
-at these pressures is measured to replace it with. Nephtys's sea: 80 % of the
-world, 3 km deep, 21 mbar of vapour at 231 °C, boiling at 450 °C under 13.4 bar.
-Put on the old dry spin-up it moved the world 0.4 K in a megayear: the acid's
-cloud (albedo 0.35 to 0.41) and its dark sea and greenhouse nearly cancel. It
-doubles the world's heat capacity, so a 3×10²⁵ J strike takes the coldest band
-to 347 °C where the same world dry goes to 528 °C; 10²⁷ J puts 30 % of the sea in the
-air, and 2×10²⁸ J all of it, which rains back as the world cools.
+0.86 MJ/kg; it freezes at +3 °C. (Evaporating the azeotrope pays for splitting
+part of it too, 1.0–1.1 MJ/kg all told; the boiling point is quoted from 317 to
+338 °C, and the total vapour tabulated at 500 K is 1.8–3 times this curve's.)
+
+Its vapour is not the liquid's own mixture. It is H₂SO₄, SO₃ and water in the
+shares their partial pressures have over the acid — water fitted to Gmitro &
+Vermeulen's (1964) tables, H₂SO₄ Ayers et al. (1980), SO₃ the JANAF equilibrium
+H₂SO₄(l) ⇌ SO₃ + H₂O — 39/20/41 % at 500 K, mostly water below 400 K. The water
+is water. What the H₂SO₄ and SO₃ do to the outgoing heat was measured, because
+nobody had: every Venus model leaves them out, Venus having parts per million
+of the vapour. `tools/acid-lbl.py` is a clear-sky correlated-k column over
+20–2500 cm⁻¹: HITRAN CO₂ (Perrin & Hartmann far wings), H₂O and SO₃ lines,
+CO₂–CO₂ collision-induced absorption, and H₂SO₄'s bands from their ab initio
+intensities (NIST CCCBDB; no line list exists) — about 750 km/mol inside the
+770–1250 cm⁻¹ window, eleven times water's whole bending band. Checked on CO₂
+doubled in a dry 1-bar column: 4.9 W/m². Over a 500 K sea the H₂SO₄ closes the
+gap a hot CO₂ sky leaves near 1100–1300 cm⁻¹, CO₂'s own hot bands having closed
+800–1100 already: 93.1 % of the heat gets out under 11 bar of CO₂, 83 % under 3,
+78 % under 1, all of it under 90 bar, or over a sea too cold to give vapour.
+Saturated at any humidity past a trace. Bounds of ×0.3 and ×3 on the intensities
+move the 93.1 % to 94.7 and 91.5. `acid.js` reads the table: surface
+temperature × ln CO₂ × humidity. Not in it: the acid cloud's own longwave (black
+in the thermal infrared; the cloud here is the model's), the water continuum,
+and the CO₂ hot lines HITRAN leaves out at 500 K, which would close more of the
+window before the acid could.
+
+Nephtys's sea: 95 % of the world (the book's "just a few transient volcanic
+islands"), 3 km deep, 22.7 mbar of vapour at 231 °C, boiling at 447 °C under its
+12.7 bar of air — 10.7 bar of it CO₂, where counting the acid as water took 11.2.
+It more than doubles the world's heat capacity, so a strike warms it less than
+the same world dry; 10²⁷ J puts a quarter of the sea in the air, and 2×10²⁸ J
+all of it, which rains back as the world cools.
 
 ## volatileIces, n2IceBar, ch4IceBar — nitrogen and methane frost — volatiles.js, climate.js, snapshot.js
 

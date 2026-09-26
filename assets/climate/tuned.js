@@ -9,7 +9,7 @@ export const TUNED = {
    "outgassing": 0.10929
   },
   "nephtys": {
-   "co2Bar": 11.2234
+   "co2Bar": 10.6757
   },
   "satis": {
    "co2Bar": 0.00618764,

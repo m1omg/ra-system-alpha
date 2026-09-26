@@ -758,7 +758,12 @@ export function planetaryAlbedoInto(T, o, out) {
   // steep albedo derivative drags the whole solver down.
   const spin = 1 - clamp(o.slowness ?? 0, 0, 1);
   const thin = 1 - (1 - (o.cloudBoost ?? 1)) * spin;
-  const C = clamp(cloudCover(o.pH2O, o.slowness, o.subStellar) * thin, 0, 0.9);
+  // [ra-climate patch] overlayCloud: a condensable this model does not know (an
+  // acid's H2SO4 and SO3), in the cloud as its vapour would be, and in the dry
+  // air's Rayleigh as vapour is not -- but not in the near-infrared darkening
+  // below, which is water's own. Unset or zero, altdev2 exactly.
+  const pCond = o.pH2O + (o.overlayCloud ?? 0);
+  const C = clamp(cloudCover(pCond, o.slowness, o.subStellar) * thin, 0, 0.9);
   // How bright that cloud is, which depends on how long it has been standing in
   // one place. `slowness` is already the blend of solar-day length and full
   // synchronisation that the rest of the model uses, so Earth at 24 h gets
@@ -774,7 +779,7 @@ export function planetaryAlbedoInto(T, o, out) {
   // and insolation found the trapped state at none of them.
   const moist = clamp((o.oceanFrac ?? 0) / 0.25, 0, 1);
   const deep = clamp(clamp(o.slowness ?? 0, 0, 1) * (o.cloudWhite ?? 1)
-    + cloudDeepening(o.pH2O, o.cloudShare ?? 1) * spin, 0, 1);
+    + cloudDeepening(pCond, o.cloudShare ?? 1) * spin, 0, 1);
   const albCloud = ALB_CLOUD + (ALB_CLOUD_DEEP - ALB_CLOUD) * deep * moist;
   const withClouds = albCloud * C + surf * (1 - C);
   // Rayleigh + haze from the *dry* gas. Exponent set so a 92 bar CO2 atmosphere
@@ -783,7 +788,7 @@ export function planetaryAlbedoInto(T, o, out) {
   // band's vapour, so subtracting the vapour leaves the dry gases, which are
   // well mixed. So this was one fractional power recomputed with an identical
   // argument fifty-odd times a step. One slot, same reason as tauCO2.
-  const pDry = Math.max(0, o.pTot - o.pH2O);
+  const pDry = Math.max(0, o.pTot - pCond);
   const rayleigh = rayleighOf(pDry);
   let a = rayleigh + (1 - rayleigh) * withClouds;
   // A thick steam envelope is dark, not bright: water vapour absorbs strongly in

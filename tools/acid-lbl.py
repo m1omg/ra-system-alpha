@@ -199,7 +199,9 @@ def column(Ts, pco2, pn2, g, RH, strat=200.0, nl=60, acid=True):
     kappa = 8.314 / (Mbar / 1000) / cp
     p = np.geomspace(ps, 1e-3, nl + 1)
     T = np.maximum(Ts * (p / ps) ** kappa, strat)
-    pa0 = RH * acid_psat(Ts) if acid else 0.0
+    # past its boiling point the acid would be most of the air, which this column
+    # (CO2 and N2 carrying a trace) does not describe: held to a third of it
+    pa0 = min(RH * acid_psat(Ts), ps / 3) if acid else 0.0
     xa0 = pa0 / ps
     pm = np.sqrt(p[:-1] * p[1:]); Tm = np.sqrt(T[:-1] * T[1:]); dp = (p[:-1] - p[1:]) * 1e5
     mmol = Mbar / 1000 / NA
@@ -243,7 +245,7 @@ def olr(col, Ts, g, kco2_of, with_acid_gases=True, h2so4_scale=1.0):
     return spec.sum(), spec
 
 # the k-table: CO2 cross-sections on a (p, T) grid, interpolated in log k
-PG = np.geomspace(1e-3, 60.0, 14)          # atm
+PG = np.geomspace(1e-3, 150.0, 15)         # atm
 TG = np.arange(150.0, 851.0, 50.0)
 cache = os.path.join(args.data, 'kco2_table.npy')
 if os.path.exists(cache):
@@ -271,7 +273,7 @@ def case(Ts, pco2, pn2=2.0, g=12.24, RH=0.77, scale=1.0):
     full, sf = olr(col, Ts, g, kco2_of, with_acid_gases=True, h2so4_scale=scale)
     pa = RH * acid_psat(Ts)
     x, y, z = split(pa, Ts)
-    return dict(Ts=Ts, pco2=pco2, RH=RH, scale=scale, acid_bar=pa, h2so4=x, so3=y, h2o=z,
+    return dict(Ts=Ts, pco2=pco2, RH=RH, scale=scale, acid_bar=min(pa, (pco2 + pn2) / 3), h2so4=x, so3=y, h2o=z,
                 olr_base=base, olr_acid=full, ratio=full / base,
                 window_base=float(sb[(MID > 770) & (MID < 1300)].sum()),
                 window_acid=float(sf[(MID > 770) & (MID < 1300)].sum()))
@@ -281,13 +283,20 @@ if args.quick:
     print(json.dumps(r, indent=1))
     sys.exit(0)
 
+# the table acid.js reads: surface temperature, CO2, and the acid's humidity
+TS = (300.0, 350.0, 400.0, 450.0, 504.0, 575.0, 650.0, 725.0, 800.0)
+PC = (0.3, 1.0, 3.0, 11.22, 30.0, 90.0)
+RHS = (0.02, 0.2, 1.0)
 rows = []
-for Ts in (350.0, 425.0, 504.0, 575.0, 650.0):
-    for pco2 in (1.0, 3.0, 11.22, 30.0):
-        for RH in (0.05, 0.77):
+for Ts in TS:
+    for pco2 in PC:
+        for RH in RHS:
             r = case(Ts, pco2, RH=RH); rows.append(r)
-            print(f"Ts {Ts:5.0f}  CO2 {pco2:6.2f} bar  acid {r['acid_bar']:.3g} bar  "
-                  f"OLR {r['olr_base']:7.1f} -> {r['olr_acid']:7.1f}  ratio {r['ratio']:.3f}", flush=True)
+            print(f"Ts {Ts:5.0f}  CO2 {pco2:6.2f} bar  RH {RH:4.2f}  acid {r['acid_bar']:.3g} bar  "
+                  f"OLR {r['olr_base']:7.1f} -> {r['olr_acid']:7.1f}  ratio {r['ratio']:.4f}", flush=True)
+print('TABLE ' + json.dumps({'Ts': TS, 'pco2': PC, 'RH': RHS,
+      'ratio': [[[round(next(r['ratio'] for r in rows if r['Ts'] == t and r['pco2'] == c and r['RH'] == h), 4)
+                  for h in RHS] for c in PC] for t in TS]}), flush=True)
 for scale in (0.3, 3.0):
     r = case(504.0, 11.22, scale=scale); rows.append(r)
     print(f"Nephtys, H2SO4 intensities x{scale}: ratio {r['ratio']:.3f}", flush=True)

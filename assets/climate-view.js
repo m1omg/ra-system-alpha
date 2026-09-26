@@ -1252,9 +1252,10 @@ function renderPanel(det){
   const g=det.gas;
   // the air as shares of itself, which is what "426 ppm" has always meant
   // an acid sea's vapour is part of the air too
-  const acid=det.acid||null, gAcid=acid?acid.vapourBar:0;
-  const gsum=(g.n2||0)+(g.o2||0)+(g.co2||0)+(g.ch4||0)+(g.h2||0)+(g.h2o||0)+gAcid;
-  const comp=gsum>1e-14 ? [['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',g.h2o],['H₂SO₄',gAcid]]
+  // (H2SO4 and SO3, and the water it gives off beside them, which is water)
+  const acid=det.acid||null, aH=acid?(acid.h2so4Bar||0):0, aS=acid?(acid.so3Bar||0):0, aW=acid?(acid.h2oBar||0):0;
+  const gsum=(g.n2||0)+(g.o2||0)+(g.co2||0)+(g.ch4||0)+(g.h2||0)+(g.h2o||0)+aW+aH+aS;
+  const comp=gsum>1e-14 ? [['N₂',g.n2],['O₂',g.o2],['CO₂',g.co2],['CH₄',g.ch4],['H₂+He',g.h2],['H₂O',(g.h2o||0)+aW],['H₂SO₄',aH],['SO₃',aS]]
     .map(x=>[x[0],(x[1]||0)/gsum]).filter(x=>x[1]>1e-9).sort((a,b)=>b[1]-a[1])
     .map(x=>x[0]+' '+fmtShare(x[1])).join(' · ') : '';
   const w=det.water;

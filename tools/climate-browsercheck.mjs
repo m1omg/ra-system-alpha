@@ -545,6 +545,11 @@ try {
           const k = Math.min(Math.floor(x * 255), 255), f = x * 255 - k;
           return { x, share: c[k] + f * ((c[k + 1] ?? c[k]) - c[k]), cover: RAClimate.state('nephtys')[RAClimate.RS.FLOOD] };
         });
+        // its air: the acid's vapour as what it is, H2SO4 and SO3, its water with the water
+        await until(page, () => /H₂SO₄/.test(document.querySelector('#info')?.textContent || ''), null, 15000);
+        const air = await page.evaluate(() => { const r = [...document.querySelectorAll('#info tr')].find((tr) => /^\s*Air/.test(tr.textContent)); return r ? r.textContent.replace(/\s+/g, ' ') : ''; });
+        ok(/H₂SO₄ \d/.test(air) && /SO₃ \d/.test(air) && /H₂O \d/.test(air) && !/NaN|undefined/.test(air),
+          'its air lists the acid\'s vapour as H₂SO₄ and SO₃, and its water as water', air.trim());
         ok(sea.x > 0.51 && Math.abs(sea.share - sea.cover) < 0.01 && sea.cover > 0.94,
           'its acid stands over the map\'s lowest land, up to the 95 % the book gives',
           `sea level ${sea.x.toFixed(3)} (painted shore at 0.5), ${(sea.share * 100).toFixed(1)} % of the map under it, acid ${(sea.cover * 100).toFixed(1)} %`);

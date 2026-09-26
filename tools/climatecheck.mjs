@@ -598,6 +598,17 @@ section('Nephtys has a sea of sulfuric acid');
       a ? `${a.boilC.toFixed(0)} °C under ${pAir.toFixed(1)} bar` : '');
     ok(a && a.vapourBar > 0.005 && a.vapourBar < 0.05, 'and at 231 C gives off a few hundredths of a bar',
       a ? `${(a.vapourBar * 1e3).toFixed(1)} mbar` : '');
+    // what that vapour is: H2SO4, SO3 and water, in the shares measured over the
+    // acid (Gmitro & Vermeulen 1964, Ayers et al. 1980, JANAF): 39/20/41 % at 500 K
+    const tot = a ? a.h2so4Bar + a.so3Bar + a.h2oBar : 0;
+    ok(tot > 0 && Math.abs(a.h2so4Bar / tot - 0.39) < 0.03 && Math.abs(a.so3Bar / tot - 0.20) < 0.03
+      && Math.abs(a.h2oBar / tot - 0.41) < 0.03, 'that vapour is H₂SO₄, SO₃ and water, in the shares measured over the acid',
+      tot > 0 ? `${(a.h2so4Bar / tot * 100).toFixed(0)} / ${(a.so3Bar / tot * 100).toFixed(0)} / ${(a.h2oBar / tot * 100).toFixed(0)} %` : 'no split');
+    // ...and not water: its H2SO4 closes the gap a hot CO2 sky leaves near 1100-1300
+    // cm-1, measured line by line (tools/acid-lbl.py: 93.1 % let out at 504 K
+    // under 11 bar of CO2, 83 % under 3)
+    ok(a && a.olrFactor > 0.90 && a.olrFactor < 0.96, 'its H₂SO₄ closes the gap a hot CO₂ sky leaves, and holds in a few percent of the heat going out',
+      a && a.olrFactor ? `${(a.olrFactor * 100).toFixed(1)} % let out` : 'not modelled');
     // the globe draws the land it covers as sea, not as the pale bed of one drying out
     ok(r.rs[RS.WATERCAP] > 0.99, 'the globe draws it as a full sea', `sea fill ${r.rs[RS.WATERCAP].toFixed(2)} (0 is a dry, briny bed)`);
     // it holds heat like a sea: the same strike warms it less than the same world dry

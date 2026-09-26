@@ -118,7 +118,7 @@ function scratch(w) {
     b.aOpt = { oceanFrac: 0, landAlbedo: 0, hasWater: false, waterCap: 0,
                glaciated: 0, freezeShift: 0, pH2O: 0, pTot: 0, slowness: 0, subStellar: 0,
                cloudWhite: 1, cloudBoost: 1, cloudShare: 1, iceAlbedo: undefined,
-               overlayShare: 0, overlayAlbedo: 0 };
+               overlayShare: 0, overlayAlbedo: 0, overlayCloud: 0 };
     b.aOut = { albedo: 0, cloud: 0 };
   }
   return b;
@@ -574,15 +574,19 @@ export function update(w, dt) {
   let Tmean = 0, iceMean = 0, iceArea = 0, absorbed = 0, emitted = 0, pTotMean = 0;
 
   // [ra-climate patch] overlay: what a system layer keeps beside the model's
-  // water -- a second liquid (Nephtys's acid sea) -- handed in per band: its
-  // vapour in bar, radiatively taken as water vapour (longwave, cloud, the
-  // near-infrared darkening); the share of the ground it covers and that
-  // cover's albedo; and the heat capacity it adds. Unset, this is altdev2
-  // exactly: every term below adds a zero.
+  // water -- a second liquid (Nephtys's acid sea) -- handed in per band: the
+  // water its vapour carries, in bar, which is water (longwave, cloud, the
+  // near-infrared darkening); the rest of its vapour, `gas`, in bar, in the
+  // air's pressure and its cloud but in neither of water's radiative terms;
+  // `olr`, the share of the band's outgoing longwave that gas lets out; the
+  // share of the ground it covers and that cover's albedo; and the heat
+  // capacity it adds. Unset, this is altdev2 exactly: every term below adds a
+  // zero or multiplies by one.
   const ov = p.overlay || null;
   for (let i = 0; i < NBANDS; i++) {
     const vx = ov ? ov.vapour[i] : 0;
-    const pTot = pN2 + pCO2 + pCH4 + pO2 + pH2 + pHe + pH2O[i] + vx;
+    const gx = ov && ov.gas ? ov.gas[i] : 0, rx = ov && ov.olr ? ov.olr[i] : 1;
+    const pTot = pN2 + pCO2 + pCH4 + pO2 + pH2 + pHe + pH2O[i] + vx + gx;
     pTotArr[i] = pTot;
     const subStellar = lam > 0.01 ? clamp(X[i], 0, 1) : 0.35;
     const ao = B.aOpt;
@@ -594,10 +598,11 @@ export function update(w, dt) {
     ao.cloudShare = cloudShare;
     ao.cloudBoost = cloudThinning(pH2O[i], cloudShare);
     ao.overlayShare = ov ? ov.share[i] : 0; ao.overlayAlbedo = ov ? ov.albedo[i] : 0;
+    ao.overlayCloud = gx;
     const a = planetaryAlbedoInto(w.T[i], ao, B.aOut);
     alb[i] = clamp(a.albedo + aerAlb, 0, 0.95); cloud[i] = a.cloud;
-    const moistOLR = olr(w.T[i], pCO2, pH2O[i] + vx, pCH4, pTot, pH2, g, pHe);
-    const dryOLR = olr(w.T[i], pCO2, pH2Odry[i] + vx * (RH_DRY / RH), pCH4, pTot, pH2, g, pHe);
+    const moistOLR = rx * olr(w.T[i], pCO2, pH2O[i] + vx, pCH4, pTot, pH2, g, pHe);
+    const dryOLR = rx * olr(w.T[i], pCO2, pH2Odry[i] + vx * (RH_DRY / RH), pCH4, pTot, pH2, g, pHe);
     // Floored rather than merely subtracted: a lumped forcing that could drive
     // the outgoing flux to nothing would be a runaway with no physics behind it.
     out[i] = Math.max((1 - FIN_FRACTION) * moistOLR + FIN_FRACTION * dryOLR - ghgForce,
@@ -1490,7 +1495,8 @@ export function radiativeDamping(w) {
     // [ra-climate patch] overlay: its vapour is in the band's pressure already
     // (dg.pTot) and rides beside the water's, held as it is over the step
     const ov = w.params.overlay || null, vx = ov ? ov.vapour[i] : 0;
-    const dOLR = (olr(T + h, dg.pCO2, pwHi + vx, dg.pCH4, ptHi, dg.pH2, dg.g, dg.pHe)
+    const gx = ov && ov.gas ? ov.gas[i] : 0, rx = ov && ov.olr ? ov.olr[i] : 1;
+    const dOLR = rx * (olr(T + h, dg.pCO2, pwHi + vx, dg.pCH4, ptHi, dg.pH2, dg.g, dg.pHe)
                 - olr(T - h, dg.pCO2, pwLo + vx, dg.pCH4, ptLo, dg.pH2, dg.g, dg.pHe)) / (2 * h);
     const albAt = (t, pwx, ptx) => {
       const ao = B.aOpt;
@@ -1502,6 +1508,7 @@ export function radiativeDamping(w) {
       ao.pH2O = pwx + vx; ao.pTot = ptx; ao.slowness = dg.slowness;
       ao.cloudWhite = dg.cloudWhite;
       ao.overlayShare = ov ? ov.share[i] : 0; ao.overlayAlbedo = ov ? ov.albedo[i] : 0;
+      ao.overlayCloud = gx;
       // From the PERTURBED vapour. Both cloud terms are functions of temperature
       // through pH2O, so leaving them unperturbed would hide the whole of the
       // albedo minimum from the implicit solver -- and a Jacobian that disagrees

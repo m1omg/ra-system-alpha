@@ -69,11 +69,15 @@ air and seas the book gives it.
   intelligence half a billion more; a sterilised world stays sterile.
   Nephtys's acid-sea life lives while its sea is liquid, to 330 °C.
 - Nephtys's sea is sulfuric acid, kept beside the model's water
-  (`assets/climate/acid.js`): 80 % of the world and 3 km deep, it holds heat as
-  a sea does, gives off 21 mbar of vapour at 231 °C that warms and clouds the
-  sky, and boils on the acid's own curve, 338 °C under an atmosphere and 450 °C
-  under Nephtys's 13 bar. A big enough strike puts the whole sea in the sky; it
-  rains back as the world cools, and freezes pale, at +3 °C, far from Ra.
+  (`assets/climate/acid.js`): 95 % of the world and 3 km deep, it holds heat as
+  a sea does and boils on the acid's own curve, 338 °C under an atmosphere and
+  447 °C under Nephtys's 12.7 bar. Its vapour is H₂SO₄, SO₃ and water in the
+  shares measured over the acid; the water is water, and the H₂SO₄ closes the
+  gap a hot CO₂ sky leaves near 8 µm — measured line by line, since nobody had
+  (`tools/acid-lbl.py`, HITRAN): a sea that hot under thin air keeps back a
+  quarter of the heat going out, Nephtys under 11 bar of CO₂ 7 %. A big enough
+  strike puts the whole sea in the sky; it rains back as the world cools, and
+  freezes pale, at +3 °C, far from Ra.
 - Nitrogen and methane lie frozen on the cold worlds, and their air is the
   vapour over the frost: Pluto's 12 µbar over the bar of nitrogen in Sputnik
   Planitia at 37 K, Triton's over its frost at 38 K, Kauket's thin envelope
@@ -119,6 +123,7 @@ node tools/impactladder.mjs           # a measurement: what 1e23..1e30 J does to
 node tools/worldaudit.mjs             # a measurement: every Ra world beside its book, opening and after 20 Myr
 node tools/nbodycheck.mjs             # in Chromium: the gravity tiers, their accuracy and switching
 node tools/surfacecheck.mjs           # in Chromium: ▣ Surface holds a world still while time runs on
+python3 tools/acid-lbl.py --data DIR  # a measurement: what sulfuric-acid vapour does to a hot CO2 sky (HITRAN)
 ```
 
 The three that run in Chromium need Playwright (`npm i --no-save playwright`) and

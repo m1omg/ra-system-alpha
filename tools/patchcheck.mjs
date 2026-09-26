@@ -125,6 +125,33 @@ ok(seen.every((r) => !r.same), 'control: with the parameters set as this edition
   const o = run('mars', {}, null, 1e6, 2e4, { overlay: { vapour: band(0.002), share: band(0.5), albedo: band(0.07), C: band(1e8) } });
   ok(!o.same, 'control: with an overlay handed in, Mars differs', o.where);
 }
+// ...and the parts of it that are not water: the acid's H2SO4 and SO3 (gas) and
+// the share of the outgoing longwave they let out (olr)
+{
+  const band = (v) => new Array(18).fill(v);
+  const base = { vapour: band(0.002), share: band(0.5), albedo: band(0.07), C: band(1e8) };
+  const capture = (ov) => {
+    const s = new ours.clock.Simulation({ ...params(ours, 'mars'), overlay: ov });
+    s.runYears(1e5, 2e3);
+    const c = ours.snap.captureWorld(s.world); delete c.params; return JSON.stringify(c);
+  };
+  ok(capture(base) === capture({ ...base, gas: band(0), olr: band(1) }),
+    'overlay: no gas and all its longwave let out is the overlay without them, to the bit');
+  const { update } = await load(ROOT, 'physics/climate.js');
+  const flux = (ov) => { const s = new ours.clock.Simulation({ ...params(ours, 'mars'), overlay: ov });
+    update(s.world, 0); return Array.from(s.world.diag.olr); };
+  const f1 = flux(base), f9 = flux({ ...base, olr: band(0.9) });
+  const worst = Math.max(...f9.map((x, i) => Math.abs(x / f1[i] - 0.9)));
+  ok(worst < 1e-9, 'overlay: the share of its longwave it lets out scales the outgoing flux, band by band', `worst ${worst.toExponential(1)}`);
+  const { planetaryAlbedo } = await load(ROOT, 'physics/radiation.js');
+  const at = (pH2O, cloud) => planetaryAlbedo(300, { oceanFrac: 0.5, landAlbedo: 0.2, hasWater: true, waterCap: 1,
+    glaciated: 0, pH2O, pTot: 1, slowness: 0, subStellar: 0.5, cloudWhite: 1, cloudBoost: 1, cloudShare: 1,
+    overlayShare: 0, overlayAlbedo: 0, overlayCloud: cloud });
+  const water = at(0.3, 0), acid = at(0.1, 0.2);
+  ok(Math.abs(water.cloud - acid.cloud) < 1e-12 && acid.albedo > water.albedo,
+    'overlay: its gas clouds the sky as vapour would, and does not darken the near infrared as water does',
+    `cloud ${water.cloud.toFixed(3)} both; albedo ${water.albedo.toFixed(4)} as water, ${acid.albedo.toFixed(4)} as acid`);
+}
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
