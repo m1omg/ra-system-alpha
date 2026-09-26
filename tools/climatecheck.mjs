@@ -17,6 +17,8 @@ import { SPINUP } from '../assets/climate/spinup.js';
 import { analyseSurface, heightForShare } from '../assets/climate/analysis.js';
 import { BOOK, GAPS } from './worldaudit.mjs';
 import { S_EARTH } from '../assets/climate/physics/constants.js';
+import { sealFactor } from '../assets/climate/physics/volatiles.js';
+import { readFileSync } from 'node:fs';
 
 const { ClimateSystem, RS } = SYSTEM, LIFE_CAUSES = SYSTEM.LIFE_CAUSES || [];
 let pass = 0, fail = 0;
@@ -368,6 +370,34 @@ section('Documented worlds open as the book has them, and stay there for 20 Myr'
     if (GAPS[k]) { console.log(`  GAP  ${k}: ${GAPS[k]}${bad.length ? '  (' + bad.join('; ') + ')' : ''}`); continue; }
     ok(bad.length === 0, what, bad.join('; '));
   }
+}
+
+section('The state a world is shown in fits it');
+{
+  // three model texts that misfire on worlds they were not written for (system.js
+  // EXTRA_STATES): "tropics near the limit of complex life" at a mean past 50 C,
+  // seawater through "fresh basalt at the ridges" over a floor of ice VII, and
+  // a snowball the volcanoes' CO2 "finally breaks" past the maximum greenhouse
+  const bad = [], shown = {};
+  for (const sysName of ['sol', 'ra']) {
+    const { sys, keys } = build(sysName);
+    for (const k of keys) {
+      const r = sys.worlds.get(k), w = r.sim.world, id = SYSTEM.STATE_IDS[r.rs[RS.STATE]];
+      shown[k] = id;
+      if (id === 'hothouse' && w.diag.Tmean > 323.15) bad.push(`${k}: hothouse at ${(w.diag.Tmean - 273.15).toFixed(0)} °C`);
+      if (id === 'waterworld' && sealFactor(w) < 0.5) bad.push(`${k}: waterworld on a floor sealed to ${sealFactor(w).toFixed(2)}`);
+      if (id === 'snowball' && w.params.insolation < 0.35) bad.push(`${k}: snowball at ${w.params.insolation.toPrecision(2)} S⊕`);
+    }
+  }
+  ok(bad.length === 0, 'no world is told what its own physics rules out',
+    bad.length ? bad.join('; ') : `anubis ${shown.anubis}, uatur ${shown.uatur}, nut ${shown.nut}, pluto ${shown.pluto}`);
+  // ...and every state the page can show has its Slovak name and text
+  const win = {};
+  new Function('window', readFileSync(new URL('../assets/climate-sk.js', import.meta.url), 'utf8'))(win);
+  const view = readFileSync(new URL('../assets/climate-view.js', import.meta.url), 'utf8');
+  const skNames = (view.match(/const SK_STATES=\{([\s\S]*?)\};/) || [, ''])[1];
+  const missing = SYSTEM.STATE_IDS.filter((id) => !(id in (win.RA_CLIMATE_SK_BLURBS || {})) || !new RegExp(`\\b${id}:`).test(skNames));
+  ok(missing.length === 0, 'every state has its Slovak name and text', missing.length ? `missing: ${missing.join(', ')}` : `${SYSTEM.STATE_IDS.length} states`);
 }
 
 section('Nephtys has a sea of sulfuric acid');

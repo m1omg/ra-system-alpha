@@ -16,7 +16,7 @@ import { Simulation } from './sim/clock.js';
 import { captureWorld, applyWorld } from './game/snapshot.js';
 import { classify, STATES } from './physics/classify.js';
 import { NBANDS, X, DX, maxStep, setWaterInventory, update } from './physics/climate.js';
-import { partitionWater } from './physics/volatiles.js';
+import { partitionWater, sealFactor } from './physics/volatiles.js';
 import { habitableShare, meltRefuge, initRefuge, heatShock, HEAT_FAST_AT, dieOffYears, LIFE_EXTINCT, LIFE_SPREAD, REFUGE_DEPTH, REFUGE_CEILING } from './physics/biosphere.js';
 import { derive } from './physics/planet.js';
 import { clamp, smoothstep, steamOpacity, YEAR, S_EARTH } from './physics/constants.js';
@@ -26,15 +26,28 @@ import { surfaceTemperature } from './physics/surface.js';
 import { paramsFor, profileMeta } from './profiles.js';
 import { freshAcid, acidOverlay, partitionAcid, acidDetail, acidFrozen } from './acid.js';
 
-// The model's states, and the ones a world with an acid sea is in instead
-// (acid.js): the model knows one liquid, and its reading of a world with no
-// water -- a dry runaway, "the ocean is gone" -- is the wrong one for a sea.
-export const ACID_STATES = {
+// The model's states, and readings of them that fit worlds its texts were not
+// written for (stateOf below says when). A world with an acid sea (acid.js):
+// the model knows one liquid, and its reading of a world with no water -- a
+// dry runaway, "the ocean is gone" -- is the wrong one for a sea.
+export const EXTRA_STATES = {
   acidSea: { name: 'Acid-Sea Greenhouse', color: '#c8895f', blurb: 'A sea of nearly pure sulfuric acid under a thick CO\u2082 sky. The acid boils far hotter than water \u2014 338 \u00b0C at one atmosphere, higher under this much air \u2014 so the sea stays liquid where water would have boiled away, and what it gives off warms the sky and condenses into acid cloud, as on Venus. There is no water to weather rock with, so no carbonate\u2013silicate thermostat: the volcanoes\u2019 CO\u2082 stays in the air.' },
   acidSky: { name: 'Acid-Steam Atmosphere', color: '#e0a05a', blurb: 'The acid sea has boiled into the sky. Its basins lie bare under an atmosphere thick with acid vapour, which holds the heat in until the planet cools enough for the acid to rain back and fill them again.' },
   acidFrozen: { name: 'Frozen Acid Sea', color: '#d8c8b0', blurb: 'The acid sea has frozen over. Nearly pure sulfuric acid freezes at about +3 \u00b0C, well above water\u2019s freezing point, and the pale ice seals the sea from the sky.' },
+  // the Ice-Free Hothouse, past where "tropics near the limit of complex life,
+  // like the Cretaceous" stops being true: a mean above 50 C (Anubis, 81 C)
+  hotOcean: { name: 'Hot Ocean', color: '#f0a040', blurb: 'No ice anywhere, and a sea hotter than complex life can bear: animals and plants give out near 50 \u00b0C, and above that only microbes live, to the 122 \u00b0C record. Past about 67 \u00b0C the air is wet to the top and the sea can leak away to space as starlight splits it (Kasting 1988) \u2014 slowly here, because little of that light arrives.' },
+  // a Waterworld whose floor is ice VII: its text's "seawater circulates
+  // through fresh basalt at the ridges" is the one thing that cannot happen (Uat-Ur)
+  sealedOcean: { name: 'Sealed Ocean', color: '#3a7cc0', blurb: 'A global ocean standing on high-pressure ice rather than rock, so deep that its floor has frozen under its own weight. The ice seals the sea from the rock below: little of the mantle\u2019s gas gets up through it and little of the air\u2019s CO\u2082 gets down to be weathered away, so the carbon thermostat that steadies an Earth barely turns over, and the sea is starved of the minerals rock would give it.' },
+  // a Hard Snowball its text says will thaw "in 5-50 Myr" as CO2 builds up,
+  // where that cannot happen: past the maximum-greenhouse limit (Pluto, Nut)
+  deepFrozen: { name: 'Deep-Frozen World', color: '#b8d4e6', blurb: 'Ice from pole to pole, and too far from its star for anything to thaw it. A frozen Earth breaks out when its volcanoes\u2019 CO\u2082 builds up; out here that cannot work, since past the maximum-greenhouse limit, about a third of Earth\u2019s sunlight (Kopparapu et al. 2013), more CO\u2082 scatters away more light than it traps, or freezes out as frost.' },
 };
-export const ALL_STATES = { ...STATES, ...ACID_STATES };
+export const ALL_STATES = { ...STATES, ...EXTRA_STATES };
+// Where each reading takes over: a mean past the limit of complex life, a floor
+// sealed more than half shut, and the maximum-greenhouse insolation.
+const HOT_OCEAN_K = 323.15, SEALED_BELOW = 0.5, MAX_GREENHOUSE_S = 0.35;
 export const STATE_IDS = Object.keys(ALL_STATES);
 
 // The render record, one Float32Array per world, laid out once so the worker
@@ -235,6 +248,9 @@ function stateOf(r) {
     if (a.airShare > 0.5) return 'acidSky';
     if (a.cover > 0.02) return a.frozen > 0.9 ? 'acidFrozen' : 'acidSea';
   }
+  if (id === 'hothouse' && w.diag.Tmean > HOT_OCEAN_K) return 'hotOcean';
+  if (id === 'waterworld' && sealFactor(w) < SEALED_BELOW) return 'sealedOcean';
+  if (id === 'snowball' && (w.params.insolation ?? 1) < MAX_GREENHOUSE_S) return 'deepFrozen';
   return id;
 }
 function classifyHabitable(w) {
@@ -732,7 +748,7 @@ export class ClimateSystem {
     const w = r.sim.world, dg = w.diag, p = w.params;
     const g = dg.g;
     const sid = stateOf(r), S = sid ? ALL_STATES[sid] : null;
-    const state = S ? { id: sid, ...S, habitable: sid in ACID_STATES ? false : !!(STATES[sid] && classifyHabitable(w)) } : null;
+    const state = S ? { id: sid, ...S, habitable: sid in EXTRA_STATES ? false : !!(STATES[sid] && classifyHabitable(w)) } : null;
     const hist = w.history;
     // A few hundred points is plenty for a sparkline.
     const stride = Math.max(1, Math.ceil(hist.length / 240));

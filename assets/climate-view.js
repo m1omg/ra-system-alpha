@@ -1234,6 +1234,7 @@ const SK_STATES={smallWaterworld:'Malý vodný svet',evaporatingWaterworld:'Vypa
   titan:'Svet ako Titan',frozen:'Zamrznutá púšť',thincold:'Riedka studená púšť',baked:'Vyprahnutá púšť',airless:'Holá skala',
   hycean:'Hyceánsky svet',lowSunHycean:'Hyceánsky svet so slabým svetlom',buriedOcean:'Pochovaný oceán',
   supercriticalEnvelope:'Nadkritický oceán',
-  acidSea:'Kyslé more pod skleníkom',acidSky:'Atmosféra z pár kyseliny',acidFrozen:'Zamrznuté kyslé more'};
+  acidSea:'Kyslé more pod skleníkom',acidSky:'Atmosféra z pár kyseliny',acidFrozen:'Zamrznuté kyslé more',
+  hotOcean:'Horúci oceán',sealedOcean:'Zapečatený oceán',deepFrozen:'Hlboko zamrznutý svet'};
 const SK_BLURBS=window.RA_CLIMATE_SK_BLURBS||{};
 })();
